@@ -460,7 +460,7 @@ func runGitStatus(session string, allAgents bool) error {
 
 		// Try to get session agent info
 		if session != "" {
-			sessionAgent, err := agentmail.LoadSessionAgent(session)
+			sessionAgent, err := agentmail.LoadSessionAgent(session, result.WorkingDir)
 			if err == nil && sessionAgent != nil {
 				result.AgentMail.RegisteredAgent = sessionAgent.AgentName
 

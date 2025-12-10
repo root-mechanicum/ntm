@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/Dicklesworthstone/ntm/internal/scanner"
@@ -15,22 +16,19 @@ import (
 
 func newScanCmd() *cobra.Command {
 	var (
-		languages       []string
-		exclude         []string
-		ci              bool
-		failOnWarning   bool
-		verbose         bool
-		timeoutSeconds  int
-		stagedOnly      bool
-		diffOnly        bool
-		// TODO: Enable once beads bridge is implemented (ntm-dv1c)
-		createBeads bool
-		updateBeads bool
-		minSeverity string
-		dryRun      bool
+		languages      []string
+		exclude        []string
+		ci             bool
+		failOnWarning  bool
+		verbose        bool
+		timeoutSeconds int
+		stagedOnly     bool
+		diffOnly       bool
+		createBeads    bool
+		updateBeads    bool
+		minSeverity    string
+		dryRun         bool
 	)
-	// Suppress unused variable warnings until beads bridge is implemented
-	_, _, _, _ = createBeads, updateBeads, minSeverity, dryRun
 
 	cmd := &cobra.Command{
 		Use:   "scan [path]",
@@ -76,7 +74,13 @@ Examples:
 				DiffOnly:         diffOnly,
 			}
 
-			return runScan(absPath, opts)
+			bridgeCfg := scanner.BridgeConfig{
+				MinSeverity: parseSeverity(minSeverity),
+				DryRun:      dryRun,
+				Verbose:     verbose,
+			}
+
+			return runScan(absPath, opts, createBeads, updateBeads, bridgeCfg)
 		},
 	}
 
@@ -89,10 +93,30 @@ Examples:
 	cmd.Flags().BoolVar(&stagedOnly, "staged", false, "Scan only staged files")
 	cmd.Flags().BoolVar(&diffOnly, "diff", false, "Scan only modified files")
 
+	// Beads integration flags
+	cmd.Flags().BoolVar(&createBeads, "create-beads", false, "Auto-create beads from scan findings")
+	cmd.Flags().BoolVar(&updateBeads, "update-beads", false, "Close beads for findings no longer present")
+	cmd.Flags().StringVar(&minSeverity, "min-severity", "warning", "Minimum severity for bead creation (critical|warning|info)")
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Show what beads would be created without creating them")
+
 	return cmd
 }
 
-func runScan(path string, opts scanner.ScanOptions) error {
+// parseSeverity converts a string severity to scanner.Severity.
+func parseSeverity(s string) scanner.Severity {
+	switch strings.ToLower(s) {
+	case "critical":
+		return scanner.SeverityCritical
+	case "warning":
+		return scanner.SeverityWarning
+	case "info":
+		return scanner.SeverityInfo
+	default:
+		return scanner.SeverityWarning
+	}
+}
+
+func runScan(path string, opts scanner.ScanOptions, createBeads, updateBeads bool, bridgeCfg scanner.BridgeConfig) error {
 	t := theme.Current()
 
 	// Check if UBS is available
@@ -131,15 +155,25 @@ func runScan(path string, opts scanner.ScanOptions) error {
 		return fmt.Errorf("scan failed: %w", err)
 	}
 
-	// TODO: Beads bridge integration (ntm-dv1c)
 	// Run beads bridge if requested
 	var bridgeResult *scanner.BridgeResult
 	var updateResult *scanner.BridgeResult
-	_ = bridgeResult // Suppress unused warning until beads bridge is implemented
-	_ = updateResult // Suppress unused warning until beads bridge is implemented
-	// Beads bridge features disabled pending ntm-dv1c implementation
-	// if createBeads && len(result.Findings) > 0 { ... }
-	// if updateBeads { ... }
+	if createBeads && len(result.Findings) > 0 {
+		bridgeResult, err = scanner.CreateBeadsFromFindings(result, bridgeCfg)
+		if err != nil {
+			if !jsonOutput {
+				fmt.Printf("%s✗%s Beads creation failed: %v\n", colorize(t.Error), "\033[0m", err)
+			}
+		}
+	}
+	if updateBeads {
+		updateResult, err = scanner.UpdateBeadsFromFindings(result, bridgeCfg)
+		if err != nil {
+			if !jsonOutput {
+				fmt.Printf("%s✗%s Beads update failed: %v\n", colorize(t.Error), "\033[0m", err)
+			}
+		}
+	}
 
 	// Output results
 	if jsonOutput {
@@ -158,9 +192,13 @@ func runScan(path string, opts scanner.ScanOptions) error {
 	// Text output
 	printScanResults(t, result, opts.FailOnWarning)
 
-	// Print beads bridge results (disabled pending ntm-dv1c)
-	// if bridgeResult != nil { printBeadsBridgeResults(...) }
-	// if updateResult != nil { printBeadsUpdateResults(...) }
+	// Print beads bridge results
+	if bridgeResult != nil {
+		printBeadsBridgeResults(t, bridgeResult, bridgeCfg.DryRun)
+	}
+	if updateResult != nil {
+		printBeadsUpdateResults(t, updateResult, bridgeCfg.DryRun)
+	}
 
 	// Exit with error if requested and issues found
 	if opts.FailOnWarning && result.HasWarning() {
@@ -235,6 +273,75 @@ func printScanResults(t theme.Theme, result *scanner.ScanResult, showWarnings bo
 		fmt.Printf("%s✗%s Critical issues found - fix before committing\n", colorize(t.Error), "\033[0m")
 	} else if result.HasWarning() {
 		fmt.Printf("%s⚠%s Warnings found - consider reviewing\n", colorize(t.Warning), "\033[0m")
+	}
+	fmt.Println()
+}
+
+func printBeadsBridgeResults(t theme.Theme, br *scanner.BridgeResult, dryRun bool) {
+	fmt.Println()
+	if dryRun {
+		fmt.Printf("%sBeads Bridge (Dry Run)%s\n", "\033[1m", "\033[0m")
+	} else {
+		fmt.Printf("%sBeads Bridge%s\n", "\033[1m", "\033[0m")
+	}
+	fmt.Printf("%s───────────────────────────────────────────────────%s\n", "\033[2m", "\033[0m")
+
+	if br.Created > 0 {
+		if dryRun {
+			fmt.Printf("  Would create:  %s%d%s beads\n", colorize(t.Success), br.Created, "\033[0m")
+		} else {
+			fmt.Printf("  Created:       %s%d%s beads\n", colorize(t.Success), br.Created, "\033[0m")
+		}
+	}
+	if br.Duplicates > 0 {
+		fmt.Printf("  Duplicates:    %d (skipped)\n", br.Duplicates)
+	}
+	if br.Skipped > 0 {
+		fmt.Printf("  Below threshold: %d (skipped)\n", br.Skipped)
+	}
+	if br.Errors > 0 {
+		fmt.Printf("  Errors:        %s%d%s\n", colorize(t.Error), br.Errors, "\033[0m")
+	}
+
+	// Show created bead IDs
+	if len(br.BeadIDs) > 0 && !dryRun {
+		fmt.Printf("\n  New beads: %s\n", strings.Join(br.BeadIDs, ", "))
+	}
+
+	// Show any messages
+	for _, msg := range br.Messages {
+		fmt.Printf("  %s\n", msg)
+	}
+	fmt.Println()
+}
+
+func printBeadsUpdateResults(t theme.Theme, br *scanner.BridgeResult, dryRun bool) {
+	// Note: br.Created is reused for "closed" count in UpdateBeadsFromFindings
+	if br.Created == 0 && br.Errors == 0 {
+		return // Nothing to report
+	}
+
+	fmt.Println()
+	if dryRun {
+		fmt.Printf("%sBeads Update (Dry Run)%s\n", "\033[1m", "\033[0m")
+	} else {
+		fmt.Printf("%sBeads Update%s\n", "\033[1m", "\033[0m")
+	}
+	fmt.Printf("%s───────────────────────────────────────────────────%s\n", "\033[2m", "\033[0m")
+
+	if br.Created > 0 {
+		if dryRun {
+			fmt.Printf("  Would close:   %s%d%s beads (issues fixed)\n", colorize(t.Success), br.Created, "\033[0m")
+		} else {
+			fmt.Printf("  Closed:        %s%d%s beads (issues fixed)\n", colorize(t.Success), br.Created, "\033[0m")
+		}
+	}
+	if br.Errors > 0 {
+		fmt.Printf("  Errors:        %s%d%s\n", colorize(t.Error), br.Errors, "\033[0m")
+	}
+
+	for _, msg := range br.Messages {
+		fmt.Printf("  %s\n", msg)
 	}
 	fmt.Println()
 }

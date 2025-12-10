@@ -133,7 +133,19 @@ func runAdd(session string, ccCount, codCount, gmiCount int) error {
 			return outputError(fmt.Errorf("setting pane title: %w", err))
 		}
 
-		cmd := fmt.Sprintf("cd %q && %s", dir, cfg.Agents.Claude)
+		// Generate command using template (default model)
+		agentCmd, err := config.GenerateAgentCommand(cfg.Agents.Claude, config.AgentTemplateVars{
+			Model:       cfg.Models.DefaultClaude,
+			SessionName: session,
+			PaneIndex:   num,
+			AgentType:   "cc",
+			ProjectDir:  dir,
+		})
+		if err != nil {
+			return outputError(fmt.Errorf("generating command for Claude agent: %w", err))
+		}
+
+		cmd := fmt.Sprintf("cd %q && %s", dir, agentCmd)
 		if err := tmux.SendKeys(paneID, cmd, true); err != nil {
 			return outputError(fmt.Errorf("launching agent: %w", err))
 		}

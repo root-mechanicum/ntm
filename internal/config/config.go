@@ -1,16 +1,38 @@
 package config
 
 import (
+	"bytes"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
+	"text/template"
 
 	"github.com/BurntSushi/toml"
 	"github.com/Dicklesworthstone/ntm/internal/notify"
 )
+
+// GenerateAgentCommand generates the final agent command by replacing template variables
+func (c *Config) GenerateAgentCommand(tmplStr string, vars AgentTemplateVars) (string, error) {
+	// If template has no placeholders, return as is
+	if !strings.Contains(tmplStr, "{{") {
+		return tmplStr, nil
+	}
+
+	t, err := template.New("agent").Parse(tmplStr)
+	if err != nil {
+		return "", fmt.Errorf("parsing agent command template: %w", err)
+	}
+
+	var buf bytes.Buffer
+	if err := t.Execute(&buf, vars); err != nil {
+		return "", fmt.Errorf("executing agent command template: %w", err)
+	}
+
+	return buf.String(), nil
+}
 
 // Config represents the main configuration
 type Config struct {
@@ -599,6 +621,12 @@ func Load(path string) (*Config, error) {
 		cfg.Notifications = notify.DefaultConfig()
 	}
 
+	// Apply Resilience defaults
+	// If MaxRestarts is 0, apply all defaults (section likely missing)
+	if cfg.Resilience.MaxRestarts == 0 {
+		cfg.Resilience = DefaultResilienceConfig()
+	}
+
 	// Try to load palette from markdown file
 	// This takes precedence over TOML [[palette]] entries
 	mdPath := cfg.PaletteFile
@@ -800,6 +828,17 @@ func Print(cfg *Config, w io.Writer) error {
 	fmt.Fprintln(w, "# Log file notifications")
 	fmt.Fprintf(w, "enabled = %t\n", cfg.Notifications.Log.Enabled)
 	fmt.Fprintf(w, "path = %q\n", cfg.Notifications.Log.Path)
+	fmt.Fprintln(w)
+
+	// Write resilience configuration
+	fmt.Fprintln(w, "[resilience]")
+	fmt.Fprintln(w, "# Agent auto-restart and recovery configuration")
+	fmt.Fprintf(w, "auto_restart = %t           # Enable automatic agent restart on crash\n", cfg.Resilience.AutoRestart)
+	fmt.Fprintf(w, "max_restarts = %d            # Max restarts per agent before giving up\n", cfg.Resilience.MaxRestarts)
+	fmt.Fprintf(w, "restart_delay_seconds = %d  # Seconds to wait before restarting\n", cfg.Resilience.RestartDelaySeconds)
+	fmt.Fprintf(w, "health_check_seconds = %d   # Seconds between health checks\n", cfg.Resilience.HealthCheckSeconds)
+	fmt.Fprintf(w, "notify_on_crash = %t       # Send notification when agent crashes\n", cfg.Resilience.NotifyOnCrash)
+	fmt.Fprintf(w, "notify_on_max_restarts = %t # Notify when max restarts exceeded\n", cfg.Resilience.NotifyOnMaxRestarts)
 	fmt.Fprintln(w)
 
 	fmt.Fprintln(w, "# Command Palette entries")
