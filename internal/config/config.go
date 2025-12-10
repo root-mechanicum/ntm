@@ -175,6 +175,18 @@ func (m *ModelsConfig) GetModelName(agentType, alias string) string {
 	return alias
 }
 
+// IsPersonaName checks if the given name is a known persona.
+// Currently returns false as personas are not yet fully implemented.
+// TODO: Implement persona configuration and checking
+func (c *Config) IsPersonaName(name string) bool {
+	// Personas are not yet implemented - return false for now
+	// When personas are implemented, this will check against:
+	// 1. Project personas (.ntm/personas.toml)
+	// 2. User personas (~/.config/ntm/personas.toml)
+	// 3. Built-in personas
+	return false
+}
+
 // DefaultPath returns the default config file path
 func DefaultPath() string {
 	if xdg := os.Getenv("XDG_CONFIG_HOME"); xdg != "" {
