@@ -16,6 +16,7 @@ import (
 func newSpawnCmd() *cobra.Command {
 	var ccCount, codCount, gmiCount int
 	var noUserPane bool
+	var recipeName string
 
 	cmd := &cobra.Command{
 		Use:   "spawn <session-name>",
@@ -25,12 +26,51 @@ func newSpawnCmd() *cobra.Command {
 By default, the first pane is reserved for the user. Agent panes are created
 and titled with their type (e.g., myproject__cc_1, myproject__cod_1).
 
+You can use a recipe to quickly spawn a predefined set of agents:
+  ntm spawn myproject -r full-stack    # Use the 'full-stack' recipe
+
+Built-in recipes: quick-claude, full-stack, minimal, codex-heavy, balanced, review-team
+Use 'ntm recipes list' to see all available recipes.
+
 Examples:
   ntm spawn myproject --cc=2 --cod=2           # 2 Claude, 2 Codex + user pane
   ntm spawn myproject --cc=3 --cod=3 --gmi=1   # 3 Claude, 3 Codex, 1 Gemini
-  ntm spawn myproject --cc=4 --no-user         # 4 Claude, no user pane`,
+  ntm spawn myproject --cc=4 --no-user         # 4 Claude, no user pane
+  ntm spawn myproject -r full-stack            # Use full-stack recipe
+  ntm spawn myproject -r minimal               # Use minimal recipe`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			// If a recipe is specified, load it and use its agent counts
+			if recipeName != "" {
+				loader := recipe.NewLoader()
+				r, err := loader.Get(recipeName)
+				if err != nil {
+					// List available recipes to help the user
+					available := recipe.BuiltinNames()
+					return fmt.Errorf("%w\n\nAvailable built-in recipes: %s",
+						err, strings.Join(available, ", "))
+				}
+
+				// Validate the recipe
+				if err := r.Validate(); err != nil {
+					return fmt.Errorf("invalid recipe %q: %w", recipeName, err)
+				}
+
+				// Get counts from recipe (individual flags override if specified)
+				counts := r.AgentCounts()
+				if ccCount == 0 {
+					ccCount = counts["cc"]
+				}
+				if codCount == 0 {
+					codCount = counts["cod"]
+				}
+				if gmiCount == 0 {
+					gmiCount = counts["gmi"]
+				}
+
+				fmt.Printf("Using recipe '%s': %s\n", r.Name, r.Description)
+			}
+
 			return runSpawn(args[0], ccCount, codCount, gmiCount, !noUserPane)
 		},
 	}
@@ -39,6 +79,7 @@ Examples:
 	cmd.Flags().IntVar(&codCount, "cod", 0, "number of Codex agents")
 	cmd.Flags().IntVar(&gmiCount, "gmi", 0, "number of Gemini agents")
 	cmd.Flags().BoolVar(&noUserPane, "no-user", false, "don't reserve a pane for the user")
+	cmd.Flags().StringVarP(&recipeName, "recipe", "r", "", "use a recipe for agent configuration")
 
 	return cmd
 }

@@ -85,6 +85,10 @@ Shell Integration:
 			return
 		}
 		if robotSnapshot {
+			// Set bead limit from flag
+			if robotBeadLimit > 0 {
+				robot.BeadLimit = robotBeadLimit
+			}
 			var err error
 			if robotSince != "" {
 				// Parse the since timestamp
@@ -176,10 +180,11 @@ var (
 	robotPlan     bool
 	robotSnapshot bool   // unified state query
 	robotSince    string // ISO8601 timestamp for delta snapshot
-	robotTail     string // session name for tail
-	robotLines    int    // number of lines to capture
-	robotPanes    string // comma-separated pane filter
-	robotGraph    bool   // bv insights passthrough
+	robotTail      string // session name for tail
+	robotLines     int    // number of lines to capture
+	robotPanes     string // comma-separated pane filter
+	robotGraph     bool   // bv insights passthrough
+	robotBeadLimit int    // limit for ready/in-progress beads in snapshot
 
 	// Robot-send flags
 	robotSend        string // session name for send
@@ -207,6 +212,7 @@ func init() {
 	rootCmd.Flags().IntVar(&robotLines, "lines", 20, "Number of lines to capture (used with --robot-tail)")
 	rootCmd.Flags().StringVar(&robotPanes, "panes", "", "Comma-separated pane indices to filter (used with --robot-tail/--robot-send)")
 	rootCmd.Flags().BoolVar(&robotGraph, "robot-graph", false, "Output bv graph insights as JSON for AI agents")
+	rootCmd.Flags().IntVar(&robotBeadLimit, "bead-limit", 5, "Limit for ready/in-progress beads in snapshot (used with --robot-snapshot)")
 
 	// Robot-send flags for batch messaging
 	rootCmd.Flags().StringVar(&robotSend, "robot-send", "", "Send prompt to panes atomically (JSON output)")
