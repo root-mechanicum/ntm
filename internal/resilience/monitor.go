@@ -14,6 +14,13 @@ import (
 	"github.com/Dicklesworthstone/ntm/internal/tmux"
 )
 
+// Overridable hooks for tests.
+var (
+	sendKeysFn     = tmux.SendKeys
+	buildPaneCmdFn = tmux.BuildPaneCommand
+	sleepFn        = time.Sleep
+)
+
 // AgentState tracks the state of an individual agent for restart purposes
 type AgentState struct {
 	PaneID            string
@@ -265,7 +272,7 @@ func (m *Monitor) restartAgent(agent *AgentState) {
 	delay := time.Duration(m.cfg.Resilience.RestartDelaySeconds) * time.Second
 	log.Printf("[resilience] Restarting agent %s in %v...", agent.PaneID, delay)
 
-	time.Sleep(delay)
+	sleepFn(delay)
 
 	m.mu.Lock()
 	// Check if still in crashed state (could have been stopped)
@@ -280,13 +287,13 @@ func (m *Monitor) restartAgent(agent *AgentState) {
 	m.mu.Unlock()
 
 	// Re-run the agent command in the pane
-	paneCmd, err := tmux.BuildPaneCommand(m.projectDir, agentCommand)
+	paneCmd, err := buildPaneCmdFn(m.projectDir, agentCommand)
 	if err != nil {
 		log.Printf("[resilience] Refusing to restart agent %s: %v", agent.PaneID, err)
 		return
 	}
 
-	if err := tmux.SendKeys(agent.PaneID, paneCmd, true); err != nil {
+	if err := sendKeysFn(agent.PaneID, paneCmd, true); err != nil {
 		log.Printf("[resilience] Failed to restart agent %s: %v", agent.PaneID, err)
 		return
 	}
