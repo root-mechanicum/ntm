@@ -16,9 +16,9 @@ import (
 )
 
 func newSpawnCmd() *cobra.Command {
-	var ccCount, codCount, gmiCount int
 	var noUserPane bool
 	var recipeName string
+	var agentSpecs AgentSpecs
 
 	cmd := &cobra.Command{
 		Use:   "spawn <session-name>",
@@ -31,6 +31,9 @@ and titled with their type (e.g., myproject__cc_1, myproject__cod_1).
 You can use a recipe to quickly spawn a predefined set of agents:
   ntm spawn myproject -r full-stack    # Use the 'full-stack' recipe
 
+Agent count syntax: N or N:model where N is count and model is optional.
+Multiple flags of the same type accumulate.
+
 Built-in recipes: quick-claude, full-stack, minimal, codex-heavy, balanced, review-team
 Use 'ntm recipes list' to see all available recipes.
 
@@ -39,7 +42,7 @@ Examples:
   ntm spawn myproject --cc=3 --cod=3 --gmi=1   # 3 Claude, 3 Codex, 1 Gemini
   ntm spawn myproject --cc=4 --no-user         # 4 Claude, no user pane
   ntm spawn myproject -r full-stack            # Use full-stack recipe
-  ntm spawn myproject -r minimal               # Use minimal recipe`,
+  ntm spawn myproject --cc=2:opus --cc=1:sonnet  # 2 Opus + 1 Sonnet`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			// If a recipe is specified, load it and use its agent counts
@@ -58,32 +61,52 @@ Examples:
 					return fmt.Errorf("invalid recipe %q: %w", recipeName, err)
 				}
 
-				// Get counts from recipe (individual flags override if specified)
+				// Get counts from recipe (add to specs if no specs of that type)
 				counts := r.AgentCounts()
-				if ccCount == 0 {
-					ccCount = counts["cc"]
+				if agentSpecs.ByType(AgentTypeClaude).TotalCount() == 0 && counts["cc"] > 0 {
+					agentSpecs = append(agentSpecs, AgentSpec{Type: AgentTypeClaude, Count: counts["cc"]})
 				}
-				if codCount == 0 {
-					codCount = counts["cod"]
+				if agentSpecs.ByType(AgentTypeCodex).TotalCount() == 0 && counts["cod"] > 0 {
+					agentSpecs = append(agentSpecs, AgentSpec{Type: AgentTypeCodex, Count: counts["cod"]})
 				}
-				if gmiCount == 0 {
-					gmiCount = counts["gmi"]
+				if agentSpecs.ByType(AgentTypeGemini).TotalCount() == 0 && counts["gmi"] > 0 {
+					agentSpecs = append(agentSpecs, AgentSpec{Type: AgentTypeGemini, Count: counts["gmi"]})
 				}
 
 				fmt.Printf("Using recipe '%s': %s\n", r.Name, r.Description)
 			}
 
-			return runSpawn(args[0], ccCount, codCount, gmiCount, !noUserPane)
+			// Extract simple counts for backwards compatible runSpawn
+			ccCount := agentSpecs.ByType(AgentTypeClaude).TotalCount()
+			codCount := agentSpecs.ByType(AgentTypeCodex).TotalCount()
+			gmiCount := agentSpecs.ByType(AgentTypeGemini).TotalCount()
+
+			return runSpawnWithSpecs(args[0], agentSpecs, ccCount, codCount, gmiCount, !noUserPane)
 		},
 	}
 
-	cmd.Flags().IntVar(&ccCount, "cc", 0, "number of Claude agents")
-	cmd.Flags().IntVar(&codCount, "cod", 0, "number of Codex agents")
-	cmd.Flags().IntVar(&gmiCount, "gmi", 0, "number of Gemini agents")
+	// Use custom flag values that accumulate specs with type info
+	cmd.Flags().Var(NewAgentSpecsValue(AgentTypeClaude, &agentSpecs), "cc", "Claude agents (N or N:model)")
+	cmd.Flags().Var(NewAgentSpecsValue(AgentTypeCodex, &agentSpecs), "cod", "Codex agents (N or N:model)")
+	cmd.Flags().Var(NewAgentSpecsValue(AgentTypeGemini, &agentSpecs), "gmi", "Gemini agents (N or N:model)")
 	cmd.Flags().BoolVar(&noUserPane, "no-user", false, "don't reserve a pane for the user")
 	cmd.Flags().StringVarP(&recipeName, "recipe", "r", "", "use a recipe for agent configuration")
 
 	return cmd
+}
+
+// runSpawnWithSpecs is a wrapper around runSpawn that handles agent specs
+// For now, it just uses the total counts - model-specific spawning is in ntm-z2k
+func runSpawnWithSpecs(session string, specs AgentSpecs, ccCount, codCount, gmiCount int, userPane bool) error {
+	// TODO (ntm-z2k): Use specs for model-specific pane naming
+	// For now, just log if model-specific specs are used
+	for _, spec := range specs {
+		if spec.Model != "" && !IsJSONOutput() {
+			fmt.Printf("Note: Model '%s' specified for %s agents (full support in upcoming update)\n",
+				spec.Model, spec.Type)
+		}
+	}
+	return runSpawn(session, ccCount, codCount, gmiCount, userPane)
 }
 
 func runSpawn(session string, ccCount, codCount, gmiCount int, userPane bool) error {
