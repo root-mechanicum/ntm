@@ -126,6 +126,14 @@ Shell Integration:
 			}
 			return
 		}
+		if robotMail {
+			projectKey, _ := os.Getwd()
+			if err := robot.PrintMail(projectKey); err != nil {
+				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				os.Exit(1)
+			}
+			return
+		}
 		if robotTail != "" {
 			// Parse pane filter
 			var paneFilter []string
@@ -280,6 +288,28 @@ Shell Integration:
 			}
 			return
 		}
+		if robotSave != "" {
+			opts := robot.SaveOptions{
+				Session:    robotSave,
+				OutputFile: robotSaveOutput,
+			}
+			if err := robot.PrintSave(opts); err != nil {
+				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				os.Exit(1)
+			}
+			return
+		}
+		if robotRestore != "" {
+			opts := robot.RestoreOptions{
+				SavedName: robotRestore,
+				DryRun:    robotRestoreDry,
+			}
+			if err := robot.PrintRestore(opts); err != nil {
+				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				os.Exit(1)
+			}
+			return
+		}
 
 		// Show stunning help with gradients when run without subcommand
 		PrintStunningHelp()
@@ -333,6 +363,9 @@ var (
 	// Robot-recipes flag
 	robotRecipes bool // list available recipes as JSON
 
+	// Robot-mail flag
+	robotMail bool // Agent Mail state output
+
 	// Robot-ack flags for send confirmation tracking
 	robotAck        string // session name for ack
 	robotAckTimeout int    // timeout in milliseconds
@@ -359,6 +392,14 @@ var (
 
 	// Robot-terse flag for ultra-compact output
 	robotTerse bool // single-line encoded state
+
+	// Robot-save flags for session state persistence
+	robotSave       string // session name to save
+	robotSaveOutput string // custom output file path
+
+	// Robot-restore flags for session state restoration
+	robotRestore    string // saved state name to restore
+	robotRestoreDry bool   // dry-run mode
 )
 
 func init() {
@@ -402,6 +443,9 @@ func init() {
 	// Robot-recipes flag for recipe listing
 	rootCmd.Flags().BoolVar(&robotRecipes, "robot-recipes", false, "List available recipes as JSON for AI agents")
 
+	// Robot-mail flag for Agent Mail state
+	rootCmd.Flags().BoolVar(&robotMail, "robot-mail", false, "Output Agent Mail state as JSON for AI agents")
+
 	// Robot-ack flags for send confirmation tracking
 	rootCmd.Flags().StringVar(&robotAck, "robot-ack", "", "Watch panes for acknowledgment after send (JSON output)")
 	rootCmd.Flags().IntVar(&robotAckTimeout, "ack-timeout", 30000, "Timeout in milliseconds for acknowledgment (used with --robot-ack)")
@@ -428,6 +472,14 @@ func init() {
 
 	// Robot-terse flag for ultra-compact output
 	rootCmd.Flags().BoolVar(&robotTerse, "robot-terse", false, "Output ultra-compact single-line state (e.g., S:proj|A:2/3|R:10|B:5|I:2|M:3|!:1)")
+
+	// Robot-save flags for session state persistence
+	rootCmd.Flags().StringVar(&robotSave, "robot-save", "", "Save session state as JSON for AI agents")
+	rootCmd.Flags().StringVar(&robotSaveOutput, "save-output", "", "Custom output file path (used with --robot-save)")
+
+	// Robot-restore flags for session state restoration
+	rootCmd.Flags().StringVar(&robotRestore, "robot-restore", "", "Restore session from saved state (JSON output)")
+	rootCmd.Flags().BoolVar(&robotRestoreDry, "dry-run", false, "Preview restore without executing (used with --robot-restore)")
 
 	// Sync version info with robot package
 	robot.Version = Version

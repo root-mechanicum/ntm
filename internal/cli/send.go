@@ -202,9 +202,9 @@ Examples:
 			session := args[0]
 
 			// Handle template-based prompts
-			if templateName != "" {
-				return runSendWithTemplate(session, templateName, templateVars, promptFile, contextFiles, targets, targetAll, skipFirst, paneIndex)
-			}
+				if templateName != "" {
+					return runSendWithTemplate(session, templateName, templateVars, promptFile, contextFiles, targets, targetAll, skipFirst, paneIndex)
+				}
 
 			promptText, err := getPromptContent(args[1:], promptFile, prefix, suffix)
 			if err != nil {
@@ -228,9 +228,9 @@ Examples:
 				}
 			}
 
-			return runSendWithTargets(session, promptText, targets, targetAll, skipFirst, paneIndex)
-		},
-	}
+				return runSendWithTargets(session, promptText, targets, targetAll, skipFirst, paneIndex, "")
+			},
+		}
 
 	// Use custom flag values that support --cc or --cc=variant syntax
 	cmd.Flags().Var(newSendTargetValue(AgentTypeClaude, &targets), "cc", "send to Claude agents (optional :variant filter)")
