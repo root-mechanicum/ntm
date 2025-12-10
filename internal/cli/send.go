@@ -29,8 +29,120 @@ type SendResult struct {
 	Error         string   `json:"error,omitempty"`
 }
 
+// SendTarget represents a send target with optional variant filter.
+// Used for --cc:opus style flags where variant filters to specific model/persona.
+type SendTarget struct {
+	Type    AgentType
+	Variant string // Empty = all agents of type; non-empty = filter by variant
+}
+
+// SendTargets is a slice of SendTarget that implements pflag.Value for accumulating
+type SendTargets []SendTarget
+
+func (s *SendTargets) String() string {
+	if s == nil || len(*s) == 0 {
+		return ""
+	}
+	var parts []string
+	for _, t := range *s {
+		if t.Variant != "" {
+			parts = append(parts, fmt.Sprintf("%s:%s", t.Type, t.Variant))
+		} else {
+			parts = append(parts, string(t.Type))
+		}
+	}
+	return strings.Join(parts, ",")
+}
+
+func (s *SendTargets) Set(value string) error {
+	// Parse value as optional variant: "cc" or "cc:opus"
+	parts := strings.SplitN(value, ":", 2)
+	target := SendTarget{}
+	if len(parts) > 1 && parts[1] != "" {
+		target.Variant = parts[1]
+	}
+	// Type is set by the flag registration, value is just the variant
+	*s = append(*s, target)
+	return nil
+}
+
+func (s *SendTargets) Type() string {
+	return "[variant]"
+}
+
+// sendTargetValue wraps SendTargets with a specific agent type for flag parsing
+type sendTargetValue struct {
+	agentType AgentType
+	targets   *SendTargets
+}
+
+func newSendTargetValue(agentType AgentType, targets *SendTargets) *sendTargetValue {
+	return &sendTargetValue{
+		agentType: agentType,
+		targets:   targets,
+	}
+}
+
+func (v *sendTargetValue) String() string {
+	return v.targets.String()
+}
+
+func (v *sendTargetValue) Set(value string) error {
+	// Value is the variant (after the colon), or empty for all
+	target := SendTarget{
+		Type:    v.agentType,
+		Variant: value,
+	}
+	*v.targets = append(*v.targets, target)
+	return nil
+}
+
+func (v *sendTargetValue) Type() string {
+	return "[variant]"
+}
+
+// IsBoolFlag allows the flag to work with or without a value
+// --cc sends to all Claude, --cc=opus sends to Claude with opus variant
+func (v *sendTargetValue) IsBoolFlag() bool {
+	return true
+}
+
+// HasTargetsForType checks if any targets match the given agent type
+func (s SendTargets) HasTargetsForType(t AgentType) bool {
+	for _, target := range s {
+		if target.Type == t {
+			return true
+		}
+	}
+	return false
+}
+
+// MatchesPane checks if any target matches the given pane
+func (s SendTargets) MatchesPane(pane tmux.Pane) bool {
+	for _, target := range s {
+		if matchesSendTarget(pane, target) {
+			return true
+		}
+	}
+	return false
+}
+
+// matchesSendTarget checks if a pane matches a send target
+func matchesSendTarget(pane tmux.Pane, target SendTarget) bool {
+	// Type must match
+	if string(pane.Type) != string(target.Type) {
+		return false
+	}
+	// If variant is specified, it must also match
+	if target.Variant != "" && pane.Variant != target.Variant {
+		return false
+	}
+	return true
+}
+
 func newSendCmd() *cobra.Command {
-	var targetCC, targetCod, targetGmi, targetAll, skipFirst bool
+	var targets SendTargets
+	var targetAll, skipFirst bool
 	var paneIndex int
 	var promptFile, prefix, suffix string
 	var contextFiles []string
@@ -41,6 +153,7 @@ func newSendCmd() *cobra.Command {
 		Long: `Send a prompt or command to agent panes in a session.
 
 By default, sends to all agent panes. Use flags to target specific types.
+Use --cc=variant to filter by model or persona (e.g., --cc=opus, --cc=architect).
 
 Prompt can be provided as:
   - Command line argument (traditional)
@@ -55,7 +168,9 @@ When using --file or stdin, use --prefix and --suffix to wrap the content.
 
 Examples:
   ntm send myproject "fix the linting errors"           # All agents
-  ntm send myproject --cc "review the changes"          # Only Claude
+  ntm send myproject --cc "review the changes"          # All Claude agents
+  ntm send myproject --cc=opus "review the changes"     # Only Claude Opus agents
+  ntm send myproject --cc=opus --cc=sonnet "review"     # Opus and Sonnet
   ntm send myproject --cod --gmi "run the tests"        # Codex and Gemini
   ntm send myproject --all "git status"                 # All panes
   ntm send myproject --pane=2 "specific pane"           # Specific pane
@@ -92,13 +207,14 @@ Examples:
 				}
 			}
 
-			return runSend(session, promptText, targetCC, targetCod, targetGmi, targetAll, skipFirst, paneIndex)
+			return runSendWithTargets(session, promptText, targets, targetAll, skipFirst, paneIndex)
 		},
 	}
 
-	cmd.Flags().BoolVar(&targetCC, "cc", false, "send to Claude agents only")
-	cmd.Flags().BoolVar(&targetCod, "cod", false, "send to Codex agents only")
-	cmd.Flags().BoolVar(&targetGmi, "gmi", false, "send to Gemini agents only")
+	// Use custom flag values that support --cc or --cc=variant syntax
+	cmd.Flags().Var(newSendTargetValue(AgentTypeClaude, &targets), "cc", "send to Claude agents (optional :variant filter)")
+	cmd.Flags().Var(newSendTargetValue(AgentTypeCodex, &targets), "cod", "send to Codex agents (optional :variant filter)")
+	cmd.Flags().Var(newSendTargetValue(AgentTypeGemini, &targets), "gmi", "send to Gemini agents (optional :variant filter)")
 	cmd.Flags().BoolVar(&targetAll, "all", false, "send to all panes (including user pane)")
 	cmd.Flags().BoolVarP(&skipFirst, "skip-first", "s", false, "skip the first (user) pane")
 	cmd.Flags().IntVarP(&paneIndex, "pane", "p", -1, "send to specific pane index")
@@ -186,7 +302,17 @@ func buildPrompt(content, prefix, suffix string) string {
 	return strings.Join(parts, "\n")
 }
 
-func runSend(session, prompt string, targetCC, targetCod, targetGmi, targetAll, skipFirst bool, paneIndex int) error {
+// runSendWithTargets sends prompts using the new SendTargets filtering
+func runSendWithTargets(session, prompt string, targets SendTargets, targetAll, skipFirst bool, paneIndex int) error {
+	// Convert to the old signature for backwards compatibility
+	targetCC := targets.HasTargetsForType(AgentTypeClaude)
+	targetCod := targets.HasTargetsForType(AgentTypeCodex)
+	targetGmi := targets.HasTargetsForType(AgentTypeGemini)
+
+	return runSendInternal(session, prompt, targets, targetCC, targetCod, targetGmi, targetAll, skipFirst, paneIndex)
+}
+
+func runSendInternal(session, prompt string, targets SendTargets, targetCC, targetCod, targetGmi, targetAll, skipFirst bool, paneIndex int) error {
 	// Helper for JSON error output
 	outputError := func(err error) error {
 		if jsonOutput {
