@@ -6,6 +6,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/fsnotify/fsnotify"
 )
 
 func TestNewWatcher(t *testing.T) {
@@ -28,8 +30,9 @@ func TestNewWatcher(t *testing.T) {
 
 func TestWatcherWithOptions(t *testing.T) {
 	debouncer := NewDebouncer(500 * time.Millisecond)
-	errorCalled := false
-	errorHandler := func(err error) { errorCalled = true }
+	errorHandler := func(err error) {
+		// Error handler for testing
+	}
 
 	w, err := New(
 		func(events []Event) {},
