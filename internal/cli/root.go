@@ -3,14 +3,15 @@ package cli
 import (
 	"fmt"
 	"os"
+	"runtime"
 	"strings"
 	"time"
 
 	"github.com/Dicklesworthstone/ntm/internal/config"
 	"github.com/Dicklesworthstone/ntm/internal/output"
 	"github.com/Dicklesworthstone/ntm/internal/robot"
+	"github.com/Dicklesworthstone/ntm/internal/startup"
 	"github.com/spf13/cobra"
-	"runtime"
 )
 
 var (
@@ -45,23 +46,34 @@ Shell Integration:
 	SilenceUsage:  true,
 	SilenceErrors: true,
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
-		// Enable profiling if requested
+		// Phase 1: Critical startup (always runs, minimal overhead)
+		startup.BeginPhase1()
 		EnableProfilingIfRequested()
+		startup.EndPhase1()
 
-		// Skip config loading for init, completion, version, and upgrade commands
-		if cmd.Name() == "init" || cmd.Name() == "completion" || cmd.Name() == "version" || cmd.Name() == "upgrade" {
+		// Check if this command can skip config loading (Phase 1 only)
+		// This includes subcommands AND robot flags that don't need config
+		if canSkipConfigLoading(cmd.Name()) {
 			return nil
 		}
 
-		// Profile config loading
-		endProfile := ProfileConfigLoad()
-		defer endProfile()
+		// Phase 2: Deferred initialization (config loading)
+		startup.BeginPhase2()
+		defer startup.EndPhase2()
 
-		var err error
-		cfg, err = config.Load(cfgFile)
-		if err != nil {
-			// Use defaults if config doesn't exist
-			cfg = config.Default()
+		// Set config path for lazy loader
+		startup.SetConfigPath(cfgFile)
+
+		// Load config lazily - only commands that need it will trigger loading
+		if needsConfigLoading(cmd.Name()) {
+			endProfile := ProfileConfigLoad()
+			var err error
+			cfg, err = startup.GetConfig()
+			endProfile()
+			if err != nil {
+				// Use defaults if config loading fails
+				cfg = config.Default()
+			}
 		}
 		return nil
 	},
@@ -650,4 +662,49 @@ func GetOutputFormat() output.Format {
 // GetFormatter returns a formatter configured for the current output mode
 func GetFormatter() *output.Formatter {
 	return output.New(output.WithJSON(jsonOutput))
+}
+
+// canSkipConfigLoading returns true if we can skip Phase 2 config loading.
+// This checks both subcommand names and robot flags for Phase 1 only operations.
+func canSkipConfigLoading(cmdName string) bool {
+	// Check subcommand first
+	if startup.CanSkipConfig(cmdName) {
+		return true
+	}
+
+	// Check robot flags that don't need config
+	// These flags are processed in the root command's Run function
+	if cmdName == "ntm" || cmdName == "" {
+		if robotHelp || robotVersion {
+			return true
+		}
+	}
+
+	return false
+}
+
+// needsConfigLoading returns true if config should be loaded for this command.
+// This checks both subcommand names and robot flags.
+func needsConfigLoading(cmdName string) bool {
+	// Check subcommand first
+	if startup.NeedsConfig(cmdName) {
+		return true
+	}
+
+	// Check robot flags that need config
+	if cmdName == "ntm" || cmdName == "" {
+		// robot-recipes needs config but not full startup
+		if robotRecipes {
+			return true
+		}
+		// Most other robot flags need full config
+		if robotStatus || robotPlan || robotSnapshot || robotTail != "" ||
+			robotSend != "" || robotAck != "" || robotSpawn != "" ||
+			robotInterrupt != "" || robotGraph || robotMail || robotHealth ||
+			robotTerse || robotSave != "" || robotRestore != "" {
+			return true
+		}
+	}
+
+	return false
 }
