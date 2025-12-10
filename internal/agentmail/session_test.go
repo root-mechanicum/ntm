@@ -32,7 +32,7 @@ func TestSanitizeSessionName(t *testing.T) {
 }
 
 func TestSessionAgentPath(t *testing.T) {
-	path := sessionAgentPath("myproject")
+	path := sessionAgentPath("myproject", "/abs/path/to/project")
 	if !filepath.IsAbs(path) {
 		t.Errorf("sessionAgentPath should return absolute path, got %q", path)
 	}
@@ -60,7 +60,7 @@ func TestLoadSaveSessionAgent(t *testing.T) {
 	sessionName := "test-session"
 
 	// Initially no agent should be loaded
-	info, err := LoadSessionAgent(sessionName)
+	info, err := LoadSessionAgent(sessionName, "/path/to/project")
 	if err != nil {
 		t.Fatalf("LoadSessionAgent failed: %v", err)
 	}
@@ -73,12 +73,12 @@ func TestLoadSaveSessionAgent(t *testing.T) {
 		AgentName:  "ntm_test_session",
 		ProjectKey: "/path/to/project",
 	}
-	if err := SaveSessionAgent(sessionName, saveInfo); err != nil {
+	if err := SaveSessionAgent(sessionName, saveInfo.ProjectKey, saveInfo); err != nil {
 		t.Fatalf("SaveSessionAgent failed: %v", err)
 	}
 
 	// Load it back
-	loaded, err := LoadSessionAgent(sessionName)
+	loaded, err := LoadSessionAgent(sessionName, saveInfo.ProjectKey)
 	if err != nil {
 		t.Fatalf("LoadSessionAgent failed after save: %v", err)
 	}
@@ -93,12 +93,12 @@ func TestLoadSaveSessionAgent(t *testing.T) {
 	}
 
 	// Delete agent info
-	if err := DeleteSessionAgent(sessionName); err != nil {
+	if err := DeleteSessionAgent(sessionName, saveInfo.ProjectKey); err != nil {
 		t.Fatalf("DeleteSessionAgent failed: %v", err)
 	}
 
 	// Verify it's gone
-	info, err = LoadSessionAgent(sessionName)
+	info, err = LoadSessionAgent(sessionName, saveInfo.ProjectKey)
 	if err != nil {
 		t.Fatalf("LoadSessionAgent failed after delete: %v", err)
 	}
