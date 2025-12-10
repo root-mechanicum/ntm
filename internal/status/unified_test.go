@@ -1,6 +1,8 @@
 package status
 
 import (
+	"os/exec"
+	"strings"
 	"testing"
 	"time"
 )
@@ -334,5 +336,107 @@ func TestErrorTypeMessage(t *testing.T) {
 					tt.errType, tt.errType.Message(), tt.expected)
 			}
 		})
+	}
+}
+
+// TestAgentStateString tests the String() method for AgentState
+func TestAgentStateString(t *testing.T) {
+	tests := []struct {
+		state    AgentState
+		expected string
+	}{
+		{StateIdle, "idle"},
+		{StateWorking, "working"},
+		{StateError, "error"},
+		{StateUnknown, "unknown"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.expected, func(t *testing.T) {
+			result := tt.state.String()
+			if result != tt.expected {
+				t.Errorf("AgentState.String() = %q, want %q", result, tt.expected)
+			}
+		})
+	}
+}
+
+// TestErrorTypeString tests the String() method for ErrorType
+func TestErrorTypeString(t *testing.T) {
+	tests := []struct {
+		errType  ErrorType
+		expected string
+	}{
+		{ErrorRateLimit, "rate_limit"},
+		{ErrorCrash, "crash"},
+		{ErrorAuth, "auth"},
+		{ErrorConnection, "connection"},
+		{ErrorGeneric, "error"},
+		{ErrorNone, ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.expected, func(t *testing.T) {
+			result := tt.errType.String()
+			if result != tt.expected {
+				t.Errorf("ErrorType.String() = %q, want %q", result, tt.expected)
+			}
+		})
+	}
+}
+
+// TestAddPromptPattern tests adding custom prompt patterns
+func TestAddPromptPattern(t *testing.T) {
+	// Add a valid pattern
+	err := AddPromptPattern("custom", `custom>\s*$`, "Custom agent prompt")
+	if err != nil {
+		t.Fatalf("AddPromptPattern failed: %v", err)
+	}
+
+	// Verify the pattern works
+	if !IsPromptLine("custom> ", "custom") {
+		t.Error("Custom prompt pattern should match 'custom> '")
+	}
+
+	// Test invalid regex
+	err = AddPromptPattern("bad", `[invalid(regex`, "Bad pattern")
+	if err == nil {
+		t.Error("AddPromptPattern should fail with invalid regex")
+	}
+}
+
+// TestAddErrorPattern tests adding custom error patterns
+func TestAddErrorPattern(t *testing.T) {
+	// Add a valid pattern
+	err := AddErrorPattern(ErrorGeneric, `(?i)custom error detected`, "Custom error")
+	if err != nil {
+		t.Fatalf("AddErrorPattern failed: %v", err)
+	}
+
+	// Verify the pattern works
+	errType := DetectErrorInOutput("Custom Error Detected in output")
+	if errType != ErrorGeneric {
+		t.Errorf("Custom error pattern should match, got %s", errType)
+	}
+
+	// Test invalid regex
+	err = AddErrorPattern(ErrorGeneric, `[invalid(regex`, "Bad pattern")
+	if err == nil {
+		t.Error("AddErrorPattern should fail with invalid regex")
+	}
+}
+
+// TestDefaultConfig tests the default configuration values
+func TestDefaultConfig(t *testing.T) {
+	config := DefaultConfig()
+
+	if config.ActivityThreshold != 5 {
+		t.Errorf("ActivityThreshold = %d, want 5", config.ActivityThreshold)
+	}
+	if config.OutputPreviewLength != 200 {
+		t.Errorf("OutputPreviewLength = %d, want 200", config.OutputPreviewLength)
+	}
+	if config.ScanLines != 50 {
+		t.Errorf("ScanLines = %d, want 50", config.ScanLines)
 	}
 }
