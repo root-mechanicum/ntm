@@ -1,5 +1,5 @@
-# Binaries
-ntm
+# Binaries (only at root, not cmd/ntm/)
+/ntm
 *.exe
 dist/
 
