@@ -13,13 +13,61 @@ import (
 
 // Config represents the main configuration
 type Config struct {
-	ProjectsBase string          `toml:"projects_base"`
-	PaletteFile  string          `toml:"palette_file"` // Path to command_palette.md (optional)
-	Agents       AgentConfig     `toml:"agents"`
-	Palette      []PaletteCmd    `toml:"palette"`
-	Tmux         TmuxConfig      `toml:"tmux"`
-	AgentMail    AgentMailConfig `toml:"agent_mail"`
-	Models       ModelsConfig    `toml:"models"`
+	ProjectsBase string            `toml:"projects_base"`
+	PaletteFile  string            `toml:"palette_file"` // Path to command_palette.md (optional)
+	Agents       AgentConfig       `toml:"agents"`
+	Palette      []PaletteCmd      `toml:"palette"`
+	Tmux         TmuxConfig        `toml:"tmux"`
+	AgentMail    AgentMailConfig   `toml:"agent_mail"`
+	Models       ModelsConfig      `toml:"models"`
+	Alerts       AlertsConfig      `toml:"alerts"`
+	Checkpoints  CheckpointsConfig `toml:"checkpoints"`
+}
+
+// CheckpointsConfig holds configuration for automatic checkpoints
+type CheckpointsConfig struct {
+	Enabled               bool `toml:"enabled"`                  // Master toggle for auto-checkpoints
+	BeforeBroadcast       bool `toml:"before_broadcast"`         // Auto-checkpoint before sending to all agents
+	BeforeAddAgents       int  `toml:"before_add_agents"`        // Auto-checkpoint when adding >= N agents (0 = disabled)
+	MaxAutoCheckpoints    int  `toml:"max_auto_checkpoints"`     // Max auto-checkpoints per session (rotation)
+	ScrollbackLines       int  `toml:"scrollback_lines"`         // Lines of scrollback to capture
+	IncludeGit            bool `toml:"include_git"`              // Capture git state in auto-checkpoints
+	AutoCheckpointOnSpawn bool `toml:"auto_checkpoint_on_spawn"` // Auto-checkpoint when spawning session
+}
+
+// DefaultCheckpointsConfig returns sensible checkpoint defaults
+func DefaultCheckpointsConfig() CheckpointsConfig {
+	return CheckpointsConfig{
+		Enabled:               true,
+		BeforeBroadcast:       true,
+		BeforeAddAgents:       3,  // Auto-checkpoint when adding 3+ agents
+		MaxAutoCheckpoints:    10, // Keep last 10 auto-checkpoints per session
+		ScrollbackLines:       500,
+		IncludeGit:            true,
+		AutoCheckpointOnSpawn: false, // Don't checkpoint empty sessions by default
+	}
+}
+
+// AlertsConfig holds configuration for the alert system
+type AlertsConfig struct {
+	Enabled              bool    `toml:"enabled"`                // Master toggle for alerts
+	AgentStuckMinutes    int     `toml:"agent_stuck_minutes"`    // Minutes without output before alerting
+	DiskLowThresholdGB   float64 `toml:"disk_low_threshold_gb"`  // Minimum free disk space (GB)
+	MailBacklogThreshold int     `toml:"mail_backlog_threshold"` // Unread messages before alerting
+	BeadStaleHours       int     `toml:"bead_stale_hours"`       // Hours before in-progress bead is stale
+	ResolvedPruneMinutes int     `toml:"resolved_prune_minutes"` // How long to keep resolved alerts
+}
+
+// DefaultAlertsConfig returns sensible alert defaults
+func DefaultAlertsConfig() AlertsConfig {
+	return AlertsConfig{
+		Enabled:              true,
+		AgentStuckMinutes:    5,
+		DiskLowThresholdGB:   5.0,
+		MailBacklogThreshold: 10,
+		BeadStaleHours:       24,
+		ResolvedPruneMinutes: 60,
+	}
 }
 
 // AgentConfig defines the commands for each agent type
@@ -279,7 +327,9 @@ func Default() *Config {
 			AutoRegister: true,
 			ProgramName:  "ntm",
 		},
-		Models: DefaultModels(),
+		Models:      DefaultModels(),
+		Alerts:      DefaultAlertsConfig(),
+		Checkpoints: DefaultCheckpointsConfig(),
 	}
 
 	// Try to load palette from markdown file
@@ -469,6 +519,41 @@ func Load(path string) (*Config, error) {
 		cfg.AgentMail.Enabled = enabled == "1" || enabled == "true"
 	}
 
+	// Apply Alerts defaults
+	defaults := DefaultAlertsConfig()
+	if cfg.Alerts.AgentStuckMinutes == 0 {
+		cfg.Alerts.AgentStuckMinutes = defaults.AgentStuckMinutes
+	}
+	if cfg.Alerts.DiskLowThresholdGB == 0 {
+		cfg.Alerts.DiskLowThresholdGB = defaults.DiskLowThresholdGB
+	}
+	if cfg.Alerts.MailBacklogThreshold == 0 {
+		cfg.Alerts.MailBacklogThreshold = defaults.MailBacklogThreshold
+	}
+	if cfg.Alerts.BeadStaleHours == 0 {
+		cfg.Alerts.BeadStaleHours = defaults.BeadStaleHours
+	}
+	if cfg.Alerts.ResolvedPruneMinutes == 0 {
+		cfg.Alerts.ResolvedPruneMinutes = defaults.ResolvedPruneMinutes
+	}
+
+	// Apply Checkpoints defaults
+	cpDefaults := DefaultCheckpointsConfig()
+	// Note: Enabled defaults to false from TOML, but we want true by default
+	// Only override if section is completely missing (checked by MaxAutoCheckpoints)
+	if cfg.Checkpoints.MaxAutoCheckpoints == 0 {
+		cfg.Checkpoints.MaxAutoCheckpoints = cpDefaults.MaxAutoCheckpoints
+	}
+	if cfg.Checkpoints.ScrollbackLines == 0 {
+		cfg.Checkpoints.ScrollbackLines = cpDefaults.ScrollbackLines
+	}
+	// For bool fields, if checkpoints section is missing, apply defaults
+	// We detect this by checking if MaxAutoCheckpoints was 0 (now set to default)
+	if cfg.Checkpoints.MaxAutoCheckpoints == cpDefaults.MaxAutoCheckpoints && !cfg.Checkpoints.Enabled {
+		// Section likely missing, apply all defaults
+		cfg.Checkpoints = cpDefaults
+	}
+
 	// Try to load palette from markdown file
 	// This takes precedence over TOML [[palette]] entries
 	mdPath := cfg.PaletteFile
@@ -605,6 +690,17 @@ func Print(cfg *Config, w io.Writer) error {
 	for alias, fullName := range cfg.Models.Gemini {
 		fmt.Fprintf(w, "%s = %q\n", alias, fullName)
 	}
+	fmt.Fprintln(w)
+
+	// Write alerts configuration
+	fmt.Fprintln(w, "[alerts]")
+	fmt.Fprintln(w, "# Alert system configuration for proactive problem detection")
+	fmt.Fprintf(w, "enabled = %t\n", cfg.Alerts.Enabled)
+	fmt.Fprintf(w, "agent_stuck_minutes = %d    # Minutes without output before alerting\n", cfg.Alerts.AgentStuckMinutes)
+	fmt.Fprintf(w, "disk_low_threshold_gb = %.1f  # Minimum free disk space (GB)\n", cfg.Alerts.DiskLowThresholdGB)
+	fmt.Fprintf(w, "mail_backlog_threshold = %d  # Unread messages before alerting\n", cfg.Alerts.MailBacklogThreshold)
+	fmt.Fprintf(w, "bead_stale_hours = %d       # Hours before in-progress bead is stale\n", cfg.Alerts.BeadStaleHours)
+	fmt.Fprintf(w, "resolved_prune_minutes = %d # How long to keep resolved alerts\n", cfg.Alerts.ResolvedPruneMinutes)
 	fmt.Fprintln(w)
 
 	fmt.Fprintln(w, "# Command Palette entries")

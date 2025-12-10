@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Dicklesworthstone/ntm/internal/alerts"
 	"github.com/Dicklesworthstone/ntm/internal/bv"
 	"github.com/Dicklesworthstone/ntm/internal/tmux"
 	"github.com/Dicklesworthstone/ntm/internal/tracker"
@@ -821,11 +822,35 @@ func detectState(lines []string, title string) string {
 
 // SnapshotOutput provides complete system state for AI orchestration
 type SnapshotOutput struct {
-	Timestamp    string            `json:"ts"`
-	Sessions     []SnapshotSession `json:"sessions"`
-	BeadsSummary *BeadsSummary     `json:"beads_summary,omitempty"`
-	MailUnread   int               `json:"mail_unread,omitempty"`
-	Alerts       []string          `json:"alerts"`
+	Timestamp      string            `json:"ts"`
+	Sessions       []SnapshotSession `json:"sessions"`
+	BeadsSummary   *BeadsSummary     `json:"beads_summary,omitempty"`
+	MailUnread     int               `json:"mail_unread,omitempty"`
+	Alerts         []string          `json:"alerts"`                    // Legacy: simple string alerts
+	AlertsDetailed []AlertInfo       `json:"alerts_detailed,omitempty"` // Rich alert objects
+	AlertSummary   *AlertSummaryInfo `json:"alert_summary,omitempty"`
+}
+
+// AlertInfo provides detailed alert information for robot output
+type AlertInfo struct {
+	ID         string                 `json:"id"`
+	Type       string                 `json:"type"`
+	Severity   string                 `json:"severity"`
+	Message    string                 `json:"message"`
+	Session    string                 `json:"session,omitempty"`
+	Pane       string                 `json:"pane,omitempty"`
+	BeadID     string                 `json:"bead_id,omitempty"`
+	Context    map[string]interface{} `json:"context,omitempty"`
+	CreatedAt  string                 `json:"created_at"`
+	DurationMs int64                  `json:"duration_ms"`
+	Count      int                    `json:"count"`
+}
+
+// AlertSummaryInfo provides aggregate alert statistics
+type AlertSummaryInfo struct {
+	TotalActive   int            `json:"total_active"`
+	BySeverity    map[string]int `json:"by_severity"`
+	ByType        map[string]int `json:"by_type"`
 }
 
 // SnapshotSession represents a session in the snapshot
@@ -955,12 +980,53 @@ func PrintSnapshot() error {
 		output.BeadsSummary = beads
 	}
 
-	// Add alerts for detected issues
+	// Add alerts for detected issues (legacy string format)
 	for _, sess := range output.Sessions {
 		for _, agent := range sess.Agents {
 			if agent.State == "error" {
 				output.Alerts = append(output.Alerts, fmt.Sprintf("agent %s in %s has error state", agent.Pane, sess.Name))
 			}
+		}
+	}
+
+	// Generate and add detailed alerts using the alerts package
+	alertCfg := alerts.DefaultConfig()
+	activeAlerts := alerts.GetActiveAlerts(alertCfg)
+
+	if len(activeAlerts) > 0 {
+		output.AlertsDetailed = make([]AlertInfo, len(activeAlerts))
+		for i, a := range activeAlerts {
+			output.AlertsDetailed[i] = AlertInfo{
+				ID:         a.ID,
+				Type:       string(a.Type),
+				Severity:   string(a.Severity),
+				Message:    a.Message,
+				Session:    a.Session,
+				Pane:       a.Pane,
+				BeadID:     a.BeadID,
+				Context:    a.Context,
+				CreatedAt:  a.CreatedAt.Format(time.RFC3339),
+				DurationMs: a.Duration().Milliseconds(),
+				Count:      a.Count,
+			}
+		}
+
+		// Add to legacy alerts too for backwards compatibility
+		for _, a := range activeAlerts {
+			msg := a.Message
+			if a.Session != "" {
+				msg = a.Session + ": " + msg
+			}
+			output.Alerts = append(output.Alerts, msg)
+		}
+
+		// Add summary
+		tracker := alerts.GetGlobalTracker()
+		summary := tracker.Summary()
+		output.AlertSummary = &AlertSummaryInfo{
+			TotalActive: summary.TotalActive,
+			BySeverity:  summary.BySeverity,
+			ByType:      summary.ByType,
 		}
 	}
 
@@ -1365,6 +1431,72 @@ func PrintGraph() error {
 		}
 	} else {
 		output.Health = health
+	}
+
+	return encodeJSON(output)
+}
+
+// AlertsOutput provides machine-readable alert information
+type AlertsOutput struct {
+	GeneratedAt time.Time        `json:"generated_at"`
+	Enabled     bool             `json:"enabled"`
+	Active      []AlertInfo      `json:"active"`
+	Resolved    []AlertInfo      `json:"resolved,omitempty"`
+	Summary     AlertSummaryInfo `json:"summary"`
+}
+
+// PrintAlertsDetailed outputs all alerts in JSON format
+func PrintAlertsDetailed(includeResolved bool) error {
+	alertCfg := alerts.DefaultConfig()
+	tracker := alerts.GenerateAndTrack(alertCfg)
+
+	active, resolved := tracker.GetAll()
+	summary := tracker.Summary()
+
+	output := AlertsOutput{
+		GeneratedAt: time.Now().UTC(),
+		Enabled:     alertCfg.Enabled,
+		Active:      make([]AlertInfo, len(active)),
+		Summary: AlertSummaryInfo{
+			TotalActive: summary.TotalActive,
+			BySeverity:  summary.BySeverity,
+			ByType:      summary.ByType,
+		},
+	}
+
+	for i, a := range active {
+		output.Active[i] = AlertInfo{
+			ID:         a.ID,
+			Type:       string(a.Type),
+			Severity:   string(a.Severity),
+			Message:    a.Message,
+			Session:    a.Session,
+			Pane:       a.Pane,
+			BeadID:     a.BeadID,
+			Context:    a.Context,
+			CreatedAt:  a.CreatedAt.Format(time.RFC3339),
+			DurationMs: a.Duration().Milliseconds(),
+			Count:      a.Count,
+		}
+	}
+
+	if includeResolved {
+		output.Resolved = make([]AlertInfo, len(resolved))
+		for i, a := range resolved {
+			output.Resolved[i] = AlertInfo{
+				ID:         a.ID,
+				Type:       string(a.Type),
+				Severity:   string(a.Severity),
+				Message:    a.Message,
+				Session:    a.Session,
+				Pane:       a.Pane,
+				BeadID:     a.BeadID,
+				Context:    a.Context,
+				CreatedAt:  a.CreatedAt.Format(time.RFC3339),
+				DurationMs: a.Duration().Milliseconds(),
+				Count:      a.Count,
+			}
+		}
 	}
 
 	return encodeJSON(output)
