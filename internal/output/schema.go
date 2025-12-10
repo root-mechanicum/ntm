@@ -171,3 +171,14 @@ type VersionResponse struct {
 	GoVersion string `json:"go_version"`
 	Platform  string `json:"platform"`
 }
+
+// AnalyticsResponse is the output format for analytics command
+type AnalyticsResponse struct {
+	TimestampedResponse
+	Period         string `json:"period"`
+	TotalSessions  int    `json:"total_sessions"`
+	TotalAgents    int    `json:"total_agents"`
+	TotalPrompts   int    `json:"total_prompts"`
+	TotalCharsSent int    `json:"total_chars_sent"`
+	ErrorCount     int    `json:"error_count"`
+}
