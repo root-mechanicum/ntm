@@ -3,8 +3,10 @@ package cli
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/Dicklesworthstone/ntm/internal/config"
+	"github.com/Dicklesworthstone/ntm/internal/output"
 	"github.com/Dicklesworthstone/ntm/internal/robot"
 	"github.com/spf13/cobra"
 )
@@ -12,6 +14,9 @@ import (
 var (
 	cfgFile string
 	cfg     *config.Config
+
+	// Global JSON output flag - inherited by all subcommands
+	jsonOutput bool
 
 	// Build information - set by goreleaser via ldflags
 	Version = "dev"
@@ -78,6 +83,61 @@ Shell Integration:
 			}
 			return
 		}
+		if robotSnapshot {
+			if err := robot.PrintSnapshot(); err != nil {
+				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				os.Exit(1)
+			}
+			return
+		}
+		if robotTail != "" {
+			// Parse pane filter
+			var paneFilter []string
+			if robotPanes != "" {
+				paneFilter = strings.Split(robotPanes, ",")
+			}
+			if err := robot.PrintTail(robotTail, robotLines, paneFilter); err != nil {
+				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				os.Exit(1)
+			}
+			return
+		}
+		if robotSend != "" {
+			// Validate message is provided
+			if robotSendMsg == "" {
+				fmt.Fprintf(os.Stderr, "Error: --msg is required with --robot-send\n")
+				os.Exit(1)
+			}
+			// Parse pane filter
+			var paneFilter []string
+			if robotPanes != "" {
+				paneFilter = strings.Split(robotPanes, ",")
+			}
+			// Parse exclude list
+			var excludeList []string
+			if robotSendExclude != "" {
+				excludeList = strings.Split(robotSendExclude, ",")
+			}
+			// Parse agent types
+			var agentTypes []string
+			if robotSendType != "" {
+				agentTypes = strings.Split(robotSendType, ",")
+			}
+			opts := robot.SendOptions{
+				Session:    robotSend,
+				Message:    robotSendMsg,
+				All:        robotSendAll,
+				Panes:      paneFilter,
+				AgentTypes: agentTypes,
+				Exclude:    excludeList,
+				DelayMs:    robotSendDelay,
+			}
+			if err := robot.PrintSend(opts); err != nil {
+				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				os.Exit(1)
+			}
+			return
+		}
 
 		// Show stunning help with gradients when run without subcommand
 		PrintStunningHelp()
@@ -90,20 +150,46 @@ func Execute() error {
 
 // Robot output flags for AI agent integration
 var (
-	robotHelp    bool
-	robotStatus  bool
-	robotVersion bool
-	robotPlan    bool
+	robotHelp     bool
+	robotStatus   bool
+	robotVersion  bool
+	robotPlan     bool
+	robotSnapshot bool   // unified state query
+	robotTail     string // session name for tail
+	robotLines   int    // number of lines to capture
+	robotPanes   string // comma-separated pane filter
+
+	// Robot-send flags
+	robotSend        string // session name for send
+	robotSendMsg     string // message to send
+	robotSendAll     bool   // send to all panes
+	robotSendType    string // filter by agent type (e.g., "claude")
+	robotSendExclude string // comma-separated panes to exclude
+	robotSendDelay   int    // delay between sends in ms
 )
 
 func init() {
 	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default ~/.config/ntm/config.toml)")
+
+	// Global JSON output flag - applies to all commands
+	rootCmd.PersistentFlags().BoolVar(&jsonOutput, "json", false, "Output in JSON format (machine-readable)")
 
 	// Robot flags for AI agents
 	rootCmd.Flags().BoolVar(&robotHelp, "robot-help", false, "Show AI agent help documentation (JSON)")
 	rootCmd.Flags().BoolVar(&robotStatus, "robot-status", false, "Output session status as JSON for AI agents")
 	rootCmd.Flags().BoolVar(&robotVersion, "robot-version", false, "Output version info as JSON")
 	rootCmd.Flags().BoolVar(&robotPlan, "robot-plan", false, "Output execution plan as JSON for AI agents")
+	rootCmd.Flags().StringVar(&robotTail, "robot-tail", "", "Tail pane output for session (JSON)")
+	rootCmd.Flags().IntVar(&robotLines, "lines", 20, "Number of lines to capture (used with --robot-tail)")
+	rootCmd.Flags().StringVar(&robotPanes, "panes", "", "Comma-separated pane indices to filter (used with --robot-tail/--robot-send)")
+
+	// Robot-send flags for batch messaging
+	rootCmd.Flags().StringVar(&robotSend, "robot-send", "", "Send prompt to panes atomically (JSON output)")
+	rootCmd.Flags().StringVar(&robotSendMsg, "msg", "", "Message to send (used with --robot-send)")
+	rootCmd.Flags().BoolVar(&robotSendAll, "all", false, "Send to all panes including user (used with --robot-send)")
+	rootCmd.Flags().StringVar(&robotSendType, "type", "", "Filter by agent type: claude, codex, gemini (used with --robot-send)")
+	rootCmd.Flags().StringVar(&robotSendExclude, "exclude", "", "Comma-separated pane indices to exclude (used with --robot-send)")
+	rootCmd.Flags().IntVar(&robotSendDelay, "delay-ms", 0, "Delay between sends in milliseconds (used with --robot-send)")
 
 	// Sync version info with robot package
 	robot.Version = Version
@@ -215,5 +301,20 @@ func newConfigCmd() *cobra.Command {
 	})
 
 	return cmd
+}
+
+// IsJSONOutput returns true if JSON output is enabled
+func IsJSONOutput() bool {
+	return jsonOutput
+}
+
+// GetOutputFormat returns the current output format
+func GetOutputFormat() output.Format {
+	return output.DetectFormat(jsonOutput)
+}
+
+// GetFormatter returns a formatter configured for the current output mode
+func GetFormatter() *output.Formatter {
+	return output.New(output.WithJSON(jsonOutput))
 }
 

@@ -136,7 +136,7 @@ func GradientBorder(content string, width int, colors ...string) string {
 	for _, line := range lines {
 		// Pad line to content width
 		paddedLine := line
-		visibleLen := visibleLength(line)
+		visibleLen := lipgloss.Width(line)
 		if visibleLen < contentWidth {
 			paddedLine = line + strings.Repeat(" ", contentWidth-visibleLen)
 		}
@@ -150,27 +150,6 @@ func GradientBorder(content string, width int, colors ...string) string {
 
 	result.WriteString(bottomBorder)
 	return result.String()
-}
-
-// visibleLength calculates the visible length of a string (excluding ANSI codes)
-func visibleLength(s string) int {
-	// Simple ANSI stripping - count runes not in escape sequences
-	inEscape := false
-	count := 0
-	for _, r := range s {
-		if r == '\x1b' {
-			inEscape = true
-			continue
-		}
-		if inEscape {
-			if r == 'm' {
-				inEscape = false
-			}
-			continue
-		}
-		count++
-	}
-	return count
 }
 
 // Glow creates a glowing text effect using color gradients
@@ -383,7 +362,7 @@ func RenderBox(content string, width int, box BoxChars, borderColor lipgloss.Col
 
 	// Content lines
 	for _, line := range lines {
-		visLen := visibleLength(line)
+		visLen := lipgloss.Width(line)
 		padding := ""
 		if visLen < contentWidth {
 			padding = strings.Repeat(" ", contentWidth-visLen)
@@ -479,7 +458,7 @@ func StatusDot(color lipgloss.Color, animated bool, tick int) string {
 
 // Truncate truncates text to max width with ellipsis
 func Truncate(text string, maxWidth int) string {
-	if visibleLength(text) <= maxWidth {
+	if lipgloss.Width(text) <= maxWidth {
 		return text
 	}
 	// Simple truncation - doesn't handle ANSI codes perfectly
@@ -492,7 +471,7 @@ func Truncate(text string, maxWidth int) string {
 
 // CenterText centers text within a given width
 func CenterText(text string, width int) string {
-	visLen := visibleLength(text)
+	visLen := lipgloss.Width(text)
 	if visLen >= width {
 		return text
 	}
@@ -503,7 +482,7 @@ func CenterText(text string, width int) string {
 
 // RightAlign right-aligns text within a given width
 func RightAlign(text string, width int) string {
-	visLen := visibleLength(text)
+	visLen := lipgloss.Width(text)
 	if visLen >= width {
 		return text
 	}
