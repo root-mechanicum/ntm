@@ -354,6 +354,7 @@ func outputStatsJSON(stats AnalyticsStats) error {
 			TotalAgents:         stats.TotalAgents,
 			TotalPrompts:        stats.TotalPrompts,
 			TotalCharsSent:      stats.TotalCharsSent,
+			TotalTokensEst:      stats.TotalTokensEst,
 			ErrorCount:          stats.ErrorCount,
 		}
 		return output.PrintJSON(resp)

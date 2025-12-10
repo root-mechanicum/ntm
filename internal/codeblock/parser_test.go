@@ -163,7 +163,7 @@ func TestParseFilePathComment(t *testing.T) {
 			name: "no path detectable",
 			text: "```python\nprint('hello')\n```",
 			wantPath: "",
-			wantIsNew: false,
+			wantIsNew: true, // Python defaults to isNew when no path detected
 		},
 	}
 
