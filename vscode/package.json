@@ -1,0 +1,67 @@
+{
+  "name": "ntm-vscode",
+  "displayName": "NTM Integration",
+  "description": "Integration for Named Tmux Manager (NTM)",
+  "version": "0.0.1",
+  "publisher": "dicklesworthstone",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Dicklesworthstone/ntm"
+  },
+  "engines": {
+    "vscode": "^1.80.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onStartupFinished",
+    "onCommand:ntm.spawn",
+    "onCommand:ntm.showStatus"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "ntm.spawn",
+        "title": "NTM: Spawn Agents for Project"
+      },
+      {
+        "command": "ntm.showStatus",
+        "title": "NTM: Show Session Status"
+      },
+      {
+        "command": "ntm.sendSelection",
+        "title": "NTM: Send Selection to Agent"
+      },
+      {
+        "command": "ntm.sendCurrentFile",
+        "title": "NTM: Send Current File to Agent"
+      },
+      {
+        "command": "ntm.openTerminal",
+        "title": "NTM: Open Terminal (Attach)"
+      }
+    ],
+    "configuration": {
+      "title": "NTM",
+      "properties": {
+        "ntm.binaryPath": {
+          "type": "string",
+          "default": "ntm",
+          "description": "Path to ntm executable"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.80.0",
+    "@types/node": "^18.0.0",
+    "typescript": "^5.0.0"
+  }
+}
