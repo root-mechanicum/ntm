@@ -244,6 +244,27 @@ Shell Integration:
 			}
 			return
 		}
+		if robotInterrupt != "" {
+			// Parse pane filter (reuse --panes flag)
+			var paneFilter []string
+			if robotPanes != "" {
+				paneFilter = strings.Split(robotPanes, ",")
+			}
+			opts := robot.InterruptOptions{
+				Session:   robotInterrupt,
+				Message:   robotInterruptMsg,
+				Panes:     paneFilter,
+				All:       robotInterruptAll,
+				Force:     robotInterruptForce,
+				NoWait:    robotInterruptNoWait,
+				TimeoutMs: robotInterruptTimeout,
+			}
+			if err := robot.PrintInterrupt(opts); err != nil {
+				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				os.Exit(1)
+			}
+			return
+		}
 
 		// Show stunning help with gradients when run without subcommand
 		PrintStunningHelp()
@@ -299,6 +320,14 @@ var (
 	robotSpawnNoUser  bool   // don't create user pane
 	robotSpawnWait    bool   // wait for agents to be ready
 	robotSpawnTimeout int    // timeout for ready detection in seconds
+
+	// Robot-interrupt flags for priority course correction
+	robotInterrupt        string // session name for interrupt
+	robotInterruptMsg     string // message to send after interrupt
+	robotInterruptAll     bool   // include all panes (including user)
+	robotInterruptForce   bool   // send Ctrl+C even if agent appears idle
+	robotInterruptNoWait  bool   // don't wait for ready state
+	robotInterruptTimeout int    // timeout for ready state in milliseconds
 )
 
 func init() {
@@ -355,6 +384,14 @@ func init() {
 	rootCmd.Flags().BoolVar(&robotSpawnWait, "spawn-wait", false, "Wait for agents to be ready (used with --robot-spawn)")
 	rootCmd.Flags().IntVar(&robotSpawnTimeout, "spawn-timeout", 30, "Timeout in seconds for ready detection (used with --robot-spawn)")
 
+	// Robot-interrupt flags for priority course correction
+	rootCmd.Flags().StringVar(&robotInterrupt, "robot-interrupt", "", "Interrupt agents with Ctrl+C and optionally send message (JSON output)")
+	rootCmd.Flags().StringVar(&robotInterruptMsg, "interrupt-msg", "", "Message to send after interrupt (used with --robot-interrupt)")
+	rootCmd.Flags().BoolVar(&robotInterruptAll, "interrupt-all", false, "Include all panes including user (used with --robot-interrupt)")
+	rootCmd.Flags().BoolVar(&robotInterruptForce, "interrupt-force", false, "Send Ctrl+C even if agent appears idle (used with --robot-interrupt)")
+	rootCmd.Flags().BoolVar(&robotInterruptNoWait, "interrupt-no-wait", false, "Don't wait for ready state (used with --robot-interrupt)")
+	rootCmd.Flags().IntVar(&robotInterruptTimeout, "interrupt-timeout", 10000, "Timeout in ms for ready state (used with --robot-interrupt)")
+
 	// Sync version info with robot package
 	robot.Version = Version
 	robot.Commit = Commit
@@ -387,6 +424,7 @@ func init() {
 		// Output management
 		newCopyCmd(),
 		newSaveCmd(),
+		newGrepCmd(),
 
 		// Session persistence
 		newCheckpointCmd(),
