@@ -13,11 +13,12 @@ import (
 
 // Config represents the main configuration
 type Config struct {
-	ProjectsBase string       `toml:"projects_base"`
-	PaletteFile  string       `toml:"palette_file"` // Path to command_palette.md (optional)
-	Agents       AgentConfig  `toml:"agents"`
-	Palette      []PaletteCmd `toml:"palette"`
-	Tmux         TmuxConfig   `toml:"tmux"`
+	ProjectsBase string          `toml:"projects_base"`
+	PaletteFile  string          `toml:"palette_file"` // Path to command_palette.md (optional)
+	Agents       AgentConfig     `toml:"agents"`
+	Palette      []PaletteCmd    `toml:"palette"`
+	Tmux         TmuxConfig      `toml:"tmux"`
+	AgentMail    AgentMailConfig `toml:"agent_mail"`
 }
 
 // AgentConfig defines the commands for each agent type
@@ -40,6 +41,15 @@ type PaletteCmd struct {
 type TmuxConfig struct {
 	DefaultPanes int    `toml:"default_panes"`
 	PaletteKey   string `toml:"palette_key"`
+}
+
+// AgentMailConfig holds Agent Mail server settings
+type AgentMailConfig struct {
+	Enabled      bool   `toml:"enabled"`       // Master toggle
+	URL          string `toml:"url"`           // Server endpoint
+	Token        string `toml:"token"`         // Bearer token
+	AutoRegister bool   `toml:"auto_register"` // Auto-register sessions as agents
+	ProgramName  string `toml:"program_name"`  // Program identifier for registration
 }
 
 // DefaultPath returns the default config file path
@@ -170,6 +180,9 @@ func LoadPaletteFromMarkdown(path string) ([]PaletteCmd, error) {
 	return commands, nil
 }
 
+// DefaultAgentMailURL is the default Agent Mail server URL.
+const DefaultAgentMailURL = "http://127.0.0.1:8765/mcp/"
+
 // Default returns the default configuration.
 // It tries to load the palette from a markdown file first, falling back to hardcoded defaults.
 func Default() *Config {
@@ -183,6 +196,13 @@ func Default() *Config {
 		Tmux: TmuxConfig{
 			DefaultPanes: 10,
 			PaletteKey:   "F6",
+		},
+		AgentMail: AgentMailConfig{
+			Enabled:      true,
+			URL:          DefaultAgentMailURL,
+			Token:        "",
+			AutoRegister: true,
+			ProgramName:  "ntm",
 		},
 	}
 
@@ -354,6 +374,25 @@ func Load(path string) (*Config, error) {
 		cfg.Tmux.PaletteKey = "F6"
 	}
 
+	// Apply AgentMail defaults
+	if cfg.AgentMail.URL == "" {
+		cfg.AgentMail.URL = DefaultAgentMailURL
+	}
+	if cfg.AgentMail.ProgramName == "" {
+		cfg.AgentMail.ProgramName = "ntm"
+	}
+
+	// Environment variable overrides for AgentMail
+	if url := os.Getenv("AGENT_MAIL_URL"); url != "" {
+		cfg.AgentMail.URL = url
+	}
+	if token := os.Getenv("AGENT_MAIL_TOKEN"); token != "" {
+		cfg.AgentMail.Token = token
+	}
+	if enabled := os.Getenv("AGENT_MAIL_ENABLED"); enabled != "" {
+		cfg.AgentMail.Enabled = enabled == "1" || enabled == "true"
+	}
+
 	// Try to load palette from markdown file
 	// This takes precedence over TOML [[palette]] entries
 	mdPath := cfg.PaletteFile
@@ -444,6 +483,20 @@ func Print(cfg *Config, w io.Writer) error {
 	fmt.Fprintln(w, "# Tmux-specific settings")
 	fmt.Fprintf(w, "default_panes = %d\n", cfg.Tmux.DefaultPanes)
 	fmt.Fprintf(w, "palette_key = %q\n", cfg.Tmux.PaletteKey)
+	fmt.Fprintln(w)
+
+	fmt.Fprintln(w, "[agent_mail]")
+	fmt.Fprintln(w, "# Agent Mail server settings for multi-agent coordination")
+	fmt.Fprintln(w, "# Environment variables: AGENT_MAIL_URL, AGENT_MAIL_TOKEN, AGENT_MAIL_ENABLED")
+	fmt.Fprintf(w, "enabled = %t\n", cfg.AgentMail.Enabled)
+	fmt.Fprintf(w, "url = %q\n", cfg.AgentMail.URL)
+	if cfg.AgentMail.Token != "" {
+		fmt.Fprintf(w, "token = %q\n", cfg.AgentMail.Token)
+	} else {
+		fmt.Fprintln(w, "# token = \"\"  # Or set AGENT_MAIL_TOKEN env var")
+	}
+	fmt.Fprintf(w, "auto_register = %t\n", cfg.AgentMail.AutoRegister)
+	fmt.Fprintf(w, "program_name = %q\n", cfg.AgentMail.ProgramName)
 	fmt.Fprintln(w)
 
 	fmt.Fprintln(w, "# Command Palette entries")

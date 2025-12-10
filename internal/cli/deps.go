@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"strings"
 
+	"github.com/Dicklesworthstone/ntm/internal/agentmail"
 	"github.com/Dicklesworthstone/ntm/internal/tui/theme"
 	"github.com/spf13/cobra"
 )
@@ -177,6 +178,11 @@ func runDeps(verbose bool) {
 		fmt.Println()
 	}
 
+	// Services section
+	fmt.Printf("%sServices:%s\n\n", "\033[1m", "\033[0m")
+	checkAgentMail(t, verbose)
+	fmt.Println()
+
 	// Summary
 	fmt.Printf("%s───────────────────────────────────────────────────%s\n", "\033[2m", "\033[0m")
 
@@ -192,6 +198,25 @@ func runDeps(verbose bool) {
 	}
 
 	fmt.Println()
+}
+
+// checkAgentMail checks Agent Mail server availability
+func checkAgentMail(t theme.Theme, verbose bool) {
+	client := agentmail.NewClient()
+
+	if client.IsAvailable() {
+		fmt.Printf("  %s✓%s %-15s", colorize(t.Success), "\033[0m", "Agent Mail")
+		if verbose {
+			fmt.Printf(" %srunning (%s)%s", "\033[2m", agentmail.DefaultBaseURL, "\033[0m")
+		}
+		fmt.Println()
+	} else {
+		fmt.Printf("  %s○%s %-15s", colorize(t.Overlay), "\033[0m", "Agent Mail")
+		if verbose {
+			fmt.Printf(" %snot detected (optional)%s", "\033[2m", "\033[0m")
+		}
+		fmt.Println()
+	}
 }
 
 func checkDep(dep depCheck) (status string, version string) {

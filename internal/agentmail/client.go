@@ -24,6 +24,9 @@ const (
 
 	// HealthCheckPath is the path for health checks.
 	HealthCheckPath = "health"
+
+	// AvailabilityCacheTTL is how long to cache IsAvailable() results.
+	AvailabilityCacheTTL = 30 * time.Second
 )
 
 // Client provides methods to interact with the Agent Mail API.
@@ -33,6 +36,10 @@ type Client struct {
 	httpClient  *http.Client
 	projectKey  string // Cached project path
 	requestID   atomic.Int64
+
+	// Availability cache (30s TTL)
+	availableCache     atomic.Bool
+	availableCacheTime atomic.Int64 // Unix timestamp in seconds
 }
 
 // Option configures the Client.
@@ -104,12 +111,32 @@ func NewClient(opts ...Option) *Client {
 }
 
 // IsAvailable checks if the Agent Mail server is reachable.
+// Results are cached for 30 seconds to avoid repeated health checks.
 func (c *Client) IsAvailable() bool {
+	// Check cache first
+	cacheTime := c.availableCacheTime.Load()
+	if cacheTime > 0 && time.Now().Unix()-cacheTime < int64(AvailabilityCacheTTL.Seconds()) {
+		return c.availableCache.Load()
+	}
+
+	// Perform health check
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
 	_, err := c.HealthCheck(ctx)
-	return err == nil
+	available := err == nil
+
+	// Cache the result
+	c.availableCache.Store(available)
+	c.availableCacheTime.Store(time.Now().Unix())
+
+	return available
+}
+
+// InvalidateCache clears the availability cache, forcing the next IsAvailable() call
+// to perform a fresh health check.
+func (c *Client) InvalidateCache() {
+	c.availableCacheTime.Store(0)
 }
 
 // HealthCheck performs a health check against the Agent Mail server.
