@@ -79,11 +79,6 @@ type Model struct {
 	healthStatus  string // "ok", "warning", "critical", "no_baseline", "unavailable"
 	healthMessage string
 
-	// Responsive layout state (for wide displays)
-	layoutDims   LayoutDimensions
-	focusedPanel FocusedPanel
-	viewport     ViewportPosition
-
 	// Layout tier (narrow/split/wide/ultra)
 	tier layout.Tier
 }
@@ -825,6 +820,361 @@ func maxInt(a, b int) int {
 		return a
 	}
 	return b
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// SPLIT VIEW RENDERING (for wide terminals ≥110 cols)
+// Inspired by beads_viewer's responsive layout patterns
+// ═══════════════════════════════════════════════════════════════════════════
+
+// renderSplitView renders a two-panel layout: pane list (left) + detail (right)
+func (m Model) renderSplitView() string {
+	t := m.theme
+	leftWidth, rightWidth := layout.SplitProportions(m.width)
+
+	// Calculate content height (leave room for header/footer)
+	contentHeight := m.height - 14
+	if contentHeight < 5 {
+		contentHeight = 5
+	}
+
+	// Build left panel (pane list)
+	listContent := m.renderPaneList(leftWidth - 4) // -4 for borders/padding
+	listPanel := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(t.Surface1).
+		Width(leftWidth).
+		Height(contentHeight).
+		MaxHeight(contentHeight).
+		Padding(0, 1).
+		Render(listContent)
+
+	// Build right panel (detail view)
+	detailContent := m.renderPaneDetail(rightWidth - 4)
+	detailPanel := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(t.Pink). // Accent color for detail
+		Width(rightWidth).
+		Height(contentHeight).
+		MaxHeight(contentHeight).
+		Padding(0, 1).
+		Render(detailContent)
+
+	// Join panels horizontally
+	return "  " + lipgloss.JoinHorizontal(lipgloss.Top, listPanel, detailPanel)
+}
+
+// renderPaneList renders a compact list of panes with status indicators
+func (m Model) renderPaneList(width int) string {
+	t := m.theme
+	var lines []string
+
+	// Header row
+	headerStyle := lipgloss.NewStyle().
+		Bold(true).
+		Foreground(t.Subtext).
+		BorderStyle(lipgloss.NormalBorder()).
+		BorderBottom(true).
+		BorderForeground(t.Surface1).
+		Width(width)
+
+	// Column headers vary by tier
+	var header string
+	if m.tier >= layout.TierWide {
+		header = "  #  T  S  TITLE                    CTX     MODEL"
+	} else {
+		header = "  #  T  S  TITLE"
+	}
+	lines = append(lines, headerStyle.Render(header))
+
+	// Pane rows
+	for i, p := range m.panes {
+		isSelected := i == m.cursor
+		row := m.renderPaneRow(p, i, isSelected, width)
+		lines = append(lines, row)
+	}
+
+	return strings.Join(lines, "\n")
+}
+
+// renderPaneRow renders a single pane as a table row
+func (m Model) renderPaneRow(p tmux.Pane, idx int, selected bool, width int) string {
+	t := m.theme
+	ic := m.icons
+	var parts []string
+
+	// Selection indicator
+	if selected {
+		parts = append(parts, lipgloss.NewStyle().Foreground(t.Pink).Bold(true).Render("▸"))
+	} else {
+		parts = append(parts, " ")
+	}
+
+	// Index
+	idxStyle := lipgloss.NewStyle().Foreground(t.Overlay).Width(2)
+	parts = append(parts, idxStyle.Render(fmt.Sprintf("%2d", p.Index)))
+
+	// Type icon with color
+	var typeColor lipgloss.Color
+	var typeIcon string
+	switch p.Type {
+	case tmux.AgentClaude:
+		typeColor = t.Claude
+		typeIcon = ic.Claude
+	case tmux.AgentCodex:
+		typeColor = t.Codex
+		typeIcon = ic.Codex
+	case tmux.AgentGemini:
+		typeColor = t.Gemini
+		typeIcon = ic.Gemini
+	default:
+		typeColor = t.Green
+		typeIcon = ic.User
+	}
+	parts = append(parts, lipgloss.NewStyle().Foreground(typeColor).Bold(true).Render(typeIcon))
+
+	// Status indicator
+	ps := m.paneStatus[p.Index]
+	statusStyle := lipgloss.NewStyle()
+	var statusIcon string
+	switch ps.State {
+	case "working":
+		statusIcon = "●"
+		statusStyle = statusStyle.Foreground(t.Green)
+	case "idle":
+		statusIcon = "○"
+		statusStyle = statusStyle.Foreground(t.Yellow)
+	case "error":
+		statusIcon = "✗"
+		statusStyle = statusStyle.Foreground(t.Red)
+	case "compacted":
+		statusIcon = "⚠"
+		statusStyle = statusStyle.Foreground(t.Peach).Bold(true)
+	default:
+		statusIcon = "•"
+		statusStyle = statusStyle.Foreground(t.Overlay)
+	}
+	parts = append(parts, statusStyle.Render(statusIcon))
+
+	// Title (flexible width)
+	titleWidth := 20
+	if m.tier >= layout.TierWide {
+		titleWidth = 24
+	}
+	title := p.Title
+	if len(title) > titleWidth {
+		title = title[:titleWidth-3] + "..."
+	}
+	titleStyle := lipgloss.NewStyle().Foreground(t.Text).Width(titleWidth)
+	if selected {
+		titleStyle = titleStyle.Bold(true)
+	}
+	parts = append(parts, titleStyle.Render(title))
+
+	// Context bar (TierWide+)
+	if m.tier >= layout.TierWide && ps.ContextLimit > 0 {
+		ctxPct := ps.ContextPercent / 100
+		if ctxPct > 1 {
+			ctxPct = 1
+		}
+		bar := renderMiniSparkline(ctxPct, 6, t)
+		parts = append(parts, bar)
+	} else if m.tier >= layout.TierWide {
+		parts = append(parts, "      ") // placeholder
+	}
+
+	// Model/variant (TierWide+)
+	if m.tier >= layout.TierWide && p.Variant != "" {
+		varStyle := lipgloss.NewStyle().Foreground(t.Subtext).Italic(true).Width(8)
+		parts = append(parts, varStyle.Render(layout.TruncateRunes(p.Variant, 8, "…")))
+	} else if m.tier >= layout.TierWide {
+		parts = append(parts, "        ") // placeholder
+	}
+
+	// Highlight selected row
+	rowContent := strings.Join(parts, " ")
+	if selected {
+		return lipgloss.NewStyle().Background(t.Surface0).Render(rowContent)
+	}
+	return rowContent
+}
+
+// renderPaneDetail renders detailed info for the selected pane
+func (m Model) renderPaneDetail(width int) string {
+	t := m.theme
+	ic := m.icons
+
+	if len(m.panes) == 0 || m.cursor >= len(m.panes) {
+		emptyStyle := lipgloss.NewStyle().Foreground(t.Overlay).Italic(true)
+		return emptyStyle.Render("No pane selected")
+	}
+
+	p := m.panes[m.cursor]
+	ps := m.paneStatus[p.Index]
+	var lines []string
+
+	// Header with pane title
+	headerStyle := lipgloss.NewStyle().
+		Bold(true).
+		Foreground(t.Text).
+		BorderStyle(lipgloss.NormalBorder()).
+		BorderBottom(true).
+		BorderForeground(t.Surface1).
+		Width(width - 2).
+		Padding(0, 1)
+	lines = append(lines, headerStyle.Render(p.Title))
+	lines = append(lines, "")
+
+	// Info grid
+	labelStyle := lipgloss.NewStyle().Foreground(t.Subtext).Width(12)
+	valueStyle := lipgloss.NewStyle().Foreground(t.Text)
+
+	// Type badge
+	var typeColor lipgloss.Color
+	var typeIcon string
+	switch p.Type {
+	case tmux.AgentClaude:
+		typeColor = t.Claude
+		typeIcon = ic.Claude
+	case tmux.AgentCodex:
+		typeColor = t.Codex
+		typeIcon = ic.Codex
+	case tmux.AgentGemini:
+		typeColor = t.Gemini
+		typeIcon = ic.Gemini
+	default:
+		typeColor = t.Green
+		typeIcon = ic.User
+	}
+	typeBadge := lipgloss.NewStyle().
+		Background(typeColor).
+		Foreground(t.Base).
+		Bold(true).
+		Padding(0, 1).
+		Render(typeIcon + " " + string(p.Type))
+	lines = append(lines, labelStyle.Render("Type:")+typeBadge)
+
+	// Index
+	lines = append(lines, labelStyle.Render("Index:")+valueStyle.Render(fmt.Sprintf("%d", p.Index)))
+
+	// Dimensions
+	lines = append(lines, labelStyle.Render("Size:")+valueStyle.Render(fmt.Sprintf("%d × %d", p.Width, p.Height)))
+
+	// Variant/Model
+	if p.Variant != "" {
+		variantBadge := lipgloss.NewStyle().
+			Background(t.Surface1).
+			Foreground(t.Text).
+			Padding(0, 1).
+			Render(p.Variant)
+		lines = append(lines, labelStyle.Render("Model:")+variantBadge)
+	}
+
+	lines = append(lines, "")
+
+	// Context usage section
+	if ps.ContextLimit > 0 {
+		lines = append(lines, lipgloss.NewStyle().Bold(true).Foreground(t.Lavender).Render("Context Usage"))
+		lines = append(lines, "")
+
+		// Large context bar
+		barWidth := width - 10
+		if barWidth > 50 {
+			barWidth = 50
+		}
+		contextBar := m.renderContextBar(ps.ContextPercent, barWidth)
+		lines = append(lines, "  "+contextBar)
+
+		// Stats
+		statsStyle := lipgloss.NewStyle().Foreground(t.Subtext)
+		lines = append(lines, statsStyle.Render(fmt.Sprintf(
+			"  %d / %d tokens (%.1f%%)",
+			ps.ContextTokens, ps.ContextLimit, ps.ContextPercent,
+		)))
+		lines = append(lines, "")
+	}
+
+	// Status section
+	lines = append(lines, lipgloss.NewStyle().Bold(true).Foreground(t.Lavender).Render("Status"))
+	lines = append(lines, "")
+
+	statusText := ps.State
+	if statusText == "" {
+		statusText = "unknown"
+	}
+	var statusColor lipgloss.Color
+	var statusIcon string
+	switch ps.State {
+	case "working":
+		statusIcon = "●"
+		statusColor = t.Green
+	case "idle":
+		statusIcon = "○"
+		statusColor = t.Yellow
+	case "error":
+		statusIcon = "✗"
+		statusColor = t.Red
+	case "compacted":
+		statusIcon = "⚠"
+		statusColor = t.Peach
+	default:
+		statusIcon = "•"
+		statusColor = t.Overlay
+	}
+	lines = append(lines, "  "+lipgloss.NewStyle().Foreground(statusColor).Render(statusIcon+" "+statusText))
+
+	// Compaction warning
+	if ps.LastCompaction != nil {
+		lines = append(lines, "")
+		warnStyle := lipgloss.NewStyle().Foreground(t.Peach).Bold(true)
+		lines = append(lines, warnStyle.Render("  ⚠ Context compaction detected"))
+		if ps.RecoverySent {
+			lines = append(lines, lipgloss.NewStyle().Foreground(t.Green).Render("    ↻ Recovery prompt sent"))
+		}
+	}
+
+	// Command (if running)
+	if p.Command != "" {
+		lines = append(lines, "")
+		lines = append(lines, lipgloss.NewStyle().Bold(true).Foreground(t.Lavender).Render("Command"))
+		lines = append(lines, "")
+		cmdStyle := lipgloss.NewStyle().
+			Foreground(t.Overlay).
+			Italic(true).
+			Width(width - 6)
+		lines = append(lines, "  "+cmdStyle.Render(p.Command))
+	}
+
+	return strings.Join(lines, "\n")
+}
+
+// renderMiniSparkline renders a compact sparkline bar for table rows
+func renderMiniSparkline(value float64, width int, t theme.Theme) string {
+	if value < 0 {
+		value = 0
+	}
+	if value > 1 {
+		value = 1
+	}
+
+	filled := int(value * float64(width))
+	empty := width - filled
+
+	// Color based on value
+	var barColor lipgloss.Color
+	if value >= 0.80 {
+		barColor = t.Red
+	} else if value >= 0.60 {
+		barColor = t.Yellow
+	} else {
+		barColor = t.Green
+	}
+
+	filledStyle := lipgloss.NewStyle().Foreground(barColor)
+	emptyStyle := lipgloss.NewStyle().Foreground(t.Surface1)
+
+	return filledStyle.Render(strings.Repeat("█", filled)) +
+		emptyStyle.Render(strings.Repeat("░", empty))
 }
 
 // Run starts the dashboard

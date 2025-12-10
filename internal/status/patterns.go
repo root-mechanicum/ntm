@@ -91,9 +91,14 @@ func IsPromptLine(line string, agentType string) bool {
 // It checks the last non-empty line for prompt patterns.
 func DetectIdleFromOutput(output string, agentType string) bool {
 	// Strip ANSI first for cleaner processing
-	output = StripANSI(output)
+	clean := StripANSI(output)
 
-	lines := strings.Split(output, "\n")
+	// Quick heuristic: if we see a prompt marker in the raw output, treat as idle
+	if strings.Contains(clean, "\n$ ") || strings.HasSuffix(clean, "$ ") {
+		return true
+	}
+
+	lines := strings.Split(clean, "\n")
 	if len(lines) == 0 {
 		return false
 	}
