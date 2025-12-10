@@ -200,10 +200,99 @@ func TestRobotStatusWithSyntheticAgents(t *testing.T) {
 	}
 }
 
+func TestRobotStatusIncludesSystemFields(t *testing.T) {
+	testutil.RequireNTMBinary(t)
+
+	logger := testutil.NewTestLoggerStdout(t)
+	out := testutil.AssertCommandSuccess(t, logger, "ntm", "--robot-status")
+	logger.Log("FULL JSON OUTPUT:\n%s", string(out))
+
+	var payload struct {
+		GeneratedAt string `json:"generated_at"`
+		System      struct {
+			Version   string `json:"version"`
+			OS        string `json:"os"`
+			Arch      string `json:"arch"`
+			TmuxOK    bool   `json:"tmux_available"`
+			GoVersion string `json:"go_version"`
+		} `json:"system"`
+	}
+
+	if err := json.Unmarshal(out, &payload); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+
+	if payload.GeneratedAt == "" {
+		t.Fatalf("generated_at should be set")
+	}
+	if _, err := time.Parse(time.RFC3339, payload.GeneratedAt); err != nil {
+		t.Fatalf("generated_at not RFC3339: %v", err)
+	}
+	if payload.System.Version == "" {
+		t.Fatalf("system.version should be set")
+	}
+	if payload.System.OS == "" || payload.System.Arch == "" {
+		t.Fatalf("system.os/arch should be set")
+	}
+	if payload.System.GoVersion == "" {
+		t.Fatalf("system.go_version should be set")
+	}
+}
+
+func TestRobotStatusHandlesLongSessionNames(t *testing.T) {
+	testutil.RequireE2E(t)
+	testutil.RequireTmux(t)
+	testutil.RequireNTMBinary(t)
+
+	logger := testutil.NewTestLogger(t, t.TempDir())
+	longName := "robot_json_long_session_name_status_validation_1234567890"
+	sessionName := createSyntheticAgentSessionWithName(t, logger, longName)
+
+	out := testutil.AssertCommandSuccess(t, logger, "ntm", "--robot-status")
+	logger.Log("FULL JSON OUTPUT:\n%s", string(out))
+
+	var payload struct {
+		GeneratedAt string `json:"generated_at"`
+		Sessions    []struct {
+			Name string `json:"name"`
+		} `json:"sessions"`
+		Summary struct {
+			TotalSessions int `json:"total_sessions"`
+		} `json:"summary"`
+	}
+
+	if err := json.Unmarshal(out, &payload); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	if payload.GeneratedAt == "" {
+		t.Fatalf("generated_at should be set")
+	}
+
+	var found bool
+	for _, s := range payload.Sessions {
+		if s.Name == sessionName {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("robot-status missing long session name %s", sessionName)
+	}
+	if payload.Summary.TotalSessions < 1 {
+		t.Fatalf("summary.total_sessions should be at least 1, got %d", payload.Summary.TotalSessions)
+	}
+}
+
 func createSyntheticAgentSession(t *testing.T, logger *testutil.TestLogger) string {
 	t.Helper()
 
 	name := fmt.Sprintf("robot_json_%d", time.Now().UnixNano())
+	return createSyntheticAgentSessionWithName(t, logger, name)
+}
+
+func createSyntheticAgentSessionWithName(t *testing.T, logger *testutil.TestLogger, name string) string {
+	t.Helper()
+
 	workdir := t.TempDir()
 
 	logger.LogSection("Create synthetic tmux session")
