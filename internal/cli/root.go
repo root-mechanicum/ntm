@@ -512,6 +512,7 @@ func init() {
 		newReplayCmd(),
 		newInterruptCmd(),
 		newRotateCmd(),
+		newQuotaCmd(),
 		newMailCmd(),
 
 		// Session navigation

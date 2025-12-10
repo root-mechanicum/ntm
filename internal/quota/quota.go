@@ -20,6 +20,7 @@ const (
 // QuotaInfo represents current quota state for an account
 type QuotaInfo struct {
 	Provider      Provider  `json:"provider"`
+	PaneIndex     int       `json:"pane_index,omitempty"`     // Pane index for context
 	AccountID     string    `json:"account_id,omitempty"`     // email or unique identifier
 	SessionUsage  float64   `json:"session_usage,omitempty"`  // 0-100 percentage
 	PeriodUsage   float64   `json:"period_usage,omitempty"`   // 0-100 (5-hour rolling window)
