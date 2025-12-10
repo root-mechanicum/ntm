@@ -353,7 +353,8 @@ func RenderAgentsDiagram(tick int, width int) string {
 func RenderCommandFlowDiagram(tick int, step int, width int) string {
 	var lines []string
 
-	arrowChars := []string{"│", "┃", "║", "│"}
+	// Arrow animation chars (ASCII only to match diagram)
+	arrowChars := []string{"|", "!", "|", ":"}
 	arrowChar := arrowChars[(tick/4)%len(arrowChars)]
 
 	for i, line := range CommandFlowDiagram {
@@ -362,9 +363,12 @@ func RenderCommandFlowDiagram(tick int, step int, width int) string {
 			continue
 		}
 
-		// Animate the arrows
-		if strings.Contains(line, "│") || strings.Contains(line, "▼") {
-			line = strings.ReplaceAll(line, "│", arrowChar)
+		// Animate arrow lines (lines with only | and spaces, no letters/+/-)
+		// Arrow lines: "           |" and "    |     |     |"
+		// Box lines have text like "Claude", "+", "-", etc.
+		isArrowLine := strings.Contains(line, "|") && !containsLetters(line) && !strings.Contains(line, "+") && !strings.Contains(line, "-")
+		if isArrowLine {
+			line = strings.ReplaceAll(line, "|", arrowChar)
 			if (tick/6)%2 == 0 {
 				line = styles.GradientText(line, "#89b4fa", "#a6e3a1")
 			} else {
@@ -597,4 +601,14 @@ func itoa(i int) string {
 		return string(rune('0'+i/10)) + string(rune('0'+i%10))
 	}
 	return string(rune('0'+i/100)) + string(rune('0'+(i/10)%10)) + string(rune('0'+i%10))
+}
+
+// containsLetters checks if a string contains any ASCII letters
+func containsLetters(s string) bool {
+	for _, r := range s {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') {
+			return true
+		}
+	}
+	return false
 }

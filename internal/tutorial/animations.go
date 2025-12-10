@@ -519,25 +519,25 @@ func ProgressDots(current, total int, tick int) string {
 	return dots.String()
 }
 
-// AnimatedBorder creates an animated border around content
+// AnimatedBorder creates an animated border around content (ASCII only for alignment)
 func AnimatedBorder(content string, width int, tick int, colors []string) string {
 	lines := strings.Split(content, "\n")
 
-	// Animated top border
-	topBorder := "╭" + strings.Repeat("─", width-2) + "╮"
+	// Animated top border (ASCII)
+	topBorder := "+" + strings.Repeat("-", width-2) + "+"
 	topBorder = styles.Shimmer(topBorder, tick, colors...)
 
-	// Animated bottom border
-	bottomBorder := "╰" + strings.Repeat("─", width-2) + "╯"
+	// Animated bottom border (ASCII)
+	bottomBorder := "+" + strings.Repeat("-", width-2) + "+"
 	bottomBorder = styles.Shimmer(bottomBorder, tick+width/2, colors...)
 
 	var result []string
 	result = append(result, topBorder)
 
 	for _, line := range lines {
-		// Side borders with shimmer
-		leftBorder := styles.Shimmer("│", tick, colors...)
-		rightBorder := styles.Shimmer("│", tick+width, colors...)
+		// Side borders with shimmer (ASCII)
+		leftBorder := styles.Shimmer("|", tick, colors...)
+		rightBorder := styles.Shimmer("|", tick+width, colors...)
 
 		// Pad content
 		visLen := visibleLength(line)
