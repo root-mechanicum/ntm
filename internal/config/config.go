@@ -48,6 +48,7 @@ type Config struct {
 	Notifications notify.Config     `toml:"notifications"`
 	Resilience    ResilienceConfig  `toml:"resilience"`
 	Scanner       ScannerConfig     `toml:"scanner"` // UBS scanner configuration
+	CASS          CASSConfig        `toml:"cass"`    // CASS integration configuration
 }
 
 // CheckpointsConfig holds configuration for automatic checkpoints
@@ -127,6 +128,80 @@ func DefaultResilienceConfig() ResilienceConfig {
 			Detect:   true, // Detect rate limits by default
 			Notify:   true, // Notify on rate limit by default
 			Patterns: nil,  // Use default patterns (rate limit, 429, too many requests, quota exceeded)
+		},
+	}
+}
+
+// CASSConfig holds configuration for CASS (Coding Agent Session Search) integration
+type CASSConfig struct {
+	Enabled          bool   `toml:"enabled"`            // Master switch - disable all CASS features
+	ShowInstallHints bool   `toml:"show_install_hints"` // Show installation hints when CASS not found
+	BinaryPath       string `toml:"binary_path"`        // Path to cass binary (auto-detect from PATH if empty)
+	Timeout          int    `toml:"timeout"`            // Timeout for CASS operations (seconds)
+
+	Context    CASSContextConfig    `toml:"context"`    // Context injection settings
+	Duplicates CASSDuplicateConfig  `toml:"duplicates"` // Duplicate detection settings
+	Search     CASSSearchConfig     `toml:"search"`     // Search defaults
+	TUI        CASSTUIConfig        `toml:"tui"`        // TUI settings
+}
+
+// CASSContextConfig holds settings for automatic context injection
+type CASSContextConfig struct {
+	Enabled      bool `toml:"enabled"`       // Auto-inject context when spawning
+	MaxSessions  int  `toml:"max_sessions"`  // Max past sessions to include
+	LookbackDays int  `toml:"lookback_days"` // How far back to search
+	MaxTokens    int  `toml:"max_tokens"`    // Token budget for context
+}
+
+// CASSDuplicateConfig holds settings for duplicate detection
+type CASSDuplicateConfig struct {
+	Enabled             bool    `toml:"enabled"`              // Check for duplicates before sending
+	SimilarityThreshold float64 `toml:"similarity_threshold"` // 0-1, higher = stricter matching
+	LookbackDays        int     `toml:"lookback_days"`        // How far back to check
+	PromptOnMatch       bool    `toml:"prompt_on_match"`      // Ask user before proceeding
+}
+
+// CASSSearchConfig holds default search settings
+type CASSSearchConfig struct {
+	DefaultLimit  int    `toml:"default_limit"`  // Default number of search results
+	DefaultFields string `toml:"default_fields"` // Default field selection
+	IncludeMeta   bool   `toml:"include_meta"`   // Include metadata in results
+}
+
+// CASSTUIConfig holds TUI-related CASS settings
+type CASSTUIConfig struct {
+	ShowActivitySparkline bool `toml:"show_activity_sparkline"` // Show activity sparkline in status bar
+	ShowStatusIndicator   bool `toml:"show_status_indicator"`   // Show CASS health indicator
+}
+
+// DefaultCASSConfig returns the default CASS configuration
+func DefaultCASSConfig() CASSConfig {
+	return CASSConfig{
+		Enabled:          true,
+		ShowInstallHints: true,
+		BinaryPath:       "", // Auto-detect from PATH
+		Timeout:          30,
+
+		Context: CASSContextConfig{
+			Enabled:      true,
+			MaxSessions:  3,
+			LookbackDays: 30,
+			MaxTokens:    2000,
+		},
+		Duplicates: CASSDuplicateConfig{
+			Enabled:             true,
+			SimilarityThreshold: 0.7,
+			LookbackDays:        7,
+			PromptOnMatch:       true,
+		},
+		Search: CASSSearchConfig{
+			DefaultLimit:  10,
+			DefaultFields: "summary",
+			IncludeMeta:   true,
+		},
+		TUI: CASSTUIConfig{
+			ShowActivitySparkline: true,
+			ShowStatusIndicator:   true,
 		},
 	}
 }
@@ -424,6 +499,7 @@ func Default() *Config {
 		Notifications: notify.DefaultConfig(),
 		Resilience:    DefaultResilienceConfig(),
 		Scanner:       DefaultScannerConfig(),
+		CASS:          DefaultCASSConfig(),
 	}
 
 	// Try to load palette from markdown file
@@ -671,6 +747,24 @@ func Load(path string) (*Config, error) {
 	}
 	// Apply environment variable overrides for scanner
 	applyEnvOverrides(&cfg.Scanner)
+
+	// Apply CASS defaults
+	// If Timeout is 0, apply all defaults (section likely missing)
+	if cfg.CASS.Timeout == 0 {
+		cfg.CASS = DefaultCASSConfig()
+	}
+	// Apply environment variable overrides for CASS
+	if enabled := os.Getenv("NTM_CASS_ENABLED"); enabled != "" {
+		cfg.CASS.Enabled = enabled == "1" || enabled == "true"
+	}
+	if timeout := os.Getenv("NTM_CASS_TIMEOUT"); timeout != "" {
+		if t, err := fmt.Sscanf(timeout, "%d", &cfg.CASS.Timeout); err == nil && t == 1 {
+			// Timeout parsed successfully
+		}
+	}
+	if binary := os.Getenv("NTM_CASS_BINARY"); binary != "" {
+		cfg.CASS.BinaryPath = binary
+	}
 
 	// Try to load palette from markdown file
 	// This takes precedence over TOML [[palette]] entries
