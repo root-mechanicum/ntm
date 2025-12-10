@@ -1,6 +1,7 @@
 package config
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -228,6 +229,39 @@ func TestDefaultAgentTemplates(t *testing.T) {
 	if err != nil {
 		t.Errorf("Gemini template failed: %v", err)
 	}
+}
+
+func TestDefaultAgentTemplates_ShellQuoting(t *testing.T) {
+	vars := AgentTemplateVars{
+		Model:            "model name; rm -rf /",
+		SystemPromptFile: "/tmp/prompt file's.txt",
+	}
+
+	templates := DefaultAgentTemplates()
+
+	check := func(name, tmpl string) {
+		cmd, err := GenerateAgentCommand(tmpl, vars)
+		if err != nil {
+			t.Fatalf("%s template: %v", name, err)
+		}
+		quotedModel := ShellQuote(vars.Model)
+		quotedFile := ShellQuote(vars.SystemPromptFile)
+
+		if !strings.Contains(cmd, quotedModel) {
+			t.Fatalf("%s template should contain quoted model %q, got: %s", name, quotedModel, cmd)
+		}
+		if !strings.Contains(cmd, quotedFile) {
+			t.Fatalf("%s template should contain quoted system prompt file %q, got: %s", name, quotedFile, cmd)
+		}
+		// Ensure unquoted value is not present to guard against injection
+		if strings.Contains(cmd, vars.Model) && !strings.Contains(cmd, quotedModel) {
+			t.Fatalf("%s template appears to include unquoted model: %s", name, cmd)
+		}
+	}
+
+	check("claude", templates.Claude)
+	check("codex", templates.Codex)
+	check("gemini", templates.Gemini)
 }
 
 func TestTemplateFunctions(t *testing.T) {

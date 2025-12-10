@@ -21,7 +21,7 @@ type AgentTemplateVars struct {
 
 // ShellQuote safely quotes a string for use in shell commands.
 // It uses single quotes and escapes any single quotes within the string.
-// Example: "hello 'world'" becomes "'hello '\''world'\'''"
+// Example: "hello 'world'" becomes "'hello '\”world'\”'"
 func ShellQuote(s string) string {
 	// Empty string gets empty quotes
 	if s == "" {
