@@ -13,7 +13,7 @@ import (
 // TestConfigCustomProjectsBase verifies that projects_base setting affects ntm quick
 func TestConfigCustomProjectsBase(t *testing.T) {
 	testutil.RequireTmux(t)
-	testutil.RequireNTMBinary(t)
+	binary := testutil.BuildLocalNTM(t)
 	logger := testutil.NewTestLogger(t, t.TempDir())
 
 	// Create temp directory for custom projects base
@@ -32,7 +32,7 @@ func TestConfigCustomProjectsBase(t *testing.T) {
 
 	// Run ntm quick with custom config
 	projectName := "test_project"
-	out, err := logger.Exec("ntm", "--config", configPath, "quick", projectName, "--json")
+	out, err := logger.Exec(binary, "--config", configPath, "quick", projectName, "--json")
 	if err != nil {
 		t.Fatalf("ntm quick failed: %v\nOutput: %s", err, string(out))
 	}
@@ -49,7 +49,7 @@ func TestConfigCustomProjectsBase(t *testing.T) {
 	// Clean up the session
 	t.Cleanup(func() {
 		logger.LogSection("Teardown")
-		logger.Exec("ntm", "kill", "-f", result.Session)
+		logger.Exec(binary, "kill", "-f", result.Session)
 	})
 
 	// Verify the working directory is in our custom base
@@ -69,7 +69,7 @@ func TestConfigCustomProjectsBase(t *testing.T) {
 // TestConfigCustomAgentCommands verifies custom agent commands are used
 func TestConfigCustomAgentCommands(t *testing.T) {
 	testutil.RequireTmux(t)
-	testutil.RequireNTMBinary(t)
+	binary := testutil.BuildLocalNTM(t)
 	logger := testutil.NewTestLogger(t, t.TempDir())
 
 	// Create temp directory for project
@@ -92,7 +92,7 @@ claude = "echo '` + customMarker + `' && sleep 30"
 	logger.Log("Created config with custom Claude command at %s", configPath)
 
 	// Spawn session with custom config
-	out, err := logger.Exec("ntm", "--config", configPath, "spawn", "test_custom_agent", "--dir", projectDir, "--cc=1", "--json")
+	out, err := logger.Exec(binary, "--config", configPath, "spawn", "test_custom_agent", "--dir", projectDir, "--cc=1", "--json")
 	if err != nil {
 		// Session might fail because the command isn't a real agent, but we can still check pane output
 		logger.Log("Spawn completed (may have warnings): %s", string(out))
@@ -109,7 +109,7 @@ claude = "echo '` + customMarker + `' && sleep 30"
 	// Clean up the session
 	t.Cleanup(func() {
 		logger.LogSection("Teardown")
-		logger.Exec("ntm", "kill", "-f", result.Session)
+		logger.Exec(binary, "kill", "-f", result.Session)
 	})
 
 	// Give the command time to run
@@ -131,7 +131,7 @@ claude = "echo '` + customMarker + `' && sleep 30"
 
 // TestConfigPaletteFromConfig verifies palette commands from config are loaded
 func TestConfigPaletteFromConfig(t *testing.T) {
-	testutil.RequireNTMBinary(t)
+	binary := testutil.BuildLocalNTM(t)
 	logger := testutil.NewTestLogger(t, t.TempDir())
 
 	// Create temp config file with palette commands
@@ -156,7 +156,7 @@ category = "test"
 	logger.Log("Created config with palette commands at %s", configPath)
 
 	// Use ntm config show to verify palette commands are loaded
-	out, err := logger.Exec("ntm", "--config", configPath, "config", "show", "--json")
+	out, err := logger.Exec(binary, "--config", configPath, "config", "show", "--json")
 	if err != nil {
 		t.Fatalf("ntm config show failed: %v", err)
 	}
@@ -204,7 +204,7 @@ category = "test"
 
 // TestConfigPaletteFromMarkdown verifies palette commands from markdown file
 func TestConfigPaletteFromMarkdown(t *testing.T) {
-	testutil.RequireNTMBinary(t)
+	binary := testutil.BuildLocalNTM(t)
 	logger := testutil.NewTestLogger(t, t.TempDir())
 
 	// Create temp directory for project
@@ -239,7 +239,7 @@ Single line content.
 	logger.Log("Created palette file at %s and config at %s", palettePath, configPath)
 
 	// Use ntm config show to verify palette commands are loaded from markdown
-	out, err := logger.Exec("ntm", "--config", configPath, "config", "show", "--json")
+	out, err := logger.Exec(binary, "--config", configPath, "config", "show", "--json")
 	if err != nil {
 		t.Fatalf("ntm config show failed: %v", err)
 	}
@@ -256,7 +256,7 @@ Single line content.
 
 // TestConfigPrecedence verifies config file takes precedence over defaults
 func TestConfigPrecedence(t *testing.T) {
-	testutil.RequireNTMBinary(t)
+	binary := testutil.BuildLocalNTM(t)
 	logger := testutil.NewTestLogger(t, t.TempDir())
 
 	// Create temp config file with specific values different from defaults
@@ -279,7 +279,7 @@ agent_stuck_minutes = 42
 	logger.Log("Created config with custom values at %s", configPath)
 
 	// Use ntm config show to verify our values override defaults
-	out, err := logger.Exec("ntm", "--config", configPath, "config", "show", "--json")
+	out, err := logger.Exec(binary, "--config", configPath, "config", "show", "--json")
 	if err != nil {
 		t.Fatalf("ntm config show failed: %v", err)
 	}
@@ -313,6 +313,7 @@ agent_stuck_minutes = 42
 // TestConfigEnvironmentOverride verifies NTM_CONFIG env var works
 func TestConfigEnvironmentOverride(t *testing.T) {
 	testutil.RequireNTMBinary(t)
+	binary := testutil.BuildLocalNTM(t)
 	logger := testutil.NewTestLogger(t, t.TempDir())
 
 	// Create temp config file with a distinctive value
@@ -332,7 +333,7 @@ func TestConfigEnvironmentOverride(t *testing.T) {
 	os.Setenv("NTM_CONFIG", configPath)
 	defer os.Setenv("NTM_CONFIG", oldEnv)
 
-	out, err := logger.Exec("ntm", "config", "show", "--json")
+	out, err := logger.Exec(binary, "config", "show", "--json")
 	if err != nil {
 		t.Fatalf("ntm config show failed: %v", err)
 	}

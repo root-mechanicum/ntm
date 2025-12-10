@@ -27,29 +27,64 @@ func TestStatusDetectsIdlePrompt(t *testing.T) {
 
 	_, paneID := createSessionWithTitle(t, logger, "user_1")
 
-	// First, start a clean bash shell to avoid interference from fancy prompts
+	// Start a clean bash shell to avoid interference from fancy prompts (oh-my-zsh, starship, etc).
+	// We use exec to replace the current shell entirely.
 	if err := tmux.SendKeys(paneID, "exec /bin/bash --norc --noprofile", true); err != nil {
 		t.Fatalf("failed to start clean bash: %v", err)
 	}
-	// Wait for bash to fully initialize
-	time.Sleep(800 * time.Millisecond)
 
-	// Set a simple prompt and run a command
+	// Give exec a moment to start replacing the shell. Without this delay,
+	// subsequent commands can get typed into the old shell's input buffer
+	// and be lost when exec replaces it.
+	time.Sleep(500 * time.Millisecond)
+
+	// Wait for bash to be ready by sending a marker command and polling for its output.
+	// We look for "===READY===" on its own line (the actual output), not just in the
+	// captured text (which would include the typed command).
+	if err := tmux.SendKeys(paneID, "echo ===READY===", true); err != nil {
+		t.Fatalf("failed to send ready marker: %v", err)
+	}
+
+	deadline := time.Now().Add(10 * time.Second)
+	bashReady := false
+	for time.Now().Before(deadline) {
+		time.Sleep(200 * time.Millisecond)
+		captured, err := tmux.CapturePaneOutput(paneID, 50)
+		if err != nil {
+			continue
+		}
+		// Look for the marker on its own line (actual output, not the typed command)
+		for _, line := range strings.Split(captured, "\n") {
+			if strings.TrimSpace(line) == "===READY===" {
+				bashReady = true
+				break
+			}
+		}
+		if bashReady {
+			break
+		}
+	}
+	if !bashReady {
+		output, _ := tmux.CapturePaneOutput(paneID, 50)
+		t.Fatalf("timeout waiting for bash to start; captured=%q", output)
+	}
+
+	// Now set our simple prompt and run the actual test command
 	if err := tmux.SendKeys(paneID, "PS1='$ '; echo IDLE_MARKER", true); err != nil {
 		t.Fatalf("failed to set prompt and run command: %v", err)
 	}
 
-	// Poll for the echo output to appear on its own line
+	// Poll for the echo output to appear on its own line (actual output)
 	var output string
-	deadline := time.Now().Add(3 * time.Second)
+	deadline = time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
 		time.Sleep(100 * time.Millisecond)
 		captured, err := tmux.CapturePaneOutput(paneID, 50)
 		if err != nil {
 			continue
 		}
-		lines := strings.Split(captured, "\n")
-		for _, line := range lines {
+		// Look for the marker on its own line (actual output, not the typed command)
+		for _, line := range strings.Split(captured, "\n") {
 			if strings.TrimSpace(line) == "IDLE_MARKER" {
 				output = captured
 				break
@@ -64,14 +99,24 @@ func TestStatusDetectsIdlePrompt(t *testing.T) {
 		t.Fatalf("timeout waiting for marker; captured=%q", output)
 	}
 
-	// Give bash time to show its prompt after the echo
-	time.Sleep(200 * time.Millisecond)
+	// Give bash time to show its prompt after the echo (avoid flake on slower shells)
+	time.Sleep(500 * time.Millisecond)
 
 	requirePaneActivity(t, paneID)
 
-	// After echo completes, bash should show "$ " prompt = idle state
+	// After echo completes, bash should show "$ " prompt = idle state.
+	// Detection can race with the prompt render, so retry briefly.
 	detector := status.NewDetector()
-	st, err := detector.Detect(paneID)
+	var st status.AgentStatus
+	var err error
+	deadline = time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		st, err = detector.Detect(paneID)
+		if err == nil && st.State == status.StateIdle {
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
 	if err != nil {
 		t.Fatalf("detect failed: %v", err)
 	}
