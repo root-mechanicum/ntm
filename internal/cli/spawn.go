@@ -196,7 +196,8 @@ func spawnSessionLogic(session string, agents []FlatAgent, ccCount, codCount, gm
 	// Helper for JSON error output
 	outputError := func(err error) error {
 		if IsJSONOutput() {
-			return output.PrintJSON(output.NewError(err.Error()))
+			_ = output.PrintJSON(output.NewError(err.Error()))
+			return err
 		}
 		return err
 	}

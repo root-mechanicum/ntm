@@ -80,7 +80,8 @@ func newListCmd() *cobra.Command {
 func runList(tags []string) error {
 	if err := tmux.EnsureInstalled(); err != nil {
 		if IsJSONOutput() {
-			return output.PrintJSON(output.NewError(err.Error()))
+			_ = output.PrintJSON(output.NewError(err.Error()))
+			return err
 		}
 		return err
 	}
@@ -88,7 +89,8 @@ func runList(tags []string) error {
 	sessions, err := tmux.ListSessions()
 	if err != nil {
 		if IsJSONOutput() {
-			return output.PrintJSON(output.NewError(err.Error()))
+			_ = output.PrintJSON(output.NewError(err.Error()))
+			return err
 		}
 		return err
 	}
@@ -206,7 +208,8 @@ func runStatus(w io.Writer, session string, tags []string) error {
 	// Helper for JSON error output
 	outputError := func(err error) error {
 		if IsJSONOutput() {
-			return output.PrintJSON(output.NewError(err.Error()))
+			_ = output.PrintJSON(output.NewError(err.Error()))
+			return err
 		}
 		return err
 	}

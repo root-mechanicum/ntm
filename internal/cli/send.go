@@ -435,7 +435,10 @@ func runSendInternal(session, prompt, templateName string, targets SendTargets, 
 				Session: session,
 				Error:   err.Error(),
 			}
-			return json.NewEncoder(os.Stdout).Encode(result)
+			_ = json.NewEncoder(os.Stdout).Encode(result)
+			// Return error to ensure non-zero exit code
+			// Since SilenceErrors is true, Cobra won't print the error message again
+			return err
 		}
 		return err
 	}
