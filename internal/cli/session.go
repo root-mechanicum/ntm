@@ -226,6 +226,7 @@ func runStatus(session string) error {
 				Index:   p.Index,
 				Title:   p.Title,
 				Type:    agentTypeToString(p.Type),
+				Variant: p.Variant,
 				Active:  p.Active,
 				Width:   p.Width,
 				Height:  p.Height,
