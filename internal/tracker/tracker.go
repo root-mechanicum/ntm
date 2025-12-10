@@ -3,7 +3,9 @@
 package tracker
 
 import (
+	"bytes"
 	"io/fs"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -355,26 +357,35 @@ type FileChange struct {
 	After  *FileState     `json:"after,omitempty"`
 }
 
+// fileEntry is an internal representation used during snapshotting.
+type fileEntry struct {
+	path  string
+	state FileState
+}
+
 // SnapshotOptions controls how directory snapshots are taken.
 type SnapshotOptions struct {
 	// IgnoreHidden skips files/dirs beginning with '.'
 	IgnoreHidden bool
 	// IgnorePaths are path prefixes (absolute) to skip.
 	IgnorePaths []string
+	// IgnoreGitIgnored attempts to skip files ignored by git (best-effort).
+	IgnoreGitIgnored bool
 }
 
 // DefaultSnapshotOptions provides conservative defaults (skip .git).
 func DefaultSnapshotOptions(root string) SnapshotOptions {
 	return SnapshotOptions{
-		IgnoreHidden: false,
-		IgnorePaths:  []string{root + "/.git"},
+		IgnoreHidden:     false,
+		IgnorePaths:      []string{root + "/.git"},
+		IgnoreGitIgnored: true,
 	}
 }
 
 // SnapshotDirectory walks a directory and captures file modtime/size.
 // Returns a map keyed by absolute path.
 func SnapshotDirectory(root string, opts SnapshotOptions) (map[string]FileState, error) {
-	snap := make(map[string]FileState)
+	entries := make([]fileEntry, 0)
 
 	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
@@ -411,17 +422,65 @@ func SnapshotDirectory(root string, opts SnapshotOptions) (map[string]FileState,
 			return err
 		}
 
-		snap[path] = FileState{
-			ModTime: info.ModTime(),
-			Size:    info.Size(),
-		}
+		entries = append(entries, fileEntry{
+			path: path,
+			state: FileState{
+				ModTime: info.ModTime(),
+				Size:    info.Size(),
+			},
+		})
 		return nil
 	})
 
 	if err != nil {
 		return nil, err
 	}
+
+	ignored := map[string]bool{}
+	if opts.IgnoreGitIgnored && len(entries) > 0 {
+		if ig, err := gitCheckIgnored(root, entries); err == nil {
+			ignored = ig
+		}
+	}
+
+	snap := make(map[string]FileState, len(entries))
+	for _, entry := range entries {
+		if ignored[entry.path] {
+			continue
+		}
+		snap[entry.path] = entry.state
+	}
+
 	return snap, nil
+}
+
+// gitCheckIgnored returns a set of paths that git considers ignored.
+// Best-effort: failures return an empty map.
+func gitCheckIgnored(root string, entries []fileEntry) (map[string]bool, error) {
+	result := make(map[string]bool)
+
+	var buf bytes.Buffer
+	for _, e := range entries {
+		buf.WriteString(e.path)
+		buf.WriteByte('\n')
+	}
+
+	cmd := exec.Command("git", "-C", root, "check-ignore", "--stdin")
+	cmd.Stdin = &buf
+	out, err := cmd.Output()
+	if err != nil {
+		return result, err
+	}
+
+	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
+	for _, line := range lines {
+		if line == "" {
+			continue
+		}
+		// git may echo only the path
+		result[line] = true
+	}
+	return result, nil
 }
 
 // DetectFileChanges compares two snapshots and returns the delta.
@@ -536,6 +595,16 @@ func (s *FileChangeStore) All() []RecordedFileChange {
 
 // GlobalFileChanges is the shared change store.
 var GlobalFileChanges = NewFileChangeStore(500)
+
+// RecordedChangesSince returns file changes after the provided timestamp.
+func RecordedChangesSince(ts time.Time) []RecordedFileChange {
+	return GlobalFileChanges.Since(ts)
+}
+
+// RecordedChanges returns all recorded file changes.
+func RecordedChanges() []RecordedFileChange {
+	return GlobalFileChanges.All()
+}
 
 // RecordFileChanges captures and stores file changes after a delay.
 // It is best-effort and meant to attribute changes to targeted agents.
