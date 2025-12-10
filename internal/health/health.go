@@ -45,6 +45,27 @@ type Issue struct {
 	Message string `json:"message"` // Human-readable description
 }
 
+// ProgressStage represents what phase of work an agent is in
+type ProgressStage string
+
+const (
+	StageStarting  ProgressStage = "starting"  // Agent beginning work
+	StageWorking   ProgressStage = "working"   // Agent actively working
+	StageFinishing ProgressStage = "finishing" // Agent wrapping up
+	StageStuck     ProgressStage = "stuck"     // Agent blocked or erroring
+	StageIdle      ProgressStage = "idle"      // Agent waiting for input
+	StageUnknown   ProgressStage = "unknown"   // Cannot determine
+)
+
+// Progress represents the detected work progress of an agent
+type Progress struct {
+	Stage           ProgressStage `json:"stage"`              // Current progress stage
+	Confidence      float64       `json:"confidence"`         // 0.0-1.0 confidence in detection
+	Indicators      []string      `json:"indicators"`         // What patterns were detected
+	TimeInStageSec  int           `json:"time_in_stage_sec"`  // Seconds in current stage
+	StageChangedAt  *time.Time    `json:"stage_changed_at"`   // When stage last changed
+}
+
 // AgentHealth contains health information for a single agent
 type AgentHealth struct {
 	Pane          int           `json:"pane"`            // Pane index
@@ -58,6 +79,7 @@ type AgentHealth struct {
 	Issues        []Issue       `json:"issues"`          // Detected issues
 	RateLimited   bool          `json:"rate_limited"`    // True if agent hit rate limit
 	WaitSeconds   int           `json:"wait_seconds"`    // Suggested wait time (if rate limited)
+	Progress      *Progress     `json:"progress"`        // Detected work progress
 }
 
 // SessionHealth contains health information for an entire session
@@ -193,6 +215,9 @@ func checkAgent(pa tmux.PaneActivity) AgentHealth {
 	// Determine process status
 	agent.ProcessStatus = detectProcessStatus(output, pa.Pane.Command)
 
+	// Detect work progress
+	agent.Progress = detectProgress(output, agent.Activity, agent.Issues)
+
 	// Calculate overall status
 	agent.Status = calculateStatus(agent)
 
@@ -267,6 +292,146 @@ func hasRateLimitIssue(issues []Issue) bool {
 		}
 	}
 	return false
+}
+
+// progressPatterns define indicators for each progress stage
+var progressPatterns = map[ProgressStage][]struct {
+	Pattern    *regexp.Regexp
+	Indicator  string
+	Weight     float64 // How much this contributes to confidence
+}{
+	StageStarting: {
+		{regexp.MustCompile(`(?i)^(Let me|I'll|I will|Starting|Beginning)`), "planning_phrase", 0.3},
+		{regexp.MustCompile(`(?i)(read|reading|search|searching|looking|exploring)`), "exploration", 0.2},
+		{regexp.MustCompile(`(?i)(understand|analyzing|reviewing|checking)`), "analysis", 0.2},
+		{regexp.MustCompile(`(?i)(plan|approach|strategy)`), "planning", 0.3},
+	},
+	StageWorking: {
+		{regexp.MustCompile(`(?i)(edit|editing|writing|creating|implementing)`), "file_edits", 0.4},
+		{regexp.MustCompile("```"), "code_blocks", 0.3},
+		{regexp.MustCompile(`(?i)(running|testing|building|compiling)`), "execution", 0.3},
+		{regexp.MustCompile(`(?i)(adding|removing|changing|updating|modifying)`), "modifications", 0.3},
+		{regexp.MustCompile(`(?i)(function|class|struct|type|const|var)`), "code_content", 0.2},
+	},
+	StageFinishing: {
+		{regexp.MustCompile(`(?i)(done|complete|finished|completed|success)`), "completion_phrase", 0.4},
+		{regexp.MustCompile(`(?i)(summary|in summary|to summarize)`), "summary", 0.3},
+		{regexp.MustCompile(`(?i)(commit|committed|push|pushed)`), "git_actions", 0.4},
+		{regexp.MustCompile(`(?i)(all tests pass|tests passed|build succeeded)`), "success_report", 0.4},
+		{regexp.MustCompile(`(?i)(ready for|you can now|feel free to)`), "handoff", 0.3},
+	},
+	StageStuck: {
+		{regexp.MustCompile(`(?i)(error|failed|cannot|unable|problem)`), "error_phrase", 0.4},
+		{regexp.MustCompile(`(?i)(help|question|clarify|unclear|confused)`), "needs_help", 0.3},
+		{regexp.MustCompile(`(?i)(stuck|blocked|waiting|need more)`), "blocked_phrase", 0.4},
+		{regexp.MustCompile(`(?i)(retry|retrying|trying again)`), "retry_attempt", 0.3},
+		{regexp.MustCompile(`(?i)\?$`), "question_mark", 0.2},
+	},
+}
+
+// detectProgress analyzes pane output to determine work progress stage
+func detectProgress(output string, activity ActivityLevel, issues []Issue) *Progress {
+	progress := &Progress{
+		Stage:      StageUnknown,
+		Confidence: 0.0,
+		Indicators: []string{},
+	}
+
+	// If agent is idle at prompt, it's in idle stage
+	if activity == ActivityIdle {
+		progress.Stage = StageIdle
+		progress.Confidence = 0.9
+		progress.Indicators = []string{"idle_prompt"}
+		return progress
+	}
+
+	// Check for stuck indicators first (errors, rate limits)
+	if hasRateLimitIssue(issues) || hasErrorIssue(issues) {
+		progress.Stage = StageStuck
+		progress.Confidence = 0.8
+		progress.Indicators = []string{"error_detected"}
+		return progress
+	}
+
+	// Score each stage based on pattern matches
+	stageScores := make(map[ProgressStage]float64)
+	stageIndicators := make(map[ProgressStage][]string)
+
+	// Only analyze the last portion of output (most recent context)
+	recentOutput := output
+	if len(output) > 2000 {
+		recentOutput = output[len(output)-2000:]
+	}
+
+	for stage, patterns := range progressPatterns {
+		for _, p := range patterns {
+			if p.Pattern.MatchString(recentOutput) {
+				stageScores[stage] += p.Weight
+				stageIndicators[stage] = append(stageIndicators[stage], p.Indicator)
+			}
+		}
+	}
+
+	// Find stage with highest score
+	var bestStage ProgressStage = StageUnknown
+	var bestScore float64 = 0.0
+
+	for stage, score := range stageScores {
+		if score > bestScore {
+			bestScore = score
+			bestStage = stage
+		}
+	}
+
+	// Set progress based on best match
+	if bestScore > 0.2 { // Minimum threshold for detection
+		progress.Stage = bestStage
+		progress.Confidence = normalizeConfidence(bestScore)
+		progress.Indicators = dedupeIndicators(stageIndicators[bestStage])
+	}
+
+	return progress
+}
+
+// hasErrorIssue checks if any issue indicates an error (crash, auth, network)
+func hasErrorIssue(issues []Issue) bool {
+	for _, issue := range issues {
+		if issue.Type == "crash" || issue.Type == "auth_error" || issue.Type == "network_error" {
+			return true
+		}
+	}
+	return false
+}
+
+// normalizeConfidence converts raw score to 0.0-1.0 range
+func normalizeConfidence(score float64) float64 {
+	// Scores above 1.0 get capped, lower scores are proportional
+	if score >= 1.0 {
+		return 0.95
+	}
+	if score >= 0.7 {
+		return 0.85
+	}
+	if score >= 0.5 {
+		return 0.75
+	}
+	if score >= 0.3 {
+		return 0.60
+	}
+	return 0.50
+}
+
+// dedupeIndicators removes duplicate indicators
+func dedupeIndicators(indicators []string) []string {
+	seen := make(map[string]bool)
+	result := []string{}
+	for _, ind := range indicators {
+		if !seen[ind] {
+			seen[ind] = true
+			result = append(result, ind)
+		}
+	}
+	return result
 }
 
 // detectActivity determines the activity level of an agent
