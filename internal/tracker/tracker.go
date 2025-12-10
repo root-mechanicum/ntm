@@ -3,6 +3,9 @@
 package tracker
 
 import (
+	"io/fs"
+	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 )
@@ -11,15 +14,16 @@ import (
 type ChangeType string
 
 const (
-	ChangeAgentOutput ChangeType = "agent_output"
-	ChangeAgentState  ChangeType = "agent_state"
-	ChangeBeadUpdate  ChangeType = "bead_update"
-	ChangeMailReceived ChangeType = "mail_received"
-	ChangeAlert       ChangeType = "alert"
-	ChangePaneCreated ChangeType = "pane_created"
-	ChangePaneRemoved ChangeType = "pane_removed"
+	ChangeAgentOutput    ChangeType = "agent_output"
+	ChangeAgentState     ChangeType = "agent_state"
+	ChangeBeadUpdate     ChangeType = "bead_update"
+	ChangeMailReceived   ChangeType = "mail_received"
+	ChangeAlert          ChangeType = "alert"
+	ChangePaneCreated    ChangeType = "pane_created"
+	ChangePaneRemoved    ChangeType = "pane_removed"
 	ChangeSessionCreated ChangeType = "session_created"
 	ChangeSessionRemoved ChangeType = "session_removed"
+	ChangeFileChange     ChangeType = "file_change"
 )
 
 // StateChange represents a single state change event
@@ -172,12 +176,12 @@ func (t *StateTracker) Prune() {
 
 // CoalescedChange represents multiple changes merged into one summary
 type CoalescedChange struct {
-	Type       ChangeType `json:"type"`
-	Session    string     `json:"session,omitempty"`
-	Pane       string     `json:"pane,omitempty"`
-	Count      int        `json:"count"`
-	FirstAt    time.Time  `json:"first_at"`
-	LastAt     time.Time  `json:"last_at"`
+	Type    ChangeType `json:"type"`
+	Session string     `json:"session,omitempty"`
+	Pane    string     `json:"pane,omitempty"`
+	Count   int        `json:"count"`
+	FirstAt time.Time  `json:"first_at"`
+	LastAt  time.Time  `json:"last_at"`
 }
 
 // Coalesce merges consecutive changes of the same type for the same pane
@@ -326,4 +330,240 @@ func (t *StateTracker) RecordSessionCreated(session string) {
 		Type:    ChangeSessionCreated,
 		Session: session,
 	})
+}
+
+// FileState captures minimal file metadata for change detection.
+type FileState struct {
+	ModTime time.Time `json:"mod_time"`
+	Size    int64     `json:"size"`
+}
+
+// FileChangeType indicates what happened to a file.
+type FileChangeType string
+
+const (
+	FileAdded    FileChangeType = "added"
+	FileModified FileChangeType = "modified"
+	FileDeleted  FileChangeType = "deleted"
+)
+
+// FileChange represents a single file change between two snapshots.
+type FileChange struct {
+	Path   string         `json:"path"`
+	Type   FileChangeType `json:"type"`
+	Before *FileState     `json:"before,omitempty"`
+	After  *FileState     `json:"after,omitempty"`
+}
+
+// SnapshotOptions controls how directory snapshots are taken.
+type SnapshotOptions struct {
+	// IgnoreHidden skips files/dirs beginning with '.'
+	IgnoreHidden bool
+	// IgnorePaths are path prefixes (absolute) to skip.
+	IgnorePaths []string
+}
+
+// DefaultSnapshotOptions provides conservative defaults (skip .git).
+func DefaultSnapshotOptions(root string) SnapshotOptions {
+	return SnapshotOptions{
+		IgnoreHidden: false,
+		IgnorePaths:  []string{root + "/.git"},
+	}
+}
+
+// SnapshotDirectory walks a directory and captures file modtime/size.
+// Returns a map keyed by absolute path.
+func SnapshotDirectory(root string, opts SnapshotOptions) (map[string]FileState, error) {
+	snap := make(map[string]FileState)
+
+	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+
+		// Skip configured ignore prefixes
+		for _, p := range opts.IgnorePaths {
+			if strings.HasPrefix(path, p) {
+				if d.IsDir() {
+					return filepath.SkipDir
+				}
+				return nil
+			}
+		}
+
+		// Optionally skip hidden entries
+		if opts.IgnoreHidden {
+			_, name := filepath.Split(path)
+			if strings.HasPrefix(name, ".") {
+				if d.IsDir() {
+					return filepath.SkipDir
+				}
+				return nil
+			}
+		}
+
+		if d.IsDir() {
+			return nil
+		}
+
+		info, err := d.Info()
+		if err != nil {
+			return err
+		}
+
+		snap[path] = FileState{
+			ModTime: info.ModTime(),
+			Size:    info.Size(),
+		}
+		return nil
+	})
+
+	if err != nil {
+		return nil, err
+	}
+	return snap, nil
+}
+
+// DetectFileChanges compares two snapshots and returns the delta.
+func DetectFileChanges(before, after map[string]FileState) []FileChange {
+	changes := make([]FileChange, 0)
+
+	// Detect additions and modifications
+	for path, afterState := range after {
+		beforeState, existed := before[path]
+		if !existed {
+			changes = append(changes, FileChange{
+				Path:  path,
+				Type:  FileAdded,
+				After: &afterState,
+			})
+			continue
+		}
+
+		if !afterState.ModTime.Equal(beforeState.ModTime) || afterState.Size != beforeState.Size {
+			// Modified
+			b := beforeState
+			a := afterState
+			changes = append(changes, FileChange{
+				Path:   path,
+				Type:   FileModified,
+				Before: &b,
+				After:  &a,
+			})
+		}
+	}
+
+	// Detect deletions
+	for path, beforeState := range before {
+		if _, ok := after[path]; !ok {
+			b := beforeState
+			changes = append(changes, FileChange{
+				Path:   path,
+				Type:   FileDeleted,
+				Before: &b,
+			})
+		}
+	}
+
+	return changes
+}
+
+// RecordedFileChange captures file changes with attribution metadata.
+type RecordedFileChange struct {
+	Timestamp time.Time  `json:"timestamp"`
+	Session   string     `json:"session"`
+	Agents    []string   `json:"agents,omitempty"`
+	Change    FileChange `json:"change"`
+}
+
+// FileChangeStore keeps a bounded buffer of recent file changes.
+type FileChangeStore struct {
+	mu      sync.Mutex
+	limit   int
+	entries []RecordedFileChange
+}
+
+// NewFileChangeStore creates a store with the provided capacity.
+func NewFileChangeStore(limit int) *FileChangeStore {
+	if limit <= 0 {
+		limit = 500
+	}
+	return &FileChangeStore{
+		limit:   limit,
+		entries: make([]RecordedFileChange, 0, limit),
+	}
+}
+
+// Add records a change and prunes oldest entries when over capacity.
+func (s *FileChangeStore) Add(entry RecordedFileChange) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if entry.Timestamp.IsZero() {
+		entry.Timestamp = time.Now()
+	}
+
+	if len(s.entries) >= s.limit {
+		// drop oldest
+		s.entries = s.entries[1:]
+	}
+	s.entries = append(s.entries, entry)
+}
+
+// Since returns changes after the provided timestamp.
+func (s *FileChangeStore) Since(ts time.Time) []RecordedFileChange {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	results := make([]RecordedFileChange, 0)
+	for _, e := range s.entries {
+		if e.Timestamp.After(ts) {
+			results = append(results, e)
+		}
+	}
+	return results
+}
+
+// All returns a copy of all recorded changes.
+func (s *FileChangeStore) All() []RecordedFileChange {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	results := make([]RecordedFileChange, len(s.entries))
+	copy(results, s.entries)
+	return results
+}
+
+// GlobalFileChanges is the shared change store.
+var GlobalFileChanges = NewFileChangeStore(500)
+
+// RecordFileChanges captures and stores file changes after a delay.
+// It is best-effort and meant to attribute changes to targeted agents.
+func RecordFileChanges(session, root string, agents []string, before map[string]FileState, delay time.Duration) {
+	if root == "" || len(before) == 0 {
+		return
+	}
+
+	go func() {
+		time.Sleep(delay)
+
+		after, err := SnapshotDirectory(root, DefaultSnapshotOptions(root))
+		if err != nil {
+			return
+		}
+
+		changes := DetectFileChanges(before, after)
+		if len(changes) == 0 {
+			return
+		}
+
+		for _, change := range changes {
+			GlobalFileChanges.Add(RecordedFileChange{
+				Session:   session,
+				Agents:    append([]string{}, agents...),
+				Change:    change,
+				Timestamp: time.Now(),
+			})
+		}
+	}()
 }

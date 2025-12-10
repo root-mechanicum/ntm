@@ -16,6 +16,7 @@ import (
 	"github.com/Dicklesworthstone/ntm/internal/prompt"
 	"github.com/Dicklesworthstone/ntm/internal/templates"
 	"github.com/Dicklesworthstone/ntm/internal/tmux"
+	"github.com/Dicklesworthstone/ntm/internal/tracker"
 	"github.com/mattn/go-isatty"
 	"github.com/spf13/cobra"
 )
@@ -30,6 +31,8 @@ type SendResult struct {
 	Failed        int    `json:"failed"`
 	Error         string `json:"error,omitempty"`
 }
+
+const fileChangeScanDelay = 5 * time.Second
 
 // SendTarget represents a send target with optional variant filter.
 // Used for --cc:opus style flags where variant filters to specific model/persona.
@@ -442,6 +445,18 @@ func runSendInternal(session, prompt string, targets SendTargets, targetCC, targ
 		},
 	}
 
+	// Capture baseline snapshot for best-effort file change attribution.
+	var (
+		fileBaseline map[string]tracker.FileState
+		trackAgents  []string
+		workDir      = hookCtx.ProjectDir
+	)
+	if workDir != "" {
+		if snap, err := tracker.SnapshotDirectory(workDir, tracker.DefaultSnapshotOptions(workDir)); err == nil {
+			fileBaseline = snap
+		}
+	}
+
 	// Run pre-send hooks
 	if hookExec.HasHooksForEvent(hooks.EventPreSend) {
 		if !jsonOutput {
@@ -587,6 +602,7 @@ func runSendInternal(session, prompt string, targets SendTargets, targetCC, targ
 		}
 
 		targetPanes = append(targetPanes, p.Index)
+		trackAgents = append(trackAgents, p.Title)
 		if err := tmux.SendKeys(p.ID, prompt, true); err != nil {
 			failed++
 			if !jsonOutput {
@@ -601,6 +617,10 @@ func runSendInternal(session, prompt string, targets SendTargets, targetCC, targ
 	hookCtx.AdditionalEnv["NTM_DELIVERED_COUNT"] = fmt.Sprintf("%d", delivered)
 	hookCtx.AdditionalEnv["NTM_FAILED_COUNT"] = fmt.Sprintf("%d", failed)
 	hookCtx.AdditionalEnv["NTM_TARGET_PANES"] = fmt.Sprintf("%v", targetPanes)
+
+	if len(targetPanes) > 0 && len(fileBaseline) > 0 && workDir != "" {
+		tracker.RecordFileChanges(session, workDir, trackAgents, fileBaseline, fileChangeScanDelay)
+	}
 
 	// Run post-send hooks
 	if hookExec.HasHooksForEvent(hooks.EventPostSend) {
