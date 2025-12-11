@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -12,7 +13,6 @@ import (
 	"time"
 
 	"github.com/Dicklesworthstone/ntm/internal/agentmail"
-	"github.com/Dicklesworthstone/ntm/internal/output"
 	"github.com/Dicklesworthstone/ntm/internal/tmux"
 	"github.com/spf13/cobra"
 )
@@ -30,14 +30,14 @@ func newMailInboxCmd() *cobra.Command {
 		Short: "Show aggregate project inbox",
 		Long: `Display an aggregate inbox view showing messages across all agents in the project.
 
-		This provides visibility into agent-to-agent communication and Human Overseer messages.
-		Messages are deduplicated (shown once even if sent to multiple agents).
+This provides visibility into agent-to-agent communication and Human Overseer messages.
+Messages are deduplicated (shown once even if sent to multiple agents).
 
-		Examples:
-		  ntm mail inbox myproject
-		  ntm mail inbox myproject --session-agents  # Only show messages for agents in this session
-		  ntm mail inbox myproject --agent BlueLake  # Only show messages involving BlueLake
-		  ntm mail inbox --urgent                    # Only show urgent messages`,
+Examples:
+  ntm mail inbox myproject
+  ntm mail inbox myproject --session-agents  # Only show messages for agents in this session
+  ntm mail inbox myproject --agent BlueLake  # Only show messages involving BlueLake
+  ntm mail inbox --urgent                    # Only show urgent messages`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			var session string
 			if len(args) > 0 {
@@ -56,15 +56,15 @@ func newMailInboxCmd() *cobra.Command {
 }
 
 type aggregatedMessage struct {
-	ID          int
-	Subject     string
-	From        string
-	CreatedTS   time.Time
-	Importance  string
-	AckRequired bool
-	Kind        string
-	BodyMD      string // truncated for display
-	Recipients  []string
+	ID          int       `json:"id"`
+	Subject     string    `json:"subject"`
+	From        string    `json:"from"`
+	CreatedTS   time.Time `json:"created_ts"`
+	Importance  string    `json:"importance"`
+	AckRequired bool      `json:"ack_required"`
+	Kind        string    `json:"kind"`
+	BodyMD      string    `json:"body_md,omitempty"` // truncated for display
+	Recipients  []string  `json:"recipients"`
 }
 
 func runMailInbox(cmd *cobra.Command, session string, sessionAgents bool, agentFilter string, urgent bool, limit int) error {
@@ -119,15 +119,6 @@ func runMailInbox(cmd *cobra.Command, session string, sessionAgents bool, agentF
 		if a.Name == "HumanOverseer" {
 			continue
 		}
-		// Apply filters for FETCHING
-		// If --agent is set, we only need to fetch THAT agent's inbox?
-		// No, requirement says "Aggregate View... showing messages... across ALL agents".
-		// BUT "Filter to specific agent" might mean "Show messages where X is sender OR recipient".
-		// If I only fetch X's inbox, I see messages TO X. I miss messages FROM X to Y.
-		// To see messages FROM X, I need Y's inbox.
-		// So to do it right, we should fetch ALL inboxes and then filter.
-		// Optimization: if filter is specific agent, can we optimize? Maybe not easily without search.
-		// Let's stick to fetching all inboxes (limit is key).
 		targetAgents = append(targetAgents, a.Name)
 	}
 
@@ -137,8 +128,6 @@ func runMailInbox(cmd *cobra.Command, session string, sessionAgents bool, agentF
 		messages = make(map[int]*aggregatedMessage)
 		wg       sync.WaitGroup
 	)
-
-	errChan := make(chan error, len(targetAgents))
 
 	for _, agentName := range targetAgents {
 		wg.Add(1)
@@ -151,9 +140,7 @@ func runMailInbox(cmd *cobra.Command, session string, sessionAgents bool, agentF
 				Limit:      limit,
 			})
 			if err != nil {
-				// Log warning but don't fail completely?
-				// errChan <- fmt.Errorf("fetching inbox for %s: %w", name, err)
-				return
+				return // silently ignore failures for now
 			}
 
 			mu.Lock()
@@ -169,13 +156,12 @@ func runMailInbox(cmd *cobra.Command, session string, sessionAgents bool, agentF
 						Importance:  msg.Importance,
 						AckRequired: msg.AckRequired,
 						Kind:        msg.Kind,
-						BodyMD:      msg.BodyMD, // Empty unless we ask for it
+						BodyMD:      msg.BodyMD,
 						Recipients:  []string{},
 					}
-					messages[msg.ID] = agg
+				messages[msg.ID] = agg
 				}
 				// Add this agent as a recipient
-				// Check if already in list (unlikely unless agent listed twice)
 				isPresent := false
 				for _, r := range agg.Recipients {
 					if r == name {
@@ -185,17 +171,12 @@ func runMailInbox(cmd *cobra.Command, session string, sessionAgents bool, agentF
 				}
 				if !isPresent {
 					agg.Recipients = append(agg.Recipients, name)
-				}
+					}
 			}
 		}(agentName)
 	}
 
 	wg.Wait()
-	close(errChan)
-	if len(errChan) > 0 {
-		// report first error? Or just continue with partial data?
-		// For CLI, partial data is better than nothing usually.
-	}
 
 	// 3. Flatten and Filter
 	var result []*aggregatedMessage
@@ -270,7 +251,6 @@ func runMailInbox(cmd *cobra.Command, session string, sessionAgents bool, agentF
 		if m.Importance == "urgent" || m.Importance == "high" {
 			icon = "●" // Urgent
 		}
-		// Ack check? We don't know if *this* viewer acked it, but we know if ack required.
 		
 		urgencyTag := ""
 		if m.Importance == "urgent" || m.Importance == "high" {
@@ -278,25 +258,27 @@ func runMailInbox(cmd *cobra.Command, session string, sessionAgents bool, agentF
 		}
 
 		// Line 1: Icon ID [URGENT] Subject
-		// Truncate subject to fit
 		sub := m.Subject
 		if len(sub) > 40 {
 			sub = sub[:37] + "..."
 		}
-		fmt.Printf("│ %s #%d %s%s\n", icon, m.ID, urgencyTag, sub)
+		
+		line1 := fmt.Sprintf("%s #%d %s%s", icon, m.ID, urgencyTag, sub)
+		fmt.Printf("│ %-59s │\n", line1)
 
 		// Line 2: From -> To
 		recipientsStr := strings.Join(m.Recipients, ", ")
 		if len(recipientsStr) > 40 {
 			recipientsStr = recipientsStr[:37] + "..."
 		}
-		fmt.Printf("│   %s → %s\n", m.From, recipientsStr)
+		line2 := fmt.Sprintf("  %s → %s", m.From, recipientsStr)
+		fmt.Printf("│ %-59s │\n", line2)
 
 		// Line 3: Time | Thread | Flags
 		timeStr := m.CreatedTS.Format("15:04")
 		ago := time.Since(m.CreatedTS).Round(time.Minute)
-		if ago < time.Hour {
-			timeStr = fmt.Sprintf("%dm ago", int(ago.Minutes()))
+		if ago < 24*time.Hour {
+			timeStr = fmt.Sprintf("%s (%dm ago)", timeStr, int(ago.Minutes()))
 		}
 		
 		ackStr := ""
@@ -304,8 +286,8 @@ func runMailInbox(cmd *cobra.Command, session string, sessionAgents bool, agentF
 			ackStr = " │ ⚠️ Ack required"
 		}
 		
-		// Note: Thread ID not available in InboxMessage yet, omitted
-		fmt.Printf("│   %s%s\n", timeStr, ackStr)
+		line3 := fmt.Sprintf("  %s%s", timeStr, ackStr)
+		fmt.Printf("│ %-59s │\n", line3)
 	}
 	fmt.Printf("└─────────────────────────────────────────────────────────────┘\n")
 	
@@ -327,17 +309,53 @@ func runMailInbox(cmd *cobra.Command, session string, sessionAgents bool, agentF
 	return nil
 }
 
+// resolveAgentName tries to get the agent name from a pane.
 func resolveAgentName(p tmux.Pane) string {
-	if p.Variant != "" {
-		return p.Variant
+	// Try pane title first (may contain agent name)
+	if p.Title != "" && !strings.HasPrefix(p.Title, "pane") {
+		if looksLikeAgentName(p.Title) {
+			return p.Title
+		}
 	}
-	return ""
+
+	// Fall back to generated name based on type and index
+	var prefix string
+	switch p.Type {
+	case tmux.AgentClaude:
+		prefix = "Claude"
+	case tmux.AgentCodex:
+		prefix = "Codex"
+	case tmux.AgentGemini:
+		prefix = "Gemini"
+	default:
+		return ""
+	}
+	return fmt.Sprintf("%sAgent%d", prefix, p.Index)
 }
 
-func encodeJSONResult(w io.Writer, v interface{}) error {
-	return output.WriteJSON(w, v, true)
+// looksLikeAgentName checks if a string looks like an AdjectiveNoun agent name.
+func looksLikeAgentName(s string) bool {
+	if strings.Contains(s, " ") || strings.Contains(s, "_") || strings.Contains(s, "-") {
+		return false
+	}
+	if len(s) == 0 || s[0] < 'A' || s[0] > 'Z' {
+		return false
+	}
+	for i := 1; i < len(s); i++ {
+		if s[i] >= 'A' && s[i] <= 'Z' {
+			return true
+		}
+	}
+	return false
 }
 
 func mailJSONWriter(cmd *cobra.Command) io.Writer {
-	return cmd.OutOrStdout()
+	return io.MultiWriter(cmd.Root().OutOrStdout(), cmd.Root().ErrOrStderr())
+}
+
+// encodeJSONResult is a helper to output JSON.
+func encodeJSONResult(w io.Writer, v interface{}) error {
+	encoder := json.NewEncoder(w)
+	encoder.SetIndent("", "  ")
+	return encoder.Encode(v)
 }
