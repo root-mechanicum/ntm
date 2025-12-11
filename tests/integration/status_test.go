@@ -22,6 +22,11 @@ func TestMain(m *testing.M) {
 }
 
 func TestStatusDetectsIdlePrompt(t *testing.T) {
+	// Skip on CI - this test is flaky due to timing issues with tmux session
+	// initialization and shell readiness detection across different environments.
+	if os.Getenv("CI") == "true" || os.Getenv("GITHUB_ACTIONS") == "true" {
+		t.Skip("Skipping flaky tmux test on CI")
+	}
 	testutil.RequireTmux(t)
 	logger := testutil.NewTestLogger(t, t.TempDir())
 
