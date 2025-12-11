@@ -18,7 +18,7 @@ import (
 //	session__cc_1
 //	session__cc_1[frontend]
 //	session__cc_1_opus[backend,api]
-var paneNameRegex = regexp.MustCompile(`^.+__(\w+)_\d+(?:_([A-Za-z0-9._/@:+-]+))?(?:[^\]]*)?$`)
+var paneNameRegex = regexp.MustCompile(`^.+__(\w+)_\d+(?:_([A-Za-z0-9._/@:+-]+))?(?:\[([^\]]*)\])?$`)
 
 // AgentType represents the type of AI agent
 type AgentType string
