@@ -70,7 +70,7 @@ func TestAlertsPanelSetData(t *testing.T) {
 		{Severity: alerts.SeverityWarning, Message: "Warning message"},
 	}
 
-	panel.SetData(testAlerts)
+	panel.SetData(testAlerts, nil)
 
 	if len(panel.alerts) != 2 {
 		t.Errorf("expected 2 alerts, got %d", len(panel.alerts))
@@ -120,7 +120,7 @@ func TestAlertsPanelViewZeroWidth(t *testing.T) {
 func TestAlertsPanelViewNoAlerts(t *testing.T) {
 	panel := NewAlertsPanel()
 	panel.SetSize(80, 20)
-	panel.SetData([]alerts.Alert{})
+	panel.SetData([]alerts.Alert{}, nil)
 
 	view := panel.View()
 
@@ -141,7 +141,7 @@ func TestAlertsPanelViewWithAlerts(t *testing.T) {
 		{Severity: alerts.SeverityWarning, Message: "Warning about disk space"},
 		{Severity: alerts.SeverityInfo, Message: "Informational message"},
 	}
-	panel.SetData(testAlerts)
+	panel.SetData(testAlerts, nil)
 
 	view := panel.View()
 
@@ -166,7 +166,7 @@ func TestAlertsPanelViewGroupsBySeverity(t *testing.T) {
 		{Severity: alerts.SeverityWarning, Message: "First warning"},
 		{Severity: alerts.SeverityInfo, Message: "First info"},
 	}
-	panel.SetData(testAlerts)
+	panel.SetData(testAlerts, nil)
 
 	view := panel.View()
 

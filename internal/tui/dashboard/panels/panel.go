@@ -3,8 +3,8 @@ package panels
 import (
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/bubbles/key"
+	tea "github.com/charmbracelet/bubbletea"
 )
 
 // PanelPriority defines panel display/update priority levels.
@@ -63,13 +63,13 @@ type PanelConfig struct {
 // DefaultPanelConfig returns a PanelConfig with sensible defaults.
 func DefaultPanelConfig(id, title string) PanelConfig {
 	return PanelConfig{
-		ID:              id,
-		Title:           title,
-		Priority:        PriorityNormal,
-		RefreshInterval: 5 * time.Second,
-		MinWidth:        20,
-		MinHeight:       5,
-		Collapsible:     true,
+		ID:               id,
+		Title:            title,
+		Priority:         PriorityNormal,
+		RefreshInterval:  5 * time.Second,
+		MinWidth:         20,
+		MinHeight:        5,
+		Collapsible:      true,
 		DefaultCollapsed: false,
 	}
 }

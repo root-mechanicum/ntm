@@ -5,8 +5,8 @@ import (
 	"strings"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/bubbles/key"
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/Dicklesworthstone/ntm/internal/tui/styles"
@@ -34,6 +34,7 @@ type MetricsPanel struct {
 	PanelBase
 	data  MetricsData
 	theme theme.Theme
+	err   error
 }
 
 // metricsConfig returns the configuration for the metrics panel
@@ -68,8 +69,14 @@ func (m *MetricsPanel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 // SetData updates the panel data
-func (m *MetricsPanel) SetData(data MetricsData) {
+func (m *MetricsPanel) SetData(data MetricsData, err error) {
 	m.data = data
+	m.err = err
+}
+
+// HasError returns true if there's an active error
+func (m *MetricsPanel) HasError() bool {
+	return m.err != nil
 }
 
 // Keybindings returns metrics panel specific shortcuts
@@ -108,6 +115,18 @@ func (m *MetricsPanel) View() string {
 
 	var content strings.Builder
 
+	// Build header with error badge if needed
+	title := m.Config().Title
+	if m.err != nil {
+		errorBadge := lipgloss.NewStyle().
+			Background(t.Red).
+			Foreground(t.Base).
+			Bold(true).
+			Padding(0, 1).
+			Render("⚠ Error")
+		title = title + " " + errorBadge
+	}
+
 	// Header
 	headerStyle := lipgloss.NewStyle().
 		Bold(true).
@@ -117,7 +136,21 @@ func (m *MetricsPanel) View() string {
 		Width(w - 4).
 		Align(lipgloss.Center)
 
-	content.WriteString(headerStyle.Render(m.Config().Title) + "\n\n")
+	content.WriteString(headerStyle.Render(title) + "\n")
+
+	// Show error message if present
+	if m.err != nil {
+		errorStyle := lipgloss.NewStyle().
+			Foreground(t.Red).
+			Italic(true).
+			Padding(0, 1)
+		errMsg := m.err.Error()
+		if len(errMsg) > w-4 {
+			errMsg = errMsg[:w-7] + "..."
+		}
+		content.WriteString(errorStyle.Render("⚠ "+errMsg) + "\n")
+	}
+	content.WriteString("\n")
 
 	// Total Usage Bar
 	// Calculate total context limit (heuristic: sum of agents?)

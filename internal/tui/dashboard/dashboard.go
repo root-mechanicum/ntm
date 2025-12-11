@@ -219,6 +219,14 @@ type Model struct {
 	cmdHistory    []history.HistoryEntry
 	fileChanges   []tracker.RecordedFileChange
 	cassContext   []cass.SearchHit
+
+	// Error tracking for data sources (displayed as badges)
+	beadsError       error
+	alertsError      error
+	metricsError     error
+	historyError     error
+	fileChangesError error
+	cassError        error
 }
 
 // PaneStatus tracks the status of a pane including compaction state
@@ -646,42 +654,48 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(cmds...)
 
 	case BeadsUpdateMsg:
+		m.beadsError = msg.Err
 		if msg.Err == nil {
 			m.beadsSummary = msg.Summary
 			m.beadsReady = msg.Ready
-			m.beadsPanel.SetData(msg.Summary, msg.Ready)
 		}
+		m.beadsPanel.SetData(m.beadsSummary, m.beadsReady, m.beadsError)
 		return m, nil
 
 	case AlertsUpdateMsg:
+		m.alertsError = msg.Err
 		if msg.Err == nil {
 			m.activeAlerts = msg.Alerts
-			m.alertsPanel.SetData(msg.Alerts)
 		}
+		m.alertsPanel.SetData(m.activeAlerts, m.alertsError)
 		return m, nil
 
 	case MetricsUpdateMsg:
+		m.metricsError = msg.Err
 		if msg.Err == nil {
 			m.metricsTokens = msg.Data.TotalTokens
 			m.metricsCost = msg.Data.TotalCost
-			m.metricsPanel.SetData(msg.Data)
 		}
+		m.metricsPanel.SetData(msg.Data, m.metricsError)
 		return m, nil
 
 	case HistoryUpdateMsg:
+		m.historyError = msg.Err
 		if msg.Err == nil {
 			m.cmdHistory = msg.Entries
-			m.historyPanel.SetEntries(msg.Entries)
 		}
+		m.historyPanel.SetEntries(m.cmdHistory, m.historyError)
 		return m, nil
 
 	case FileChangeMsg:
+		m.fileChangesError = msg.Err
 		if msg.Err == nil {
 			m.fileChanges = msg.Changes
 		}
 		return m, nil
 
 	case CASSContextMsg:
+		m.cassError = msg.Err
 		if msg.Err == nil {
 			m.cassContext = msg.Hits
 		}

@@ -5,8 +5,8 @@ import (
 	"strings"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/bubbles/key"
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/Dicklesworthstone/ntm/internal/bv"
@@ -31,6 +31,7 @@ type BeadsPanel struct {
 	PanelBase
 	summary bv.BeadsSummary
 	ready   []bv.BeadPreview
+	err     error
 }
 
 func NewBeadsPanel() *BeadsPanel {
@@ -39,9 +40,23 @@ func NewBeadsPanel() *BeadsPanel {
 	}
 }
 
-func (m *BeadsPanel) SetData(summary bv.BeadsSummary, ready []bv.BeadPreview) {
+func (m *BeadsPanel) SetData(summary bv.BeadsSummary, ready []bv.BeadPreview, err error) {
 	m.summary = summary
 	m.ready = ready
+	m.err = err
+}
+
+// HasError returns true if there's an active error
+func (m *BeadsPanel) HasError() bool {
+	return m.err != nil
+}
+
+// Error returns the current error message
+func (m *BeadsPanel) Error() string {
+	if m.err != nil {
+		return m.err.Error()
+	}
+	return ""
 }
 
 func (m *BeadsPanel) Init() tea.Cmd {
@@ -86,6 +101,18 @@ func (m *BeadsPanel) View() string {
 		borderColor = t.Pink
 	}
 
+	// Build header with error badge if needed
+	title := m.Config().Title
+	if m.err != nil {
+		errorBadge := lipgloss.NewStyle().
+			Background(t.Red).
+			Foreground(t.Base).
+			Bold(true).
+			Padding(0, 1).
+			Render("⚠ Error")
+		title = title + " " + errorBadge
+	}
+
 	header := lipgloss.NewStyle().
 		Bold(true).
 		Foreground(t.Text).
@@ -94,10 +121,23 @@ func (m *BeadsPanel) View() string {
 		BorderForeground(borderColor).
 		Width(w).
 		Padding(0, 1).
-		Render(m.Config().Title)
+		Render(title)
 
 	var content strings.Builder
 	content.WriteString(header + "\n")
+
+	// Show error message if present
+	if m.err != nil {
+		errorStyle := lipgloss.NewStyle().
+			Foreground(t.Red).
+			Italic(true).
+			Padding(0, 1)
+		errMsg := m.err.Error()
+		if len(errMsg) > w-4 {
+			errMsg = errMsg[:w-7] + "..."
+		}
+		content.WriteString(errorStyle.Render("⚠ "+errMsg) + "\n\n")
+	}
 
 	// Stats row
 	stats := fmt.Sprintf("Ready: %d  In Progress: %d  Blocked: %d  Closed: %d",

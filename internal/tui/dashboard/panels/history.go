@@ -5,8 +5,8 @@ import (
 	"strings"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/bubbles/key"
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/Dicklesworthstone/ntm/internal/history"
@@ -33,6 +33,7 @@ type HistoryPanel struct {
 	cursor  int
 	offset  int
 	theme   theme.Theme
+	err     error
 }
 
 // NewHistoryPanel creates a new history panel
@@ -41,6 +42,11 @@ func NewHistoryPanel() *HistoryPanel {
 		PanelBase: NewPanelBase(historyConfig()),
 		theme:     theme.Current(),
 	}
+}
+
+// HasError returns true if there's an active error
+func (m *HistoryPanel) HasError() bool {
+	return m.err != nil
 }
 
 // Init implements tea.Model
@@ -77,8 +83,9 @@ func (m *HistoryPanel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 // SetEntries updates the history entries
-func (m *HistoryPanel) SetEntries(entries []history.HistoryEntry) {
+func (m *HistoryPanel) SetEntries(entries []history.HistoryEntry, err error) {
 	m.entries = entries
+	m.err = err
 	// Keep cursor within bounds
 	if m.cursor >= len(m.entries) {
 		m.cursor = len(m.entries) - 1
@@ -137,6 +144,18 @@ func (m *HistoryPanel) View() string {
 
 	var content strings.Builder
 
+	// Build header with error badge if needed
+	title := m.Config().Title
+	if m.err != nil {
+		errorBadge := lipgloss.NewStyle().
+			Background(t.Red).
+			Foreground(t.Base).
+			Bold(true).
+			Padding(0, 1).
+			Render("⚠ Error")
+		title = title + " " + errorBadge
+	}
+
 	// Header
 	headerStyle := lipgloss.NewStyle().
 		Bold(true).
@@ -146,7 +165,20 @@ func (m *HistoryPanel) View() string {
 		Width(w - 4).
 		Align(lipgloss.Center)
 
-	content.WriteString(headerStyle.Render(m.Config().Title) + "\n")
+	content.WriteString(headerStyle.Render(title) + "\n")
+
+	// Show error message if present
+	if m.err != nil {
+		errorStyle := lipgloss.NewStyle().
+			Foreground(t.Red).
+			Italic(true).
+			Padding(0, 1)
+		errMsg := m.err.Error()
+		if len(errMsg) > w-4 {
+			errMsg = errMsg[:w-7] + "..."
+		}
+		content.WriteString(errorStyle.Render("⚠ "+errMsg) + "\n")
+	}
 
 	if len(m.entries) == 0 {
 		content.WriteString("\n" + lipgloss.NewStyle().Foreground(t.Overlay).Italic(true).Render("No history"))

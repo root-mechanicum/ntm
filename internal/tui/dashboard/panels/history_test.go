@@ -79,7 +79,7 @@ func TestHistoryPanelSetEntries(t *testing.T) {
 		{ID: "entry-3", Prompt: "Third command", Targets: []string{}, Success: true},
 	}
 
-	panel.SetEntries(entries)
+	panel.SetEntries(entries, nil)
 
 	if len(panel.entries) != 3 {
 		t.Errorf("expected 3 entries, got %d", len(panel.entries))
@@ -98,14 +98,14 @@ func TestHistoryPanelSetEntriesCursorBounds(t *testing.T) {
 		{ID: "entry-2", Prompt: "Second"},
 		{ID: "entry-3", Prompt: "Third"},
 	}
-	panel.SetEntries(entries)
+	panel.SetEntries(entries, nil)
 	panel.cursor = 2 // Point to last entry
 
 	// Replace with fewer entries
 	newEntries := []history.HistoryEntry{
 		{ID: "entry-new", Prompt: "Only entry"},
 	}
-	panel.SetEntries(newEntries)
+	panel.SetEntries(newEntries, nil)
 
 	// Cursor should be adjusted to valid range
 	if panel.cursor != 0 {
@@ -117,7 +117,7 @@ func TestHistoryPanelSetEntriesEmpty(t *testing.T) {
 	panel := NewHistoryPanel()
 	panel.cursor = 5 // Invalid cursor
 
-	panel.SetEntries([]history.HistoryEntry{})
+	panel.SetEntries([]history.HistoryEntry{}, nil)
 
 	// Cursor should be 0 for empty list
 	if panel.cursor != 0 {
@@ -166,7 +166,7 @@ func TestHistoryPanelUpdateNotFocused(t *testing.T) {
 	panel.SetEntries([]history.HistoryEntry{
 		{ID: "entry-1", Prompt: "First"},
 		{ID: "entry-2", Prompt: "Second"},
-	})
+	}, nil)
 
 	// Panel is not focused
 	panel.Blur()
@@ -193,7 +193,7 @@ func TestHistoryPanelUpdateFocusedNavigation(t *testing.T) {
 		{ID: "entry-1", Prompt: "First"},
 		{ID: "entry-2", Prompt: "Second"},
 		{ID: "entry-3", Prompt: "Third"},
-	})
+	}, nil)
 	panel.Focus()
 
 	// Test down navigation with 'j'
@@ -251,7 +251,7 @@ func TestHistoryPanelViewContainsTitle(t *testing.T) {
 func TestHistoryPanelViewNoHistory(t *testing.T) {
 	panel := NewHistoryPanel()
 	panel.SetSize(80, 20)
-	panel.SetEntries([]history.HistoryEntry{})
+	panel.SetEntries([]history.HistoryEntry{}, nil)
 
 	view := panel.View()
 
@@ -268,7 +268,7 @@ func TestHistoryPanelViewShowsEntries(t *testing.T) {
 		{ID: "abcd1234", Prompt: "First command", Targets: []string{"cc_1"}, Success: true},
 		{ID: "efgh5678", Prompt: "Failed command", Targets: []string{"cod_1"}, Success: false},
 	}
-	panel.SetEntries(entries)
+	panel.SetEntries(entries, nil)
 
 	view := panel.View()
 
@@ -301,7 +301,7 @@ func TestHistoryPanelViewShowsAllTargets(t *testing.T) {
 	entries := []history.HistoryEntry{
 		{ID: "test1234", Prompt: "Broadcast command", Targets: []string{}, Success: true},
 	}
-	panel.SetEntries(entries)
+	panel.SetEntries(entries, nil)
 
 	view := panel.View()
 
@@ -318,7 +318,7 @@ func TestHistoryPanelViewTruncatesLongTargets(t *testing.T) {
 	entries := []history.HistoryEntry{
 		{ID: "test1234", Prompt: "Multi-target", Targets: []string{"agent1", "agent2", "agent3"}, Success: true},
 	}
-	panel.SetEntries(entries)
+	panel.SetEntries(entries, nil)
 
 	view := panel.View()
 
@@ -336,7 +336,7 @@ func TestHistoryPanelViewTruncatesLongPrompts(t *testing.T) {
 	entries := []history.HistoryEntry{
 		{ID: "test1234", Prompt: longPrompt, Targets: []string{"cc_1"}, Success: true},
 	}
-	panel.SetEntries(entries)
+	panel.SetEntries(entries, nil)
 
 	view := panel.View()
 
@@ -353,7 +353,7 @@ func TestHistoryPanelViewMultilinePromptFlattened(t *testing.T) {
 	entries := []history.HistoryEntry{
 		{ID: "test1234", Prompt: "Line one\nLine two\nLine three", Targets: []string{}, Success: true},
 	}
-	panel.SetEntries(entries)
+	panel.SetEntries(entries, nil)
 
 	view := panel.View()
 
@@ -388,7 +388,7 @@ func TestHistoryPanelScrollingOffset(t *testing.T) {
 			Success: true,
 		}
 	}
-	panel.SetEntries(entries)
+	panel.SetEntries(entries, nil)
 
 	// Navigate down past visible area
 	downMsg := tea.KeyMsg{Type: tea.KeyDown}

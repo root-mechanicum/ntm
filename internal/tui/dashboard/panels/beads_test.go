@@ -80,7 +80,7 @@ func TestBeadsPanelSetData(t *testing.T) {
 		{ID: "bead-2", Title: "Second task", Priority: "P1"},
 	}
 
-	panel.SetData(summary, ready)
+	panel.SetData(summary, ready, nil)
 
 	if !panel.summary.Available {
 		t.Error("expected summary.Available to be true")
@@ -171,7 +171,7 @@ func TestBeadsPanelViewShowsStats(t *testing.T) {
 		Blocked:    2,
 		Closed:     10,
 	}
-	panel.SetData(summary, nil)
+	panel.SetData(summary, nil, nil)
 
 	view := panel.View()
 
@@ -199,7 +199,7 @@ func TestBeadsPanelViewShowsInProgress(t *testing.T) {
 			{ID: "bead-123", Title: "Working on feature", Assignee: "RedLake"},
 		},
 	}
-	panel.SetData(summary, nil)
+	panel.SetData(summary, nil, nil)
 
 	view := panel.View()
 
@@ -220,7 +220,7 @@ func TestBeadsPanelViewShowsReadyBeads(t *testing.T) {
 		{ID: "bead-456", Title: "Ready to work", Priority: "P0"},
 		{ID: "bead-789", Title: "Another task", Priority: "P1"},
 	}
-	panel.SetData(summary, ready)
+	panel.SetData(summary, ready, nil)
 
 	view := panel.View()
 
@@ -240,7 +240,7 @@ func TestBeadsPanelViewNoReadyItems(t *testing.T) {
 	panel.SetSize(80, 20)
 
 	summary := bv.BeadsSummary{Available: true}
-	panel.SetData(summary, []bv.BeadPreview{})
+	panel.SetData(summary, []bv.BeadPreview{}, nil)
 
 	view := panel.View()
 
@@ -254,7 +254,7 @@ func TestBeadsPanelViewUnavailable(t *testing.T) {
 	panel.SetSize(80, 20)
 
 	summary := bv.BeadsSummary{Available: false}
-	panel.SetData(summary, nil)
+	panel.SetData(summary, nil, nil)
 
 	view := panel.View()
 

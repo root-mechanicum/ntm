@@ -5,8 +5,8 @@ import (
 	"strings"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/bubbles/key"
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/Dicklesworthstone/ntm/internal/alerts"
@@ -30,6 +30,7 @@ func alertsConfig() PanelConfig {
 type AlertsPanel struct {
 	PanelBase
 	alerts []alerts.Alert
+	err    error
 }
 
 func NewAlertsPanel() *AlertsPanel {
@@ -38,8 +39,14 @@ func NewAlertsPanel() *AlertsPanel {
 	}
 }
 
-func (m *AlertsPanel) SetData(alertList []alerts.Alert) {
+func (m *AlertsPanel) SetData(alertList []alerts.Alert, err error) {
 	m.alerts = alertList
+	m.err = err
+}
+
+// HasError returns true if there's an active error
+func (m *AlertsPanel) HasError() bool {
+	return m.err != nil
 }
 
 func (m *AlertsPanel) Init() tea.Cmd {
@@ -79,6 +86,18 @@ func (m *AlertsPanel) View() string {
 		borderColor = t.Pink
 	}
 
+	// Build header with error badge if needed
+	title := m.Config().Title
+	if m.err != nil {
+		errorBadge := lipgloss.NewStyle().
+			Background(t.Red).
+			Foreground(t.Base).
+			Bold(true).
+			Padding(0, 1).
+			Render("⚠ Error")
+		title = title + " " + errorBadge
+	}
+
 	header := lipgloss.NewStyle().
 		Bold(true).
 		Foreground(t.Text).
@@ -87,13 +106,28 @@ func (m *AlertsPanel) View() string {
 		BorderForeground(borderColor).
 		Width(w).
 		Padding(0, 1).
-		Render(m.Config().Title)
+		Render(title)
 	var content strings.Builder
 	content.WriteString(header + "\n")
 
-	if len(m.alerts) == 0 {
+	// Show error message if present
+	if m.err != nil {
+		errorStyle := lipgloss.NewStyle().
+			Foreground(t.Red).
+			Italic(true).
+			Padding(0, 1)
+		errMsg := m.err.Error()
+		if len(errMsg) > w-4 {
+			errMsg = errMsg[:w-7] + "..."
+		}
+		content.WriteString(errorStyle.Render("⚠ "+errMsg) + "\n\n")
+	}
+
+	if len(m.alerts) == 0 && m.err == nil {
 		content.WriteString("\n  " + lipgloss.NewStyle().Foreground(t.Green).Render("✓ System Healthy") + "\n")
 		content.WriteString("  " + lipgloss.NewStyle().Foreground(t.Subtext).Render("No active alerts") + "\n")
+		return content.String()
+	} else if len(m.alerts) == 0 {
 		return content.String()
 	}
 

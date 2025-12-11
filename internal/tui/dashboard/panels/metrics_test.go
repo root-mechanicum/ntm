@@ -72,7 +72,7 @@ func TestMetricsPanelSetData(t *testing.T) {
 		},
 	}
 
-	panel.SetData(data)
+	panel.SetData(data, nil)
 
 	if panel.data.TotalTokens != 150000 {
 		t.Errorf("expected TotalTokens 150000, got %d", panel.data.TotalTokens)
@@ -148,7 +148,7 @@ func TestMetricsPanelViewShowsStats(t *testing.T) {
 		TotalCost:   10.00,
 		Agents:      []AgentMetric{},
 	}
-	panel.SetData(data)
+	panel.SetData(data, nil)
 
 	view := panel.View()
 
@@ -172,7 +172,7 @@ func TestMetricsPanelViewShowsAgents(t *testing.T) {
 			{Name: "cod_1", Type: "cod", Tokens: 25000, Cost: 2.50, ContextPct: 17.0},
 		},
 	}
-	panel.SetData(data)
+	panel.SetData(data, nil)
 
 	view := panel.View()
 
