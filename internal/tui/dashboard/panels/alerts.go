@@ -3,8 +3,10 @@ package panels
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/Dicklesworthstone/ntm/internal/alerts"
@@ -12,19 +14,32 @@ import (
 	"github.com/Dicklesworthstone/ntm/internal/tui/theme"
 )
 
+// alertsConfig returns the configuration for the alerts panel
+func alertsConfig() PanelConfig {
+	return PanelConfig{
+		ID:              "alerts",
+		Title:           "Active Alerts",
+		Priority:        PriorityCritical, // Alerts are highest priority
+		RefreshInterval: 3 * time.Second,  // Fast refresh for alerts
+		MinWidth:        25,
+		MinHeight:       6,
+		Collapsible:     false, // Don't hide alerts
+	}
+}
+
 type AlertsPanel struct {
-	width   int
-	height  int
-	focused bool
-	alerts  []alerts.Alert
+	PanelBase
+	alerts []alerts.Alert
 }
 
 func NewAlertsPanel() *AlertsPanel {
-	return &AlertsPanel{}
+	return &AlertsPanel{
+		PanelBase: NewPanelBase(alertsConfig()),
+	}
 }
 
-func (m *AlertsPanel) SetData(alerts []alerts.Alert) {
-	m.alerts = alerts
+func (m *AlertsPanel) SetData(alertList []alerts.Alert) {
+	m.alerts = alertList
 }
 
 func (m *AlertsPanel) Init() tea.Cmd {
@@ -35,28 +50,32 @@ func (m *AlertsPanel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m *AlertsPanel) SetSize(w, h int) {
-	m.width = w
-	m.height = h
-}
-
-func (m *AlertsPanel) Focus() {
-	m.focused = true
-}
-
-func (m *AlertsPanel) Blur() {
-	m.focused = false
+// Keybindings returns alerts panel specific shortcuts
+func (m *AlertsPanel) Keybindings() []Keybinding {
+	return []Keybinding{
+		{
+			Key:         key.NewBinding(key.WithKeys("d"), key.WithHelp("d", "dismiss")),
+			Description: "Dismiss selected alert",
+			Action:      "dismiss",
+		},
+		{
+			Key:         key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "ack all")),
+			Description: "Acknowledge all alerts",
+			Action:      "ack_all",
+		},
+	}
 }
 
 func (m *AlertsPanel) View() string {
 	t := theme.Current()
+	w, h := m.Width(), m.Height()
 
-	if m.width <= 0 {
+	if w <= 0 {
 		return ""
 	}
 
 	borderColor := t.Surface1
-	if m.focused {
+	if m.IsFocused() {
 		borderColor = t.Pink
 	}
 
@@ -66,9 +85,9 @@ func (m *AlertsPanel) View() string {
 		BorderStyle(lipgloss.NormalBorder()).
 		BorderBottom(true).
 		BorderForeground(borderColor).
-		Width(m.width).
+		Width(w).
 		Padding(0, 1).
-		Render("Active Alerts")
+		Render(m.Config().Title)
 	var content strings.Builder
 	content.WriteString(header + "\n")
 
@@ -99,7 +118,7 @@ func (m *AlertsPanel) View() string {
 	// Calculate display limit based on height
 	// Header + Stats + 2 newlines = ~4 lines
 	// Each item = 1 line
-	availableLines := m.height - 4
+	availableLines := h - 4
 	if availableLines < 0 {
 		availableLines = 0
 	}
@@ -112,7 +131,7 @@ func (m *AlertsPanel) View() string {
 			if count >= availableLines {
 				return
 			}
-			msg := layout.TruncateRunes(a.Message, m.width-6, "…")
+			msg := layout.TruncateRunes(a.Message, w-6, "…")
 			line := fmt.Sprintf("  %s %s", icon, msg)
 			content.WriteString(lipgloss.NewStyle().Foreground(color).Render(line) + "\n")
 			count++

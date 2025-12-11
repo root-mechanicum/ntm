@@ -3,8 +3,10 @@ package panels
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/Dicklesworthstone/ntm/internal/tui/styles"
@@ -29,17 +31,29 @@ type MetricsData struct {
 
 // MetricsPanel displays session token usage and costs
 type MetricsPanel struct {
-	width   int
-	height  int
-	focused bool
-	data    MetricsData
-	theme   theme.Theme
+	PanelBase
+	data  MetricsData
+	theme theme.Theme
+}
+
+// metricsConfig returns the configuration for the metrics panel
+func metricsConfig() PanelConfig {
+	return PanelConfig{
+		ID:              "metrics",
+		Title:           "Metrics & Usage",
+		Priority:        PriorityNormal,
+		RefreshInterval: 10 * time.Second,
+		MinWidth:        30,
+		MinHeight:       8,
+		Collapsible:     true,
+	}
 }
 
 // NewMetricsPanel creates a new metrics panel
 func NewMetricsPanel() *MetricsPanel {
 	return &MetricsPanel{
-		theme: theme.Current(),
+		PanelBase: NewPanelBase(metricsConfig()),
+		theme:     theme.Current(),
 	}
 }
 
@@ -53,42 +67,43 @@ func (m *MetricsPanel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// SetSize sets the panel dimensions
-func (m *MetricsPanel) SetSize(width, height int) {
-	m.width = width
-	m.height = height
-}
-
-// Focus marks the panel as focused
-func (m *MetricsPanel) Focus() {
-	m.focused = true
-}
-
-// Blur marks the panel as unfocused
-func (m *MetricsPanel) Blur() {
-	m.focused = false
-}
-
 // SetData updates the panel data
 func (m *MetricsPanel) SetData(data MetricsData) {
 	m.data = data
 }
 
+// Keybindings returns metrics panel specific shortcuts
+func (m *MetricsPanel) Keybindings() []Keybinding {
+	return []Keybinding{
+		{
+			Key:         key.NewBinding(key.WithKeys("r"), key.WithHelp("r", "refresh")),
+			Description: "Refresh metrics",
+			Action:      "refresh",
+		},
+		{
+			Key:         key.NewBinding(key.WithKeys("c"), key.WithHelp("c", "copy stats")),
+			Description: "Copy stats to clipboard",
+			Action:      "copy",
+		},
+	}
+}
+
 // View renders the panel
 func (m *MetricsPanel) View() string {
 	t := m.theme
+	w, h := m.Width(), m.Height()
 
 	// Create border style based on focus
 	borderColor := t.Surface1
-	if m.focused {
+	if m.IsFocused() {
 		borderColor = t.Primary
 	}
 
 	boxStyle := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(borderColor).
-		Width(m.width-2).
-		Height(m.height-2).
+		Width(w-2).
+		Height(h-2).
 		Padding(0, 1)
 
 	var content strings.Builder
@@ -99,10 +114,10 @@ func (m *MetricsPanel) View() string {
 		Foreground(t.Lavender).
 		Border(lipgloss.NormalBorder(), false, false, true, false).
 		BorderForeground(t.Surface1).
-		Width(m.width - 4).
+		Width(w - 4).
 		Align(lipgloss.Center)
 
-	content.WriteString(headerStyle.Render("Metrics & Usage") + "\n\n")
+	content.WriteString(headerStyle.Render(m.Config().Title) + "\n\n")
 
 	// Total Usage Bar
 	// Calculate total context limit (heuristic: sum of agents?)
@@ -114,17 +129,17 @@ func (m *MetricsPanel) View() string {
 		totalPct = 1.0
 	}
 
-	bar := styles.ProgressBar(totalPct, m.width-6, "█", "░", string(t.Blue), string(t.Pink))
+	bar := styles.ProgressBar(totalPct, w-6, "█", "░", string(t.Blue), string(t.Pink))
 
 	content.WriteString(lipgloss.NewStyle().Foreground(t.Subtext).Render("Session Total") + "\n")
 	content.WriteString(bar + "\n")
 
 	stats := fmt.Sprintf("%d tokens  •  $%.2f est.", m.data.TotalTokens, m.data.TotalCost)
-	content.WriteString(lipgloss.NewStyle().Foreground(t.Text).Align(lipgloss.Right).Width(m.width-6).Render(stats) + "\n\n")
+	content.WriteString(lipgloss.NewStyle().Foreground(t.Text).Align(lipgloss.Right).Width(w-6).Render(stats) + "\n\n")
 
 	// Per-Agent Bars
 	// Only show top N agents if space is limited
-	availHeight := m.height - 10 // approx header/footer usage
+	availHeight := h - 10 // approx header/footer usage
 	if availHeight < 0 {
 		availHeight = 0
 	}
@@ -154,7 +169,7 @@ func (m *MetricsPanel) View() string {
 		info := fmt.Sprintf("%d tok ($%.2f)", agent.Tokens, agent.Cost)
 
 		// Space between name and info
-		gap := m.width - 6 - lipgloss.Width(name) - lipgloss.Width(info)
+		gap := w - 6 - lipgloss.Width(name) - lipgloss.Width(info)
 		if gap < 1 {
 			gap = 1
 		}
@@ -163,7 +178,7 @@ func (m *MetricsPanel) View() string {
 		content.WriteString(line + "\n")
 
 		// Mini bar
-		miniBar := styles.ProgressBar(agent.ContextPct/100.0, m.width-6, "━", "┄", string(typeColor))
+		miniBar := styles.ProgressBar(agent.ContextPct/100.0, w-6, "━", "┄", string(typeColor))
 		content.WriteString(miniBar + "\n")
 	}
 

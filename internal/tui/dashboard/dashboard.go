@@ -208,6 +208,7 @@ type Model struct {
 	alertsPanel  *panels.AlertsPanel
 	metricsPanel *panels.MetricsPanel
 	historyPanel *panels.HistoryPanel
+	tickerPanel  *panels.TickerPanel
 
 	// Data for new panels
 	beadsSummary  bv.BeadsSummary
@@ -346,6 +347,7 @@ func New(session string) Model {
 		alertsPanel:  panels.NewAlertsPanel(),
 		metricsPanel: panels.NewMetricsPanel(),
 		historyPanel: panels.NewHistoryPanel(),
+		tickerPanel:  panels.NewTickerPanel(),
 	}
 
 	// Initialize last-fetch timestamps to start cadence after the initial fetches from Init.
@@ -706,6 +708,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case DashboardTickMsg:
 		m.animTick++
 
+		// Update ticker panel with current data and animation tick
+		m.updateTickerData()
+
 		// Drive staggered refreshes on the animation ticker to avoid a single heavy burst.
 		now := time.Now()
 		if !m.refreshPaused {
@@ -1025,6 +1030,51 @@ func (m *Model) updateStats() {
 	}
 }
 
+// updateTickerData updates the ticker panel with current dashboard data
+func (m *Model) updateTickerData() {
+	// Count active agents (those with "working" state)
+	activeAgents := 0
+	for _, ps := range m.paneStatus {
+		if ps.State == "working" {
+			activeAgents++
+		}
+	}
+
+	// Count alerts by severity
+	var critAlerts, warnAlerts, infoAlerts int
+	for _, a := range m.activeAlerts {
+		switch a.Severity {
+		case alerts.SeverityCritical:
+			critAlerts++
+		case alerts.SeverityWarning:
+			warnAlerts++
+		default:
+			infoAlerts++
+		}
+	}
+
+	// Build ticker data from dashboard state
+	data := panels.TickerData{
+		TotalAgents:     len(m.panes),
+		ActiveAgents:    activeAgents,
+		ClaudeCount:     m.claudeCount,
+		CodexCount:      m.codexCount,
+		GeminiCount:     m.geminiCount,
+		CriticalAlerts:  critAlerts,
+		WarningAlerts:   warnAlerts,
+		InfoAlerts:      infoAlerts,
+		ReadyBeads:      m.beadsSummary.Ready,
+		InProgressBeads: m.beadsSummary.InProgress,
+		BlockedBeads:    m.beadsSummary.Blocked,
+		UnreadMessages:  m.agentMailUnread,
+		ActiveLocks:     m.agentMailLocks,
+		MailConnected:   m.agentMailConnected,
+	}
+
+	m.tickerPanel.SetData(data)
+	m.tickerPanel.SetAnimTick(m.animTick)
+}
+
 // View implements tea.Model
 func (m Model) View() string {
 	t := m.theme
@@ -1086,9 +1136,15 @@ func (m Model) View() string {
 	}
 
 	// ═══════════════════════════════════════════════════════════════
-	// HELP BAR
+	// TICKER BAR (scrolling status summary)
 	// ═══════════════════════════════════════════════════════════════
 	b.WriteString("\n")
+	m.tickerPanel.SetSize(m.width-4, 1)
+	b.WriteString("  " + m.tickerPanel.View() + "\n")
+
+	// ═══════════════════════════════════════════════════════════════
+	// HELP BAR
+	// ═══════════════════════════════════════════════════════════════
 	b.WriteString("  " + styles.GradientDivider(m.width-4,
 		string(t.Surface2), string(t.Surface1)) + "\n")
 	b.WriteString("  " + m.renderHelpBar() + "\n")
