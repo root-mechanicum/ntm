@@ -7,6 +7,7 @@ type ErrorResponse struct {
 	Error   string `json:"error"`
 	Code    string `json:"code,omitempty"`
 	Details string `json:"details,omitempty"`
+	Hint    string `json:"hint,omitempty"` // Remediation hint (suggested fix command)
 }
 
 // NewError creates a new error response
@@ -22,6 +23,16 @@ func NewErrorWithCode(code, msg string) ErrorResponse {
 // NewErrorWithDetails creates a new error response with details
 func NewErrorWithDetails(msg, details string) ErrorResponse {
 	return ErrorResponse{Error: msg, Details: details}
+}
+
+// NewErrorWithHint creates a new error response with a remediation hint
+func NewErrorWithHint(msg, hint string) ErrorResponse {
+	return ErrorResponse{Error: msg, Hint: hint}
+}
+
+// NewErrorFull creates a new error response with all fields
+func NewErrorFull(code, msg, details, hint string) ErrorResponse {
+	return ErrorResponse{Error: msg, Code: code, Details: details, Hint: hint}
 }
 
 // SuccessResponse is a simple success indicator

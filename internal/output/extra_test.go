@@ -246,3 +246,239 @@ func TestTableAlignment(t *testing.T) {
 		t.Error("Table row padding seems missing")
 	}
 }
+
+func TestCLIErrorBasic(t *testing.T) {
+	err := NewCLIError("something failed")
+	if err.Error() != "something failed" {
+		t.Errorf("CLIError.Error() = %q, want 'something failed'", err.Error())
+	}
+	if err.Message != "something failed" {
+		t.Errorf("CLIError.Message = %q, want 'something failed'", err.Message)
+	}
+}
+
+func TestCLIErrorChaining(t *testing.T) {
+	err := NewCLIError("failed").
+		WithCause("network timeout").
+		WithHint("check connection").
+		WithCode("NET_TIMEOUT")
+
+	if err.Message != "failed" {
+		t.Errorf("Message = %q", err.Message)
+	}
+	if err.Cause != "network timeout" {
+		t.Errorf("Cause = %q", err.Cause)
+	}
+	if err.Hint != "check connection" {
+		t.Errorf("Hint = %q", err.Hint)
+	}
+	if err.Code != "NET_TIMEOUT" {
+		t.Errorf("Code = %q", err.Code)
+	}
+}
+
+func TestFormatCLIErrorPlain(t *testing.T) {
+	// Force NO_COLOR to get plain text output
+	os.Setenv("NO_COLOR", "1")
+	defer os.Unsetenv("NO_COLOR")
+
+	err := NewCLIError("test error").
+		WithCause("something went wrong").
+		WithHint("try again").
+		WithCode("TEST")
+
+	output := FormatCLIError(err)
+
+	if !strings.Contains(output, "Error: test error") {
+		t.Errorf("Expected 'Error: test error' in output: %q", output)
+	}
+	if !strings.Contains(output, "[TEST]") {
+		t.Errorf("Expected '[TEST]' in output: %q", output)
+	}
+	if !strings.Contains(output, "Cause: something went wrong") {
+		t.Errorf("Expected cause in output: %q", output)
+	}
+	if !strings.Contains(output, "Hint: try again") {
+		t.Errorf("Expected hint in output: %q", output)
+	}
+}
+
+func TestFormatCLIErrorMinimal(t *testing.T) {
+	os.Setenv("NO_COLOR", "1")
+	defer os.Unsetenv("NO_COLOR")
+
+	// Only message, no cause/hint/code
+	err := NewCLIError("simple error")
+	output := FormatCLIError(err)
+
+	if !strings.Contains(output, "Error: simple error") {
+		t.Errorf("Expected 'Error: simple error' in output: %q", output)
+	}
+	if strings.Contains(output, "Cause:") {
+		t.Errorf("Should not have Cause: %q", output)
+	}
+	if strings.Contains(output, "Hint:") {
+		t.Errorf("Should not have Hint: %q", output)
+	}
+}
+
+func TestPrintCLIErrorOrJSONText(t *testing.T) {
+	os.Setenv("NO_COLOR", "1")
+	defer os.Unsetenv("NO_COLOR")
+
+	err := NewCLIError("text error").WithHint("do something")
+
+	_, stderr := captureOutput(func() {
+		PrintCLIErrorOrJSON(err, false)
+	})
+
+	if !strings.Contains(stderr, "Error: text error") {
+		t.Errorf("Expected error in stderr: %q", stderr)
+	}
+	if !strings.Contains(stderr, "Hint: do something") {
+		t.Errorf("Expected hint in stderr: %q", stderr)
+	}
+}
+
+func TestPrintCLIErrorOrJSONMode(t *testing.T) {
+	err := NewCLIError("json error").
+		WithCause("bad request").
+		WithHint("fix it").
+		WithCode("BAD_REQ")
+
+	stdout, _ := captureOutput(func() {
+		PrintCLIErrorOrJSON(err, true)
+	})
+
+	var resp ErrorResponse
+	if jsonErr := json.Unmarshal([]byte(stdout), &resp); jsonErr != nil {
+		t.Fatalf("JSON invalid: %v\nOutput: %q", jsonErr, stdout)
+	}
+
+	if resp.Error != "json error" {
+		t.Errorf("Error = %q", resp.Error)
+	}
+	if resp.Code != "BAD_REQ" {
+		t.Errorf("Code = %q", resp.Code)
+	}
+	if resp.Details != "bad request" {
+		t.Errorf("Details = %q", resp.Details)
+	}
+	if resp.Hint != "fix it" {
+		t.Errorf("Hint = %q", resp.Hint)
+	}
+}
+
+func TestSessionNotFoundError(t *testing.T) {
+	err := SessionNotFoundError("myproject")
+
+	if !strings.Contains(err.Message, "myproject") {
+		t.Errorf("Message should contain session name: %q", err.Message)
+	}
+	if err.Code != "SESSION_NOT_FOUND" {
+		t.Errorf("Code = %q", err.Code)
+	}
+	if err.Hint == "" {
+		t.Error("Hint should not be empty")
+	}
+}
+
+func TestSessionExistsError(t *testing.T) {
+	err := SessionExistsError("existing")
+
+	if !strings.Contains(err.Message, "existing") {
+		t.Errorf("Message should contain session name: %q", err.Message)
+	}
+	if err.Code != "SESSION_EXISTS" {
+		t.Errorf("Code = %q", err.Code)
+	}
+}
+
+func TestTmuxNotInstalledError(t *testing.T) {
+	err := TmuxNotInstalledError()
+
+	if !strings.Contains(err.Message, "tmux") {
+		t.Errorf("Message should mention tmux: %q", err.Message)
+	}
+	if err.Code != "TMUX_NOT_INSTALLED" {
+		t.Errorf("Code = %q", err.Code)
+	}
+	if !strings.Contains(err.Hint, "brew") && !strings.Contains(err.Hint, "apt") {
+		t.Errorf("Hint should include install instructions: %q", err.Hint)
+	}
+}
+
+func TestPaneNotFoundError(t *testing.T) {
+	err := PaneNotFoundError("mysession", 5)
+
+	if !strings.Contains(err.Message, "5") {
+		t.Errorf("Message should contain pane index: %q", err.Message)
+	}
+	if !strings.Contains(err.Message, "mysession") {
+		t.Errorf("Message should contain session name: %q", err.Message)
+	}
+	if err.Code != "PANE_NOT_FOUND" {
+		t.Errorf("Code = %q", err.Code)
+	}
+}
+
+func TestPrintErrorWithHint(t *testing.T) {
+	os.Setenv("NO_COLOR", "1")
+	defer os.Unsetenv("NO_COLOR")
+
+	_, stderr := captureOutput(func() {
+		PrintErrorWithHint("something broke", "fix it", false)
+	})
+
+	if !strings.Contains(stderr, "something broke") {
+		t.Errorf("Expected error in stderr: %q", stderr)
+	}
+	if !strings.Contains(stderr, "fix it") {
+		t.Errorf("Expected hint in stderr: %q", stderr)
+	}
+}
+
+func TestPrintErrorFull(t *testing.T) {
+	os.Setenv("NO_COLOR", "1")
+	defer os.Unsetenv("NO_COLOR")
+
+	_, stderr := captureOutput(func() {
+		PrintErrorFull("failed", "reason", "solution", false)
+	})
+
+	if !strings.Contains(stderr, "failed") {
+		t.Errorf("Expected error message: %q", stderr)
+	}
+	if !strings.Contains(stderr, "reason") {
+		t.Errorf("Expected cause: %q", stderr)
+	}
+	if !strings.Contains(stderr, "solution") {
+		t.Errorf("Expected hint: %q", stderr)
+	}
+}
+
+func TestNewErrorWithHint(t *testing.T) {
+	resp := NewErrorWithHint("failed", "try again")
+	if resp.Error != "failed" {
+		t.Errorf("Error = %q", resp.Error)
+	}
+	if resp.Hint != "try again" {
+		t.Errorf("Hint = %q", resp.Hint)
+	}
+}
+
+func TestNewErrorFull(t *testing.T) {
+	resp := NewErrorFull("CODE", "error msg", "details", "hint")
+	if resp.Code != "CODE" {
+		t.Errorf("Code = %q", resp.Code)
+	}
+	if resp.Error != "error msg" {
+		t.Errorf("Error = %q", resp.Error)
+	}
+	if resp.Details != "details" {
+		t.Errorf("Details = %q", resp.Details)
+	}
+	if resp.Hint != "hint" {
+		t.Errorf("Hint = %q", resp.Hint)
+	}
+}
