@@ -203,6 +203,9 @@ type Model struct {
 	showCassSearch bool
 	cassSearch     components.CassSearchModel
 
+	// Help overlay
+	showHelp bool
+
 	// Panels
 	beadsPanel   *panels.BeadsPanel
 	alertsPanel  *panels.AlertsPanel
@@ -269,6 +272,7 @@ type KeyMap struct {
 	ContextRefresh key.Binding // 'c' to refresh context data
 	MailRefresh    key.Binding // 'm' to refresh Agent Mail data
 	CassSearch     key.Binding // 'ctrl+s' to open CASS search
+	Help           key.Binding // '?' to toggle help overlay
 	Tab            key.Binding
 	ShiftTab       key.Binding
 	Num1           key.Binding
@@ -317,6 +321,7 @@ var dashKeys = KeyMap{
 	ContextRefresh: key.NewBinding(key.WithKeys("c"), key.WithHelp("c", "refresh context")),
 	MailRefresh:    key.NewBinding(key.WithKeys("m"), key.WithHelp("m", "refresh mail")),
 	CassSearch:     key.NewBinding(key.WithKeys("ctrl+s"), key.WithHelp("ctrl+s", "cass search")),
+	Help:           key.NewBinding(key.WithKeys("?"), key.WithHelp("?", "toggle help")),
 	Tab:            key.NewBinding(key.WithKeys("tab"), key.WithHelp("tab", "next panel")),
 	ShiftTab:       key.NewBinding(key.WithKeys("shift+tab"), key.WithHelp("shift+tab", "prev panel")),
 	Num1:           key.NewBinding(key.WithKeys("1")),
@@ -897,6 +902,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.KeyMsg:
+		// Handle help overlay: Esc or ? closes it
+		if m.showHelp {
+			if msg.String() == "esc" || msg.String() == "?" {
+				m.showHelp = false
+			}
+			return m, nil
+		}
+
 		if m.showCassSearch {
 			if msg.String() == "esc" {
 				m.showCassSearch = false
@@ -919,6 +932,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.cassSearch.SetSize(searchW, searchH)
 			cmds = append(cmds, m.cassSearch.Init())
 			return m, tea.Batch(cmds...)
+
+		case key.Matches(msg, dashKeys.Help):
+			m.showHelp = !m.showHelp
+			return m, nil
 
 		case key.Matches(msg, dashKeys.NextPanel):
 			m.cycleFocus(1)
@@ -1174,6 +1191,16 @@ func (m Model) View() string {
 	b.WriteString("  " + m.renderHelpBar() + "\n")
 
 	content := b.String()
+
+	// Show help overlay if toggled
+	if m.showHelp {
+		helpOverlay := components.HelpOverlay(components.HelpOverlayOptions{
+			Title:    "Dashboard Shortcuts",
+			Sections: components.DashboardHelpSections(),
+			MaxWidth: 60,
+		})
+		return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, helpOverlay)
+	}
 
 	if m.showCassSearch {
 		searchView := m.cassSearch.View()
@@ -1628,6 +1655,7 @@ func (m Model) renderHelpBar() string {
 		{"c", "context"},
 		{"m", "mail"},
 		{"r", "refresh"},
+		{"?", "help"},
 		{"q", "quit"},
 	}
 

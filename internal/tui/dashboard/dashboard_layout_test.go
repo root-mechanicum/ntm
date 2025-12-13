@@ -6,6 +6,8 @@ import (
 	"testing"
 	"time"
 
+	tea "github.com/charmbracelet/bubbletea"
+
 	"github.com/Dicklesworthstone/ntm/internal/cass"
 	"github.com/Dicklesworthstone/ntm/internal/status"
 	"github.com/Dicklesworthstone/ntm/internal/tmux"
@@ -259,5 +261,106 @@ func TestSidebarRendersFileChanges(t *testing.T) {
 	out := status.StripANSI(m.renderSidebar(60, 25))
 	if !strings.Contains(out, "main.go") {
 		t.Fatalf("expected sidebar to include file change; got:\n%s", out)
+	}
+}
+
+func TestHelpOverlayToggle(t *testing.T) {
+	t.Parallel()
+
+	t.Run("pressing_?_opens_help", func(t *testing.T) {
+		t.Parallel()
+
+		m := newTestModel(120)
+		if m.showHelp {
+			t.Fatal("showHelp should be false initially")
+		}
+
+		// Press '?' to open help
+		msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'?'}}
+		updated, _ := m.Update(msg)
+		m = updated.(Model)
+
+		if !m.showHelp {
+			t.Error("showHelp should be true after pressing '?'")
+		}
+	})
+
+	t.Run("pressing_?_again_closes_help", func(t *testing.T) {
+		t.Parallel()
+
+		m := newTestModel(120)
+		m.showHelp = true
+
+		// Press '?' to close help
+		msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'?'}}
+		updated, _ := m.Update(msg)
+		m = updated.(Model)
+
+		if m.showHelp {
+			t.Error("showHelp should be false after pressing '?' while open")
+		}
+	})
+
+	t.Run("pressing_esc_closes_help", func(t *testing.T) {
+		t.Parallel()
+
+		m := newTestModel(120)
+		m.showHelp = true
+
+		// Press Esc to close help
+		msg := tea.KeyMsg{Type: tea.KeyEsc}
+		updated, _ := m.Update(msg)
+		m = updated.(Model)
+
+		if m.showHelp {
+			t.Error("showHelp should be false after pressing Esc while open")
+		}
+	})
+
+	t.Run("help_overlay_blocks_other_keys", func(t *testing.T) {
+		t.Parallel()
+
+		m := newTestModel(120)
+		m.showHelp = true
+		initialCursor := m.cursor
+
+		// Try to move cursor down while help is open
+		msg := tea.KeyMsg{Type: tea.KeyDown}
+		updated, _ := m.Update(msg)
+		m = updated.(Model)
+
+		if m.cursor != initialCursor {
+			t.Error("cursor should not change when help overlay is open")
+		}
+		if !m.showHelp {
+			t.Error("help should still be open after pressing unrelated key")
+		}
+	})
+}
+
+func TestHelpBarIncludesHelpHint(t *testing.T) {
+	t.Parallel()
+
+	m := newTestModel(120)
+	helpBar := m.renderHelpBar()
+
+	if !strings.Contains(helpBar, "?") {
+		t.Error("help bar should include '?' hint")
+	}
+	if !strings.Contains(helpBar, "help") {
+		t.Error("help bar should include 'help' description")
+	}
+}
+
+func TestViewRendersHelpOverlayWhenOpen(t *testing.T) {
+	t.Parallel()
+
+	m := newTestModel(120)
+	m.showHelp = true
+
+	view := m.View()
+
+	if !strings.Contains(view, "Shortcuts") || !strings.Contains(view, "Navigation") {
+		t.Error("view should render help overlay content when showHelp is true")
 	}
 }
