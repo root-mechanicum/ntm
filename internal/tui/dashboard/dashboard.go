@@ -224,6 +224,7 @@ type Model struct {
 	// Config watcher
 	configSub    chan *config.Config
 	configCloser func()
+	cfg          *config.Config
 
 	// Markdown renderer
 	renderer *glamour.TermRenderer
@@ -1123,6 +1124,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case ConfigReloadMsg:
 		if msg.Config != nil {
+			m.cfg = msg.Config
 			// Update theme
 			m.theme = theme.FromName(msg.Config.Theme)
 			// Reload icons (if dependent on config in future, pass cfg)

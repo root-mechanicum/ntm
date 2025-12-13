@@ -56,6 +56,10 @@ func runAttach(session string) error {
 		return tmux.AttachOrSwitch(session)
 	}
 
+	if IsJSONOutput() {
+		return output.PrintJSON(output.NewError(fmt.Sprintf("session '%s' does not exist", session)))
+	}
+
 	fmt.Printf("Session '%s' does not exist.\n\n", session)
 	fmt.Println("Available sessions:")
 	if err := runList(nil); err != nil {

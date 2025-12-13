@@ -14,12 +14,17 @@ import (
 // It returns a close function to stop watching.
 func Watch(onChange func(*Config)) (func(), error) {
 	path := DefaultPath()
+	absPath, err := filepath.Abs(path)
+	if err != nil {
+		return nil, fmt.Errorf("resolving config path: %w", err)
+	}
+	path = absPath
 
 	// Create watcher with debounce to avoid multiple reloads on single save
 	w, err := watcher.New(func(events []watcher.Event) {
 		// We only care if the config file changed
 		for _, e := range events {
-			if e.Path == path {
+			if filepath.Clean(e.Path) == filepath.Clean(path) {
 				// Reload config
 				cfg, err := Load(path)
 				if err != nil {
