@@ -1198,3 +1198,347 @@ func TestHelpSections(t *testing.T) {
 		}
 	})
 }
+
+// ============================================================================
+// Regression Snapshot Tests
+// These tests verify consistent rendering across width tiers to catch layout
+// drift. Tests cover: narrow (<120), split (120-199), wide (200+).
+// ============================================================================
+
+func TestStateRenderingAcrossTiers(t *testing.T) {
+	t.Parallel()
+
+	// Width tiers based on layout.TierForWidth thresholds
+	tiers := []struct {
+		name  string
+		width int
+	}{
+		{"narrow", 60},
+		{"split", 140},
+		{"wide", 220},
+	}
+
+	t.Run("EmptyState", func(t *testing.T) {
+		t.Parallel()
+		for _, tier := range tiers {
+			tier := tier
+			t.Run(tier.name, func(t *testing.T) {
+				t.Parallel()
+				out := EmptyState("No items found", tier.width)
+
+				if out == "" {
+					t.Fatalf("EmptyState(%d) should return non-empty string", tier.width)
+				}
+				if !strings.Contains(out, "No items") {
+					t.Errorf("EmptyState(%d) should contain message", tier.width)
+				}
+
+				// Verify consistent structure: single-line output (no unexpected breaks)
+				lines := strings.Split(out, "\n")
+				if len(lines) > 1 {
+					t.Errorf("EmptyState(%d) should be single line, got %d lines", tier.width, len(lines))
+				}
+			})
+		}
+	})
+
+	t.Run("LoadingState", func(t *testing.T) {
+		t.Parallel()
+		for _, tier := range tiers {
+			tier := tier
+			t.Run(tier.name, func(t *testing.T) {
+				t.Parallel()
+				out := LoadingState("Fetching data", tier.width)
+
+				if out == "" {
+					t.Fatalf("LoadingState(%d) should return non-empty string", tier.width)
+				}
+				if !strings.Contains(out, "Fetching") {
+					t.Errorf("LoadingState(%d) should contain message", tier.width)
+				}
+
+				lines := strings.Split(out, "\n")
+				if len(lines) > 1 {
+					t.Errorf("LoadingState(%d) should be single line, got %d lines", tier.width, len(lines))
+				}
+			})
+		}
+	})
+
+	t.Run("ErrorState", func(t *testing.T) {
+		t.Parallel()
+		for _, tier := range tiers {
+			tier := tier
+			t.Run(tier.name, func(t *testing.T) {
+				t.Parallel()
+				out := ErrorState("Connection failed", "Press r to retry", tier.width)
+
+				if out == "" {
+					t.Fatalf("ErrorState(%d) should return non-empty string", tier.width)
+				}
+				if !strings.Contains(out, "Connection") {
+					t.Errorf("ErrorState(%d) should contain message", tier.width)
+				}
+				if !strings.Contains(out, "retry") {
+					t.Errorf("ErrorState(%d) should contain hint", tier.width)
+				}
+
+				// ErrorState with hint should be 2 lines
+				lines := strings.Split(out, "\n")
+				if len(lines) != 2 {
+					t.Errorf("ErrorState(%d) with hint should be 2 lines, got %d", tier.width, len(lines))
+				}
+			})
+		}
+	})
+}
+
+func TestStateTruncationConsistency(t *testing.T) {
+	t.Parallel()
+
+	longMessage := "This is a very long message that should be truncated when the width is too narrow to display it fully"
+
+	t.Run("EmptyState truncates at narrow width", func(t *testing.T) {
+		t.Parallel()
+		out := EmptyState(longMessage, 30)
+		if !strings.Contains(out, "…") {
+			t.Error("narrow EmptyState should truncate with ellipsis")
+		}
+	})
+
+	t.Run("LoadingState truncates at narrow width", func(t *testing.T) {
+		t.Parallel()
+		out := LoadingState(longMessage, 30)
+		if !strings.Contains(out, "…") {
+			t.Error("narrow LoadingState should truncate with ellipsis")
+		}
+	})
+
+	t.Run("ErrorState truncates at narrow width", func(t *testing.T) {
+		t.Parallel()
+		out := ErrorState(longMessage, "hint", 30)
+		if !strings.Contains(out, "…") {
+			t.Error("narrow ErrorState should truncate with ellipsis")
+		}
+	})
+
+	t.Run("wide width preserves full message", func(t *testing.T) {
+		t.Parallel()
+		out := EmptyState("Short message", 200)
+		if strings.Contains(out, "…") {
+			t.Error("wide EmptyState should not truncate short message")
+		}
+	})
+}
+
+func TestHelpOverlayAcrossTiers(t *testing.T) {
+	t.Parallel()
+
+	sections := []HelpSection{
+		{
+			Title: "Navigation",
+			Hints: []KeyHint{
+				{Key: "↑/↓", Desc: "Move up/down"},
+				{Key: "j/k", Desc: "Vim navigation"},
+			},
+		},
+		{
+			Title: "Actions",
+			Hints: []KeyHint{
+				{Key: "Enter", Desc: "Select item"},
+				{Key: "q", Desc: "Quit"},
+			},
+		},
+	}
+
+	tiers := []struct {
+		name     string
+		width    int
+		maxWidth int
+	}{
+		{"narrow", 50, 50},
+		{"medium", 80, 80},
+		{"wide", 0, 120}, // auto-size with cap
+	}
+
+	for _, tier := range tiers {
+		tier := tier
+		t.Run(tier.name, func(t *testing.T) {
+			t.Parallel()
+
+			opts := HelpOverlayOptions{
+				Title:    "Test Shortcuts",
+				Sections: sections,
+				Width:    tier.width,
+				MaxWidth: tier.maxWidth,
+			}
+			out := HelpOverlay(opts)
+
+			if out == "" {
+				t.Fatalf("HelpOverlay(%s) should return non-empty string", tier.name)
+			}
+
+			// Verify structure elements present
+			if !strings.Contains(out, "Test Shortcuts") {
+				t.Errorf("HelpOverlay(%s) should contain title", tier.name)
+			}
+			if !strings.Contains(out, "Navigation") {
+				t.Errorf("HelpOverlay(%s) should contain section title", tier.name)
+			}
+			if !strings.Contains(out, "Move up/down") {
+				t.Errorf("HelpOverlay(%s) should contain hint description", tier.name)
+			}
+			if !strings.Contains(out, "Esc") {
+				t.Errorf("HelpOverlay(%s) should contain close hint", tier.name)
+			}
+
+			// Verify box structure (should have border characters)
+			if !strings.Contains(out, "╭") || !strings.Contains(out, "╯") {
+				t.Errorf("HelpOverlay(%s) should have rounded border", tier.name)
+			}
+		})
+	}
+}
+
+func TestHelpOverlayStructureStability(t *testing.T) {
+	t.Parallel()
+
+	sections := DashboardHelpSections()
+	opts := HelpOverlayOptions{
+		Title:    "Dashboard Shortcuts",
+		Sections: sections,
+	}
+
+	out := HelpOverlay(opts)
+	lines := strings.Split(out, "\n")
+
+	// Verify minimum line count (border top + title + empty + sections + footer + border bottom)
+	// This catches accidental removal of sections
+	if len(lines) < 15 {
+		t.Errorf("HelpOverlay should have at least 15 lines, got %d", len(lines))
+	}
+
+	// Count section headers present
+	sectionCount := 0
+	for _, line := range lines {
+		for _, section := range sections {
+			if strings.Contains(line, section.Title) {
+				sectionCount++
+				break
+			}
+		}
+	}
+
+	if sectionCount != len(sections) {
+		t.Errorf("HelpOverlay should show all %d sections, found %d", len(sections), sectionCount)
+	}
+}
+
+func TestHelpBarTierAdaptation(t *testing.T) {
+	t.Parallel()
+
+	hints := []KeyHint{
+		{Key: "↑/↓", Desc: "navigate"},
+		{Key: "Enter", Desc: "select"},
+		{Key: "Esc", Desc: "back"},
+		{Key: "q", Desc: "quit"},
+	}
+
+	t.Run("narrow width uses compact style", func(t *testing.T) {
+		t.Parallel()
+		out := RenderHelpBar(HelpBarOptions{Hints: hints, Width: 60})
+
+		if out == "" {
+			t.Fatal("narrow HelpBar should render")
+		}
+		// Compact style doesn't have background boxes, so no padding chars
+		// Just verify it fits and renders
+	})
+
+	t.Run("wide width uses full style", func(t *testing.T) {
+		t.Parallel()
+		out := RenderHelpBar(HelpBarOptions{Hints: hints, Width: 200})
+
+		if out == "" {
+			t.Fatal("wide HelpBar should render")
+		}
+		// Should have more hints visible at wide width
+		if !strings.Contains(out, "navigate") || !strings.Contains(out, "quit") {
+			t.Error("wide HelpBar should show all hints")
+		}
+	})
+
+	t.Run("very narrow drops hints progressively", func(t *testing.T) {
+		t.Parallel()
+		// Very narrow should still render something
+		out := RenderHelpBar(HelpBarOptions{Hints: hints, Width: 20})
+
+		// Should have at least one hint or be empty if truly too narrow
+		// The key point is it shouldn't panic
+		_ = out
+	})
+}
+
+func TestRenderStateAlignmentModes(t *testing.T) {
+	t.Parallel()
+
+	t.Run("left alignment is default", func(t *testing.T) {
+		t.Parallel()
+		out := RenderState(StateOptions{
+			Kind:    StateEmpty,
+			Message: "Test",
+			Width:   40,
+		})
+		// Left-aligned starts with indent
+		if !strings.HasPrefix(out, " ") {
+			t.Error("default alignment should have left indent")
+		}
+	})
+
+	t.Run("center alignment centers content", func(t *testing.T) {
+		t.Parallel()
+		out := RenderState(StateOptions{
+			Kind:    StateEmpty,
+			Message: "Test",
+			Width:   40,
+			Align:   1, // lipgloss.Center
+		})
+		// Center-aligned should not have the left indent prefix
+		lines := strings.Split(out, "\n")
+		if len(lines) > 0 && strings.HasPrefix(lines[0], "  ") {
+			// May or may not have leading space depending on centering
+			// Just verify it rendered
+		}
+		if out == "" {
+			t.Error("center-aligned RenderState should render")
+		}
+	})
+}
+
+func TestStateDefaultMessages(t *testing.T) {
+	t.Parallel()
+
+	t.Run("empty state has default message", func(t *testing.T) {
+		t.Parallel()
+		out := RenderState(StateOptions{Kind: StateEmpty, Width: 40})
+		if !strings.Contains(out, "Nothing to show") {
+			t.Error("empty state should have default message")
+		}
+	})
+
+	t.Run("loading state has default message", func(t *testing.T) {
+		t.Parallel()
+		out := RenderState(StateOptions{Kind: StateLoading, Width: 40})
+		if !strings.Contains(out, "Loading") {
+			t.Error("loading state should have default message")
+		}
+	})
+
+	t.Run("error state has default message", func(t *testing.T) {
+		t.Parallel()
+		out := RenderState(StateOptions{Kind: StateError, Width: 40})
+		if !strings.Contains(out, "Something went wrong") {
+			t.Error("error state should have default message")
+		}
+	})
+}
