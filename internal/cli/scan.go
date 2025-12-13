@@ -159,7 +159,7 @@ func runScan(path string, opts scanner.ScanOptions, createBeads, updateBeads, no
 	}
 
 	// Create scanner
-	s, err := scanner.New()
+	s, err := scanner.NewScannerWithConfig(&cfg.Scanner)
 	if err != nil {
 		return fmt.Errorf("creating scanner: %w", err)
 	}

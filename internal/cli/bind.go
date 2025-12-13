@@ -79,18 +79,20 @@ func setupBinding(key string) error {
 	}
 
 	// Check if binding already exists
-	searchPattern := fmt.Sprintf("bind-key -n %s", key)
-	if strings.Contains(existing, searchPattern) {
-		// Replace existing binding
-		lines := strings.Split(existing, "\n")
-		var newLines []string
-		for _, line := range lines {
-			if strings.Contains(line, searchPattern) {
-				newLines = append(newLines, bindCmd)
-			} else {
-				newLines = append(newLines, line)
-			}
+	lines := strings.Split(existing, "\n")
+	found := false
+	var newLines []string
+
+	for _, line := range lines {
+		if isBindingLine(line, key) {
+			newLines = append(newLines, bindCmd)
+			found = true
+		} else {
+			newLines = append(newLines, line)
 		}
+	}
+
+	if found {
 		if err := os.WriteFile(tmuxConf, []byte(strings.Join(newLines, "\n")), 0600); err != nil {
 			return fmt.Errorf("failed to update tmux.conf: %w", err)
 		}
@@ -150,15 +152,10 @@ func removeBinding(key string) error {
 		return err
 	}
 
-	searchPattern := fmt.Sprintf("bind-key -n %s", key)
-	if !strings.Contains(string(data), searchPattern) {
-		fmt.Printf("%s→%s No %s binding found in tmux.conf\n", colorize(t.Info), colorize(t.Text), key)
-		return nil
-	}
-
 	// Remove the binding lines
 	lines := strings.Split(string(data), "\n")
 	var newLines []string
+	found := false
 	skipNext := false
 
 	for _, line := range lines {
@@ -167,12 +164,25 @@ func removeBinding(key string) error {
 			skipNext = true
 			continue
 		}
-		if skipNext && strings.Contains(line, searchPattern) {
+		if skipNext && isBindingLine(line, key) {
+			found = true
 			skipNext = false
 			continue
 		}
+		// Also catch manual bindings without the comment
+		if isBindingLine(line, key) {
+			found = true
+			skipNext = false
+			continue
+		}
+
 		skipNext = false
 		newLines = append(newLines, line)
+	}
+
+	if !found {
+		fmt.Printf("%s→%s No %s binding found in tmux.conf\n", colorize(t.Info), colorize(t.Text), key)
+		return nil
 	}
 
 	if err := os.WriteFile(tmuxConf, []byte(strings.Join(newLines, "\n")), 0644); err != nil {
@@ -197,12 +207,11 @@ func showBinding(key string) error {
 		return err
 	}
 
-	searchPattern := fmt.Sprintf("bind-key -n %s", key)
 	lines := strings.Split(string(data), "\n")
 
 	found := false
 	for _, line := range lines {
-		if strings.Contains(line, searchPattern) {
+		if isBindingLine(line, key) {
 			fmt.Printf("%s✓%s Found binding:\n", colorize(t.Success), colorize(t.Text))
 			fmt.Printf("  %s%s%s\n", colorize(t.Primary), line, colorize(t.Text))
 			found = true
@@ -215,4 +224,27 @@ func showBinding(key string) error {
 	}
 
 	return nil
+}
+
+// isBindingLine checks if a line is a tmux binding for the given key.
+// Matches "bind-key -n KEY ..." or "bind -n KEY ..."
+func isBindingLine(line, key string) bool {
+	fields := strings.Fields(line)
+	// Check for "bind-key" or "bind"
+	if len(fields) < 3 {
+		return false
+	}
+
+	cmd := fields[0]
+	if cmd != "bind-key" && cmd != "bind" {
+		return false
+	}
+
+	// Check for -n flag (root table)
+	if fields[1] != "-n" {
+		return false
+	}
+
+	// Check key
+	return fields[2] == key
 }

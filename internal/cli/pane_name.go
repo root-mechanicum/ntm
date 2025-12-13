@@ -27,13 +27,23 @@ const (
 
 // paneNameRegex matches the NTM pane naming convention:
 // session__type_index or session__type_index_variant
-var paneNameRegex = regexp.MustCompile(`^(.+)__(\w+)_(\d+)(?:_(\w+))?$`)
+// It also tolerates an optional trailing tag list like "[frontend,api]" which is
+// ignored by this parser.
+var paneNameRegex = regexp.MustCompile(`^(.+)__(\w+)_(\d+)(?:_([A-Za-z0-9._/@:+-]+))?(?:\[[^\]]*\])?$`)
 
 // ParsePaneName parses an NTM pane title into its components
 func ParsePaneName(title string) (*PaneInfo, error) {
 	matches := paneNameRegex.FindStringSubmatch(title)
 	if matches == nil {
 		return nil, fmt.Errorf("invalid pane name format: %q", title)
+	}
+
+	agentType := AgentType(matches[2])
+	switch agentType {
+	case AgentTypeClaude, AgentTypeCodex, AgentTypeGemini:
+		// ok
+	default:
+		return nil, fmt.Errorf("invalid agent type in %q: %q", title, agentType)
 	}
 
 	index, err := strconv.Atoi(matches[3])
@@ -43,7 +53,7 @@ func ParsePaneName(title string) (*PaneInfo, error) {
 
 	return &PaneInfo{
 		Session: matches[1],
-		Type:    AgentType(matches[2]),
+		Type:    agentType,
 		Index:   index,
 		Variant: matches[4], // May be empty string
 	}, nil

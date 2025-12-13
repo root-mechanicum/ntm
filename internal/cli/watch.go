@@ -185,11 +185,23 @@ func watchLoop(ctx context.Context, session string, opts watchOptions, t theme.T
 		fmt.Println("Press Ctrl+C to stop")
 	}
 
+	ticker := time.NewTicker(opts.pollInterval)
+	defer ticker.Stop()
+
 	for {
-		select {
-		case <-ctx.Done():
-			return nil
-		default:
+		// Initial run proceeds immediately; subsequent runs wait for the poll interval.
+		if !firstRun {
+			select {
+			case <-ctx.Done():
+				return nil
+			case <-ticker.C:
+			}
+		} else {
+			select {
+			case <-ctx.Done():
+				return nil
+			default:
+			}
 		}
 
 		// Get panes
@@ -245,13 +257,6 @@ func watchLoop(ctx context.Context, session string, opts watchOptions, t theme.T
 		}
 
 		firstRun = false
-
-		// Wait for next poll
-		select {
-		case <-ctx.Done():
-			return nil
-		case <-time.After(opts.pollInterval):
-		}
 	}
 }
 
@@ -404,10 +409,24 @@ func runFileWatch(ctx context.Context, session string, opts watchOptions, t them
 	handler := func(events []watcher.Event) {
 		matched := false
 		for _, e := range events {
-			name := filepath.Base(e.Path)
-			// Simple shell glob matching
-			if m, _ := filepath.Match(opts.watchPattern, name); m {
-				matched = true
+			// Check if pattern contains path separators
+			if strings.Contains(opts.watchPattern, string(os.PathSeparator)) || strings.Contains(opts.watchPattern, "/") {
+				// Match against relative path
+				rel, err := filepath.Rel(".", e.Path)
+				if err == nil {
+					if m, _ := filepath.Match(opts.watchPattern, rel); m {
+						matched = true
+					}
+				}
+			} else {
+				// Match against base name
+				name := filepath.Base(e.Path)
+				if m, _ := filepath.Match(opts.watchPattern, name); m {
+					matched = true
+				}
+			}
+
+			if matched {
 				if !opts.noColor {
 					fmt.Printf("File changed: %s\n", e.Path)
 				}

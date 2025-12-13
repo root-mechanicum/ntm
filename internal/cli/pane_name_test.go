@@ -32,6 +32,16 @@ func TestParsePaneName(t *testing.T) {
 			},
 		},
 		{
+			name:  "cc pane with model variant containing punctuation",
+			title: "myproject__cc_1_opus-4.5",
+			want: &PaneInfo{
+				Session: "myproject",
+				Type:    AgentTypeClaude,
+				Index:   1,
+				Variant: "opus-4.5",
+			},
+		},
+		{
 			name:  "cc pane with persona variant",
 			title: "myproject__cc_2_architect",
 			want: &PaneInfo{
@@ -72,6 +82,26 @@ func TestParsePaneName(t *testing.T) {
 			},
 		},
 		{
+			name:  "pane with tags and variant",
+			title: "myproject__cc_1_opus[backend,api]",
+			want: &PaneInfo{
+				Session: "myproject",
+				Type:    AgentTypeClaude,
+				Index:   1,
+				Variant: "opus",
+			},
+		},
+		{
+			name:  "pane with tags and no variant",
+			title: "myproject__cc_1[backend,api]",
+			want: &PaneInfo{
+				Session: "myproject",
+				Type:    AgentTypeClaude,
+				Index:   1,
+				Variant: "",
+			},
+		},
+		{
 			name:    "invalid - no double underscore",
 			title:   "myproject_cc_1",
 			wantErr: true,
@@ -84,6 +114,11 @@ func TestParsePaneName(t *testing.T) {
 		{
 			name:    "invalid - empty string",
 			title:   "",
+			wantErr: true,
+		},
+		{
+			name:    "invalid - unknown agent type",
+			title:   "myproject__foo_1",
 			wantErr: true,
 		},
 	}
@@ -244,6 +279,7 @@ func TestRoundTrip(t *testing.T) {
 	}{
 		{"myproject", AgentTypeClaude, 1, ""},
 		{"myproject", AgentTypeClaude, 2, "opus"},
+		{"myproject", AgentTypeClaude, 3, "opus-4.5"},
 		{"backend", AgentTypeCodex, 1, "gpt4"},
 		{"frontend", AgentTypeGemini, 5, "reviewer"},
 	}

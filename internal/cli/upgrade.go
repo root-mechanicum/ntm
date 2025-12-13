@@ -336,6 +336,10 @@ func extractTarGz(archivePath, destDir string) (string, error) {
 		}
 
 		target := filepath.Join(destDir, header.Name)
+		// Check for Zip Slip vulnerability
+		if !strings.HasPrefix(target, filepath.Clean(destDir)+string(os.PathSeparator)) {
+			return "", fmt.Errorf("illegal file path in archive: %s", header.Name)
+		}
 
 		switch header.Typeflag {
 		case tar.TypeDir:

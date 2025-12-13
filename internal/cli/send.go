@@ -21,7 +21,6 @@ import (
 	"github.com/Dicklesworthstone/ntm/internal/prompt"
 	"github.com/Dicklesworthstone/ntm/internal/templates"
 	"github.com/Dicklesworthstone/ntm/internal/tmux"
-	"github.com/Dicklesworthstone/ntm/internal/tracker"
 )
 
 // SendResult is the JSON output for the send command.
@@ -34,11 +33,6 @@ type SendResult struct {
 	Failed        int    `json:"failed"`
 	Error         string `json:"error,omitempty"`
 }
-
-const fileChangeScanDelay = 5 * time.Second
-const conflictWarningDelay = fileChangeScanDelay + 1500*time.Millisecond
-const conflictLookback = 15 * time.Minute
-const conflictWarnMax = 5
 
 // SendOptions configures the send operation
 type SendOptions struct {
@@ -119,7 +113,17 @@ func (v *sendTargetValue) String() string {
 }
 
 func (v *sendTargetValue) Set(value string) error {
-	// Value is the variant (after the colon), or empty for all
+	// When IsBoolFlag() is true, pflag passes "true" when the flag is present
+	// without an explicit value (e.g. --cc). Treat that as "all variants".
+	// If the user explicitly sets --cc=false, treat it as a no-op.
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "", "true":
+		value = ""
+	case "false":
+		return nil
+	}
+
+	// Value is the variant (after the equals), or empty for all.
 	target := SendTarget{
 		Type:    v.agentType,
 		Variant: value,
@@ -570,18 +574,6 @@ func runSendInternal(opts SendOptions) error {
 		},
 	}
 
-	// Capture baseline snapshot for best-effort file change attribution.
-	var (
-		fileBaseline map[string]tracker.FileState
-		trackAgents  []string
-		workDir      = hookCtx.ProjectDir
-	)
-	if workDir != "" {
-		if snap, err := tracker.SnapshotDirectory(workDir, tracker.DefaultSnapshotOptions(workDir)); err == nil {
-			fileBaseline = snap
-		}
-	}
-
 	// Run pre-send hooks
 	if hookExec != nil && hookExec.HasHooksForEvent(hooks.EventPreSend) {
 		if !jsonOutput {
@@ -741,7 +733,6 @@ func runSendInternal(opts SendOptions) error {
 		}
 
 		targetPanes = append(targetPanes, p.Index)
-		trackAgents = append(trackAgents, p.Title)
 		if err := tmux.SendKeys(p.ID, prompt, true); err != nil {
 			failed++
 			histErr = err
@@ -758,13 +749,6 @@ func runSendInternal(opts SendOptions) error {
 	hookCtx.AdditionalEnv["NTM_FAILED_COUNT"] = fmt.Sprintf("%d", failed)
 	hookCtx.AdditionalEnv["NTM_TARGET_PANES"] = fmt.Sprintf("%v", targetPanes)
 	histTargets = targetPanes
-
-	if len(targetPanes) > 0 && len(fileBaseline) > 0 && workDir != "" {
-		tracker.RecordFileChanges(session, workDir, trackAgents, fileBaseline, fileChangeScanDelay)
-		if !jsonOutput {
-			go warnConflictsLater(session, workDir)
-		}
-	}
 
 	// Run post-send hooks
 	if hookExec != nil && hookExec.HasHooksForEvent(hooks.EventPostSend) {
@@ -1050,51 +1034,6 @@ func truncatePrompt(s string, maxLen int) string {
 	return s[:maxLen-3] + "..."
 }
 
-// warnConflictsLater prints a best-effort conflict warning after file-change scans complete.
-func warnConflictsLater(session, workDir string) {
-	time.Sleep(conflictWarningDelay)
-
-	rawConflicts := tracker.DetectConflictsRecent(conflictLookback)
-	var conflicts []tracker.Conflict
-
-	for _, rc := range rawConflicts {
-		// Filter for session
-		relevant := false
-		for _, ch := range rc.Changes {
-			if ch.Session == session {
-				relevant = true
-				break
-			}
-		}
-
-		if relevant {
-			conflicts = append(conflicts, rc)
-		}
-	}
-
-	if len(conflicts) == 0 {
-		return
-	}
-
-	prefix := workDir
-	if prefix != "" && !strings.HasSuffix(prefix, string(os.PathSeparator)) {
-		prefix += string(os.PathSeparator)
-	}
-
-	fmt.Println("⚠ Potential file conflicts detected:")
-	for i, c := range conflicts {
-		if i >= conflictWarnMax {
-			fmt.Printf("  ...%d more\n", len(conflicts)-i)
-			break
-		}
-		path := c.Path
-		if prefix != "" && strings.HasPrefix(path, prefix) {
-			path = strings.TrimPrefix(path, prefix)
-		}
-		fmt.Printf("  %s %s — agents: %s\n", "[warn]", path, strings.Join(c.Agents, ", "))
-	}
-}
-
 // buildTargetDescription creates a human-readable description of send targets
 func buildTargetDescription(targetCC, targetCod, targetGmi, targetAll, skipFirst bool, paneIndex int, tags []string) string {
 	if paneIndex >= 0 {
@@ -1154,7 +1093,12 @@ func checkCassDuplicates(session, prompt string, threshold float64, days int) er
 
 	since := fmt.Sprintf("%dd", days)
 
-	res, err := client.CheckDuplicates(context.Background(), prompt, dir, since, threshold)
+	res, err := client.CheckDuplicates(context.Background(), cass.DuplicateCheckOptions{
+		Query:     prompt,
+		Workspace: dir,
+		Since:     since,
+		Threshold: threshold,
+	})
 	if err != nil {
 		return err
 	}
