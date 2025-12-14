@@ -41,11 +41,11 @@ func (c *Client) RunContext(ctx context.Context, args ...string) (string, error)
 	return runSSHContext(ctx, "--", c.Remote, remoteCmd)
 }
 
-// shellQuote returns a POSIX-shell-safe single-quoted string.
+// ShellQuote returns a POSIX-shell-safe single-quoted string.
 //
 // This is required for ssh remote commands because OpenSSH transmits a single
 // command string to the remote shell (not an argv vector).
-func shellQuote(s string) string {
+func ShellQuote(s string) string {
 	if s == "" {
 		return "''"
 	}
@@ -58,7 +58,7 @@ func buildRemoteShellCommand(command string, args ...string) string {
 	parts := make([]string, 0, 1+len(args))
 	parts = append(parts, command)
 	for _, arg := range args {
-		parts = append(parts, shellQuote(arg))
+		parts = append(parts, ShellQuote(arg))
 	}
 	return strings.Join(parts, " ")
 }

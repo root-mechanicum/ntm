@@ -20,9 +20,9 @@ func TestShellQuote(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := shellQuote(tt.in)
+			got := ShellQuote(tt.in)
 			if got != tt.want {
-				t.Fatalf("shellQuote(%q) = %q, want %q", tt.in, got, tt.want)
+				t.Fatalf("ShellQuote(%q) = %q, want %q", tt.in, got, tt.want)
 			}
 		})
 	}
@@ -56,14 +56,14 @@ func TestBuildPaneCommand(t *testing.T) {
 			name:       "simple command",
 			projectDir: "/projects/foo",
 			cmd:        "ls -la",
-			want:       "cd \"/projects/foo\" && ls -la",
+			want:       "cd '/projects/foo' && ls -la",
 			wantErr:    false,
 		},
 		{
 			name:       "command with spaces",
 			projectDir: "/projects/foo bar",
 			cmd:        "echo hello",
-			want:       "cd \"/projects/foo bar\" && echo hello",
+			want:       "cd '/projects/foo bar' && echo hello",
 			wantErr:    false,
 		},
 		{

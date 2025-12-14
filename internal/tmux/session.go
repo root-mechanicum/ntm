@@ -633,7 +633,7 @@ func BuildPaneCommand(projectDir, agentCommand string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return fmt.Sprintf("cd %q && %s", projectDir, safeCommand), nil
+	return fmt.Sprintf("cd %s && %s", ShellQuote(projectDir), safeCommand), nil
 }
 
 // AttachOrSwitch attaches to a session or switches if already in tmux
