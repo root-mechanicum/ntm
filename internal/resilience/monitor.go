@@ -16,9 +16,11 @@ import (
 
 // Overridable hooks for tests.
 var (
-	sendKeysFn     = tmux.SendKeys
-	buildPaneCmdFn = tmux.BuildPaneCommand
-	sleepFn        = time.Sleep
+	sendKeysFn       = tmux.SendKeys
+	buildPaneCmdFn   = tmux.BuildPaneCommand
+	sleepFn          = time.Sleep
+	checkSessionFn   = health.CheckSession
+	displayMessageFn = tmux.DisplayMessage
 )
 
 // AgentState tracks the state of an individual agent for restart purposes
@@ -147,7 +149,7 @@ func (m *Monitor) monitorLoop(ctx context.Context) {
 // checkHealth performs a health check on all monitored agents
 func (m *Monitor) checkHealth() {
 	// Get health status for the session
-	sessionHealth, err := health.CheckSession(m.session)
+	sessionHealth, err := checkSessionFn(m.session)
 	if err != nil {
 		log.Printf("[resilience] health check failed: %v", err)
 		return
@@ -273,7 +275,7 @@ func (m *Monitor) triggerRotationAssistance(session string, paneIndex int, agent
 // displayTmuxMessage shows a message in the tmux session
 func displayTmuxMessage(session, msg string) {
 	// tmux display-message shows a message in the status line for 10 seconds
-	if err := tmux.DisplayMessage(session, msg, 10000); err != nil {
+	if err := displayMessageFn(session, msg, 10000); err != nil {
 		log.Printf("[resilience] tmux display-message failed: %v", err)
 	}
 }
