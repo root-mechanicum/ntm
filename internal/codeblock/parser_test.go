@@ -288,6 +288,21 @@ func TestParseNestedFences(t *testing.T) {
 	}
 }
 
+func TestParseVariableLengthFences(t *testing.T) {
+	text := "````markdown\n```python\nprint('hello')\n```\n````"
+	blocks := ExtractFromText(text)
+	if len(blocks) != 1 {
+		t.Fatalf("Expected 1 block, got %d", len(blocks))
+	}
+	if blocks[0].Language != "markdown" {
+		t.Errorf("Language = %q, want markdown", blocks[0].Language)
+	}
+	expectedContent := "```python\nprint('hello')\n```"
+	if blocks[0].Content != expectedContent {
+		t.Errorf("Content = %q, want %q", blocks[0].Content, expectedContent)
+	}
+}
+
 func TestCodeBlockString(t *testing.T) {
 	block := CodeBlock{
 		Language:   "python",

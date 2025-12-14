@@ -3,7 +3,6 @@ package codeblock
 
 import (
 	"path/filepath"
-	"regexp"
 	"strings"
 )
 
@@ -25,11 +24,6 @@ type Extraction struct {
 	TotalLines int         `json:"total_lines"` // Total lines in source
 }
 
-// fencePattern matches markdown code fences
-// Matches: ```language\ncode\n``` or ```\ncode\n```
-// Note: Language capture group allows for characters like +, #, -, etc.
-var fencePattern = regexp.MustCompile("(?m)^```([^\\r\\n]*)\\r?\\n([\\s\\S]*?)^```")
-
 // Parser extracts code blocks from text.
 type Parser struct {
 	// Options for parsing
@@ -50,47 +44,86 @@ func (p *Parser) WithLanguageFilter(langs []string) *Parser {
 // Parse extracts code blocks from the given text.
 func (p *Parser) Parse(text string) []CodeBlock {
 	var blocks []CodeBlock
+	lines := strings.Split(text, "\n")
 
-	// Find all matches
-	matches := fencePattern.FindAllStringSubmatchIndex(text, -1)
+	inBlock := false
+	fenceLen := 0
+	var currentLang string
+	var currentContent strings.Builder
+	var startLine int
 
-	for _, match := range matches {
-		// match[0:2] = full match
-		// match[2:4] = language group
-		// match[4:6] = content group
+	for i, line := range lines {
+		trimmed := strings.TrimRight(line, "\r") // Handle CRLF
 
-		lang := ""
-		if match[2] >= 0 && match[3] >= 0 {
-			lang = text[match[2]:match[3]]
+		// Check for fence
+		// A fence line starts with optional whitespace (up to 3 spaces, but we'll assume 0 for simplicity/strictness like the regex)
+		// and then at least 3 backticks.
+		// The previous regex was ^```, so it required start of line. We'll stick to that.
+
+		isFence := false
+		fl := 0
+		if strings.HasPrefix(trimmed, "```") {
+			// Count backticks
+			for j := 0; j < len(trimmed); j++ {
+				if trimmed[j] == '`' {
+					fl++
+				} else {
+					break
+				}
+			}
+			isFence = fl >= 3
 		}
 
-		// Check language filter
-		if len(p.LanguageFilter) > 0 && !p.matchesLanguage(lang) {
-			continue
+		if isFence {
+			if !inBlock {
+				// Start of block
+				inBlock = true
+				fenceLen = fl
+				startLine = i + 1 // 1-based
+				// Language is the rest of the line after backticks
+				currentLang = strings.TrimSpace(trimmed[fl:])
+				currentContent.Reset()
+			} else {
+				// Potential end of block
+				// Closing fence must be at least as long as opening fence
+				// and contain no info string (though some parsers allow it, standard markdown says no info string on closing)
+				// We'll just check length to be safe and simple.
+				// Also, check if it's "just" a fence or fence+stuff.
+				// Standard: closing fence is ` ``` ` (at least len) and optional spaces.
+				// We'll check if the line *starts* with fence of sufficient length.
+				if fl >= fenceLen {
+					// Close block
+					inBlock = false
+
+					// Apply filter
+					if len(p.LanguageFilter) == 0 || p.matchesLanguage(currentLang) {
+						content := currentContent.String()
+						// Remove trailing newline added by loop
+						content = strings.TrimSuffix(content, "\n")
+
+						filePath, isNew := detectFilePath(content, currentLang)
+
+						blocks = append(blocks, CodeBlock{
+							Language:  normalizeLanguage(currentLang),
+							Content:   content,
+							StartLine: startLine,
+							EndLine:   i + 1,
+							FilePath:  filePath,
+							IsNew:     isNew,
+						})
+					}
+				} else {
+					// Fence too short, treat as content
+					currentContent.WriteString(trimmed)
+					currentContent.WriteString("\n")
+				}
+			}
+		} else {
+			if inBlock {
+				currentContent.WriteString(trimmed)
+				currentContent.WriteString("\n")
+			}
 		}
-
-		content := ""
-		if match[4] >= 0 && match[5] >= 0 {
-			content = text[match[4]:match[5]]
-		}
-
-		// Calculate line numbers
-		startLine := countLines(text[:match[0]]) + 1
-		endLine := startLine + countLines(text[match[0]:match[1]])
-
-		// Try to detect file path
-		filePath, isNew := detectFilePath(content, lang)
-
-		block := CodeBlock{
-			Language:  normalizeLanguage(lang),
-			Content:   strings.TrimRight(content, "\n\r"),
-			StartLine: startLine,
-			EndLine:   endLine,
-			FilePath:  filePath,
-			IsNew:     isNew,
-		}
-
-		blocks = append(blocks, block)
 	}
 
 	return blocks
