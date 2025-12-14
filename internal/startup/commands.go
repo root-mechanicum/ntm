@@ -69,6 +69,8 @@ var CommandClassification = map[string]CommandRequirement{
 	"git":             RequireFullStartup,
 	"deps":            RequireFullStartup,
 	"tutorial":        RequireFullStartup,
+	"rotate":          RequireFullStartup,
+	"plugins":         RequireFullStartup,
 }
 
 // RobotFlagClassification maps robot flags to their requirements
