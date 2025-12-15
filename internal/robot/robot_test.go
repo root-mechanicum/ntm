@@ -210,6 +210,10 @@ func TestTruncateMessage(t *testing.T) {
 		{"exactly 50", strings.Repeat("a", 50), strings.Repeat("a", 50)},
 		{"over 50", strings.Repeat("a", 60), strings.Repeat("a", 47) + "..."},
 		{"empty", "", ""},
+		// UTF-8 test: 60 emoji (each is multiple bytes but 1 rune)
+		{"utf8 over 50", strings.Repeat("🚀", 60), strings.Repeat("🚀", 47) + "..."},
+		// UTF-8 test: exactly 50 emoji should not truncate
+		{"utf8 exactly 50", strings.Repeat("日", 50), strings.Repeat("日", 50)},
 	}
 
 	for _, tc := range tests {

@@ -1480,6 +1480,10 @@ func generateTailHints(panes map[string]PaneOutput) *TailAgentHints {
 		}
 	}
 
+	// Sort for deterministic output (map iteration order is random)
+	sort.Strings(idle)
+	sort.Strings(active)
+
 	// Generate suggestions based on state distribution
 	if len(idle) > 0 && len(active) == 0 {
 		suggestions = append(suggestions, fmt.Sprintf("All %d agents idle - ready for new prompts", len(idle)))
@@ -2166,10 +2170,12 @@ func generateSendHints(output SendOutput) *SendAgentHints {
 	}
 }
 
-// truncateMessage truncates a message to 50 chars with ellipsis
+// truncateMessage truncates a message to 50 runes with ellipsis.
+// Uses rune count instead of byte count to handle UTF-8 correctly.
 func truncateMessage(msg string) string {
-	if len(msg) > 50 {
-		return msg[:47] + "..."
+	runes := []rune(msg)
+	if len(runes) > 50 {
+		return string(runes[:47]) + "..."
 	}
 	return msg
 }
