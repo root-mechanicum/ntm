@@ -1364,9 +1364,18 @@ func encodeJSON(v interface{}) error {
 
 // TailOutput is the structured output for --robot-tail
 type TailOutput struct {
-	Session    string                `json:"session"`
-	CapturedAt time.Time             `json:"captured_at"`
-	Panes      map[string]PaneOutput `json:"panes"`
+	RobotResponse                           // Embed standard response fields (success, timestamp, error)
+	Session       string                    `json:"session"`
+	CapturedAt    time.Time                 `json:"captured_at"`
+	Panes         map[string]PaneOutput     `json:"panes"`
+	AgentHints    *TailAgentHints           `json:"_agent_hints,omitempty"`
+}
+
+// TailAgentHints provides agent guidance specific to tail output
+type TailAgentHints struct {
+	IdleAgents   []string `json:"idle_agents,omitempty"`   // Panes with idle agents ready for prompts
+	ActiveAgents []string `json:"active_agents,omitempty"` // Panes with actively working agents
+	Suggestions  []string `json:"suggestions,omitempty"`   // Actionable hints
 }
 
 // PaneOutput contains captured output from a single pane
@@ -1380,18 +1389,27 @@ type PaneOutput struct {
 // PrintTail outputs recent pane output for AI consumption
 func PrintTail(session string, lines int, paneFilter []string) error {
 	if !tmux.SessionExists(session) {
-		return fmt.Errorf("session '%s' not found", session)
+		return RobotError(
+			fmt.Errorf("session '%s' not found", session),
+			ErrCodeSessionNotFound,
+			"Use 'ntm list' to see available sessions",
+		)
 	}
 
 	panes, err := tmux.GetPanes(session)
 	if err != nil {
-		return fmt.Errorf("failed to get panes: %w", err)
+		return RobotError(
+			fmt.Errorf("failed to get panes: %w", err),
+			ErrCodeInternalError,
+			"Check tmux is running and session is accessible",
+		)
 	}
 
 	output := TailOutput{
-		Session:    session,
-		CapturedAt: time.Now().UTC(),
-		Panes:      make(map[string]PaneOutput),
+		RobotResponse: NewRobotResponse(true),
+		Session:       session,
+		CapturedAt:    time.Now().UTC(),
+		Panes:         make(map[string]PaneOutput),
 	}
 
 	// Build pane filter map
@@ -1440,7 +1458,48 @@ func PrintTail(session string, lines int, paneFilter []string) error {
 		}
 	}
 
+	// Generate agent hints based on pane states
+	output.AgentHints = generateTailHints(output.Panes)
+
 	return encodeJSON(output)
+}
+
+// generateTailHints analyzes pane states and provides actionable hints for AI agents
+func generateTailHints(panes map[string]PaneOutput) *TailAgentHints {
+	var idle, active []string
+	var suggestions []string
+
+	for paneKey, pane := range panes {
+		switch pane.State {
+		case "idle":
+			idle = append(idle, paneKey)
+		case "active":
+			active = append(active, paneKey)
+		case "error":
+			suggestions = append(suggestions, fmt.Sprintf("Pane %s has an error - check output", paneKey))
+		}
+	}
+
+	// Generate suggestions based on state distribution
+	if len(idle) > 0 && len(active) == 0 {
+		suggestions = append(suggestions, fmt.Sprintf("All %d agents idle - ready for new prompts", len(idle)))
+	} else if len(idle) > 0 {
+		suggestions = append(suggestions, fmt.Sprintf("%d idle agents available for parallel work", len(idle)))
+	}
+	if len(active) > 0 {
+		suggestions = append(suggestions, fmt.Sprintf("%d agents actively working - wait or check progress", len(active)))
+	}
+
+	// Return nil if no useful hints
+	if len(idle) == 0 && len(active) == 0 && len(suggestions) == 0 {
+		return nil
+	}
+
+	return &TailAgentHints{
+		IdleAgents:   idle,
+		ActiveAgents: active,
+		Suggestions:  suggestions,
+	}
 }
 
 // ansiRegex matches common ANSI escape sequences:
@@ -1898,12 +1957,20 @@ func agentTypeString(t tmux.AgentType) string {
 
 // SendOutput is the structured output for --robot-send
 type SendOutput struct {
-	Session        string      `json:"session"`
-	SentAt         time.Time   `json:"sent_at"`
-	Targets        []string    `json:"targets"`
-	Successful     []string    `json:"successful"`
-	Failed         []SendError `json:"failed"`
-	MessagePreview string      `json:"message_preview"`
+	RobotResponse                   // Embed standard response fields (success, timestamp, error)
+	Session        string           `json:"session"`
+	SentAt         time.Time        `json:"sent_at"`
+	Targets        []string         `json:"targets"`
+	Successful     []string         `json:"successful"`
+	Failed         []SendError      `json:"failed"`
+	MessagePreview string           `json:"message_preview"`
+	AgentHints     *SendAgentHints  `json:"_agent_hints,omitempty"`
+}
+
+// SendAgentHints provides agent guidance specific to send output
+type SendAgentHints struct {
+	Summary     string   `json:"summary,omitempty"`     // One-line summary of what happened
+	Suggestions []string `json:"suggestions,omitempty"` // Actionable next steps
 }
 
 // SendError represents a failed send attempt
@@ -1927,6 +1994,7 @@ type SendOptions struct {
 func PrintSend(opts SendOptions) error {
 	if strings.TrimSpace(opts.Session) == "" {
 		return encodeJSON(SendOutput{
+			RobotResponse:  NewErrorResponse(fmt.Errorf("session name is required"), ErrCodeInvalidFlag, "Provide a session name"),
 			Session:        opts.Session,
 			SentAt:         time.Now().UTC(),
 			Targets:        []string{},
@@ -1938,6 +2006,7 @@ func PrintSend(opts SendOptions) error {
 
 	if !tmux.SessionExists(opts.Session) {
 		return encodeJSON(SendOutput{
+			RobotResponse:  NewErrorResponse(fmt.Errorf("session '%s' not found", opts.Session), ErrCodeSessionNotFound, "Use 'ntm list' to see available sessions"),
 			Session:        opts.Session,
 			SentAt:         time.Now().UTC(),
 			Targets:        []string{},
@@ -1950,6 +2019,7 @@ func PrintSend(opts SendOptions) error {
 	panes, err := tmux.GetPanes(opts.Session)
 	if err != nil {
 		return encodeJSON(SendOutput{
+			RobotResponse:  NewErrorResponse(fmt.Errorf("failed to get panes: %w", err), ErrCodeInternalError, "Check tmux is running"),
 			Session:        opts.Session,
 			SentAt:         time.Now().UTC(),
 			Targets:        []string{},
@@ -1960,6 +2030,7 @@ func PrintSend(opts SendOptions) error {
 	}
 
 	output := SendOutput{
+		RobotResponse:  NewRobotResponse(true), // Will be updated based on results
 		Session:        opts.Session,
 		SentAt:         time.Now().UTC(),
 		Targets:        []string{},
@@ -2052,7 +2123,47 @@ func PrintSend(opts SendOptions) error {
 		}
 	}
 
+	// Update success based on results
+	output.Success = len(output.Failed) == 0 && len(output.Successful) > 0
+	if len(output.Failed) > 0 {
+		output.Error = fmt.Sprintf("%d of %d sends failed", len(output.Failed), len(output.Targets))
+		output.ErrorCode = ErrCodeInternalError
+	}
+
+	// Generate agent hints
+	output.AgentHints = generateSendHints(output)
+
 	return encodeJSON(output)
+}
+
+// generateSendHints creates actionable hints based on send results
+func generateSendHints(output SendOutput) *SendAgentHints {
+	var suggestions []string
+	var summary string
+
+	if len(output.Failed) == 0 && len(output.Successful) > 0 {
+		summary = fmt.Sprintf("Sent to %d agent(s) successfully", len(output.Successful))
+		suggestions = append(suggestions, "Wait for agent acknowledgment using --robot-tail")
+	} else if len(output.Failed) > 0 && len(output.Successful) > 0 {
+		summary = fmt.Sprintf("Partial success: %d sent, %d failed", len(output.Successful), len(output.Failed))
+		suggestions = append(suggestions, "Retry failed panes individually")
+	} else if len(output.Failed) > 0 {
+		summary = fmt.Sprintf("All %d sends failed", len(output.Failed))
+		suggestions = append(suggestions, "Check agent states with --robot-tail")
+		suggestions = append(suggestions, "Verify session and pane existence")
+	} else if len(output.Targets) == 0 {
+		summary = "No target panes matched the filter criteria"
+		suggestions = append(suggestions, "Check --all, --panes, or --agent-types flags")
+	}
+
+	if summary == "" {
+		return nil
+	}
+
+	return &SendAgentHints{
+		Summary:     summary,
+		Suggestions: suggestions,
+	}
 }
 
 // truncateMessage truncates a message to 50 chars with ellipsis
