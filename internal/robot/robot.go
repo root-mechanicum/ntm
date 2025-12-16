@@ -2658,7 +2658,7 @@ func getBeadNeighbors(dir, issueID, direction string) ([]string, []bdDepTreeNode
 		return nil, nil, fmt.Errorf("invalid direction %q", direction)
 	}
 
-	out, err := bv.RunBd(dir, "dep", "tree", issueID, "--direction="+direction, "--max-depth=1", "--json")
+	out, err := bv.RunBd(dir, "dep", "tree", "--direction="+direction, "--max-depth=1", "--json", "--", issueID)
 	if err != nil {
 		return nil, nil, fmt.Errorf("bd dep tree: %w", err)
 	}

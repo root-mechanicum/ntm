@@ -15,8 +15,8 @@ func (c *Client) Search(ctx context.Context, opts SearchOptions) (*SearchRespons
 	ctx, cancel := context.WithTimeout(ctx, c.timeout)
 	defer cancel()
 
-	// Build arguments for: cass robot search <query> [flags]
-	args := []string{"robot", "search", opts.Query}
+	// Build arguments for: cass robot search [flags] -- <query>
+	args := []string{"robot", "search"}
 
 	if opts.Limit > 0 {
 		args = append(args, fmt.Sprintf("--limit=%d", opts.Limit))
@@ -54,6 +54,9 @@ func (c *Client) Search(ctx context.Context, opts SearchOptions) (*SearchRespons
 	if opts.Highlight {
 		args = append(args, "--highlight")
 	}
+
+	// Add separator and query
+	args = append(args, "--", opts.Query)
 
 	output, err := c.executor.Run(ctx, args...)
 	if err != nil {
