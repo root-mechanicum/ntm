@@ -21,6 +21,7 @@ type SpawnOptions struct {
 	WorkingDir   string // Override working directory
 	WaitReady    bool   // Wait for agents to be ready
 	ReadyTimeout int    // Timeout in seconds for ready detection
+	DryRun       bool   // Preview mode: show what would happen without executing
 }
 
 // SpawnOutput is the structured output for --robot-spawn.
@@ -33,6 +34,8 @@ type SpawnOutput struct {
 	Layout         string         `json:"layout"`
 	TotalStartupMs int64          `json:"total_startup_ms"`
 	Error          string         `json:"error,omitempty"`
+	DryRun         bool           `json:"dry_run,omitempty"`
+	WouldCreate    []SpawnedAgent `json:"would_create,omitempty"`
 }
 
 // SpawnedAgent represents an agent created during spawn.
@@ -101,6 +104,54 @@ func PrintSpawn(opts SpawnOptions, cfg *config.Config) error {
 	totalPanes := totalAgents
 	if !opts.NoUserPane {
 		totalPanes++
+	}
+
+	// Dry-run mode: show what would happen without executing
+	if opts.DryRun {
+		output.DryRun = true
+		output.WouldCreate = []SpawnedAgent{}
+
+		// Build list of what would be created
+		paneIdx := 0
+		if !opts.NoUserPane {
+			output.WouldCreate = append(output.WouldCreate, SpawnedAgent{
+				Pane:  fmt.Sprintf("0.%d", paneIdx),
+				Type:  "user",
+				Title: fmt.Sprintf("%s__user", opts.Session),
+				Ready: true,
+			})
+			paneIdx++
+		}
+
+		for i := 0; i < opts.CCCount; i++ {
+			output.WouldCreate = append(output.WouldCreate, SpawnedAgent{
+				Pane:  fmt.Sprintf("0.%d", paneIdx),
+				Type:  "claude",
+				Title: fmt.Sprintf("%s__cc_%d", opts.Session, i+1),
+			})
+			paneIdx++
+		}
+
+		for i := 0; i < opts.CodCount; i++ {
+			output.WouldCreate = append(output.WouldCreate, SpawnedAgent{
+				Pane:  fmt.Sprintf("0.%d", paneIdx),
+				Type:  "codex",
+				Title: fmt.Sprintf("%s__cod_%d", opts.Session, i+1),
+			})
+			paneIdx++
+		}
+
+		for i := 0; i < opts.GmiCount; i++ {
+			output.WouldCreate = append(output.WouldCreate, SpawnedAgent{
+				Pane:  fmt.Sprintf("0.%d", paneIdx),
+				Type:  "gemini",
+				Title: fmt.Sprintf("%s__gmi_%d", opts.Session, i+1),
+			})
+			paneIdx++
+		}
+
+		output.Layout = "tiled"
+		return encodeJSON(output)
 	}
 
 	// Create session if it doesn't exist

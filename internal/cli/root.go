@@ -258,6 +258,7 @@ Shell Integration:
 						AgentTypes: agentTypes,
 						Exclude:    excludeList,
 						DelayMs:    robotSendDelay,
+						DryRun:     robotRestoreDry,
 					},
 					AckTimeoutMs: int(ackTimeout.Milliseconds()),
 					AckPollMs:    robotAckPoll,
@@ -277,6 +278,7 @@ Shell Integration:
 				AgentTypes: agentTypes,
 				Exclude:    excludeList,
 				DelayMs:    robotSendDelay,
+				DryRun:     robotRestoreDry,
 			}
 			if err := robot.PrintSend(opts); err != nil {
 				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
@@ -349,6 +351,7 @@ Shell Integration:
 				NoUserPane:   robotSpawnNoUser,
 				WaitReady:    robotSpawnWait,
 				ReadyTimeout: int(spawnTimeout.Seconds()),
+				DryRun:       robotRestoreDry,
 			}
 			if err := robot.PrintSpawn(opts, cfg); err != nil {
 				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
@@ -376,6 +379,7 @@ Shell Integration:
 				Force:     robotInterruptForce,
 				NoWait:    robotInterruptNoWait,
 				TimeoutMs: int(interruptTimeout.Milliseconds()),
+				DryRun:    robotRestoreDry,
 			}
 			if err := robot.PrintInterrupt(opts); err != nil {
 				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
@@ -570,96 +574,96 @@ func init() {
 	// Profiling flag for startup timing analysis
 	rootCmd.PersistentFlags().BoolVar(&profileStartup, "profile-startup", false, "Enable startup profiling (outputs timing data)")
 
-	// Robot flags for AI agents
-	rootCmd.Flags().BoolVar(&robotHelp, "robot-help", false, "Show AI agent help documentation (JSON)")
-	rootCmd.Flags().BoolVar(&robotStatus, "robot-status", false, "Output session status as JSON for AI agents")
-	rootCmd.Flags().BoolVar(&robotVersion, "robot-version", false, "Output version info as JSON")
-	rootCmd.Flags().BoolVar(&robotPlan, "robot-plan", false, "Output execution plan as JSON for AI agents")
-	rootCmd.Flags().BoolVar(&robotSnapshot, "robot-snapshot", false, "Output unified system state snapshot (JSON)")
-	rootCmd.Flags().StringVar(&robotSince, "since", "", "ISO8601 timestamp for delta snapshot (used with --robot-snapshot)")
-	rootCmd.Flags().StringVar(&robotTail, "robot-tail", "", "Tail pane output for session (JSON)")
-	rootCmd.Flags().IntVar(&robotLines, "lines", 20, "Number of lines to capture (used with --robot-tail)")
-	rootCmd.Flags().StringVar(&robotPanes, "panes", "", "Comma-separated pane indices to filter (used with --robot-tail/--robot-send)")
-	rootCmd.Flags().BoolVar(&robotGraph, "robot-graph", false, "Output bv graph insights as JSON for AI agents")
-	rootCmd.Flags().BoolVar(&robotDashboard, "robot-dashboard", false, "Output dashboard summary as markdown tables (or JSON with --json) for AI agents")
-	rootCmd.Flags().IntVar(&robotBeadLimit, "bead-limit", 5, "Limit for ready/in-progress beads in snapshot (used with --robot-snapshot)")
+	// Robot flags for AI agents - state inspection commands
+	rootCmd.Flags().BoolVar(&robotHelp, "robot-help", false, "Show comprehensive AI agent integration guide with examples (JSON)")
+	rootCmd.Flags().BoolVar(&robotStatus, "robot-status", false, "Get tmux sessions, panes, agent states. Start here. Example: ntm --robot-status")
+	rootCmd.Flags().BoolVar(&robotVersion, "robot-version", false, "Get ntm version, commit, build info (JSON). Example: ntm --robot-version")
+	rootCmd.Flags().BoolVar(&robotPlan, "robot-plan", false, "Get bv execution plan with parallelizable tracks (JSON). Example: ntm --robot-plan")
+	rootCmd.Flags().BoolVar(&robotSnapshot, "robot-snapshot", false, "Unified state: sessions + beads + alerts + mail. Use --since for delta. Example: ntm --robot-snapshot")
+	rootCmd.Flags().StringVar(&robotSince, "since", "", "RFC3339 timestamp for delta snapshot. Optional with --robot-snapshot. Example: --since=2025-12-15T10:00:00Z")
+	rootCmd.Flags().StringVar(&robotTail, "robot-tail", "", "Capture recent pane output. Required: SESSION. Example: ntm --robot-tail=myproject --lines=50")
+	rootCmd.Flags().IntVar(&robotLines, "lines", 20, "Lines to capture per pane. Optional with --robot-tail. Example: --lines=100")
+	rootCmd.Flags().StringVar(&robotPanes, "panes", "", "Filter to specific pane indices. Optional with --robot-tail, --robot-send, --robot-ack, --robot-interrupt. Example: --panes=1,2")
+	rootCmd.Flags().BoolVar(&robotGraph, "robot-graph", false, "Get bv dependency graph insights: PageRank, critical path, cycles (JSON)")
+	rootCmd.Flags().BoolVar(&robotDashboard, "robot-dashboard", false, "Get dashboard summary as markdown (or JSON with --json). Token-efficient overview")
+	rootCmd.Flags().IntVar(&robotBeadLimit, "bead-limit", 5, "Max beads per category in snapshot. Optional with --robot-snapshot, --robot-status. Example: --bead-limit=10")
 
 	// Robot-send flags for batch messaging
-	rootCmd.Flags().StringVar(&robotSend, "robot-send", "", "Send prompt to panes atomically (JSON output)")
-	rootCmd.Flags().StringVar(&robotSendMsg, "msg", "", "Message to send (used with --robot-send)")
-	rootCmd.Flags().BoolVar(&robotSendAll, "all", false, "Send to all panes including user (used with --robot-send)")
-	rootCmd.Flags().StringVar(&robotSendType, "type", "", "Filter by agent type (aliases: cc/claude, cod/codex, gmi/gemini) (used with --robot-send)")
-	rootCmd.Flags().StringVar(&robotSendExclude, "exclude", "", "Comma-separated pane indices to exclude (used with --robot-send)")
-	rootCmd.Flags().IntVar(&robotSendDelay, "delay-ms", 0, "Delay between sends in milliseconds (used with --robot-send)")
+	rootCmd.Flags().StringVar(&robotSend, "robot-send", "", "Send message to panes atomically. Required: SESSION, --msg. Example: ntm --robot-send=proj --msg='Fix auth'")
+	rootCmd.Flags().StringVar(&robotSendMsg, "msg", "", "Message content to send. Required with --robot-send. Optional with --robot-ack (enables echo detection)")
+	rootCmd.Flags().BoolVar(&robotSendAll, "all", false, "Include user pane (default: agents only). Optional with --robot-send, --robot-interrupt")
+	rootCmd.Flags().StringVar(&robotSendType, "type", "", "Filter by agent type: claude|cc, codex|cod, gemini|gmi, cursor, windsurf, aider. Works with --robot-send, --robot-ack, --robot-interrupt")
+	rootCmd.Flags().StringVar(&robotSendExclude, "exclude", "", "Exclude pane indices (comma-separated). Optional with --robot-send. Example: --exclude=0,3")
+	rootCmd.Flags().IntVar(&robotSendDelay, "delay-ms", 0, "Delay between sends (ms). Optional with --robot-send. Example: --delay-ms=500 for 0.5s between panes")
 
 	// Robot-assign flags for work distribution
-	rootCmd.Flags().StringVar(&robotAssign, "robot-assign", "", "Get work distribution recommendations for session (JSON)")
-	rootCmd.Flags().StringVar(&robotAssignBeads, "beads", "", "Comma-separated bead IDs to assign (used with --robot-assign)")
-	rootCmd.Flags().StringVar(&robotAssignStrategy, "strategy", "balanced", "Assignment strategy: balanced, speed, quality, dependency (used with --robot-assign)")
+	rootCmd.Flags().StringVar(&robotAssign, "robot-assign", "", "Get work distribution recommendations. Required: SESSION. Example: ntm --robot-assign=proj --strategy=speed")
+	rootCmd.Flags().StringVar(&robotAssignBeads, "beads", "", "Specific bead IDs to assign (comma-separated). Optional with --robot-assign. Example: --beads=ntm-abc,ntm-xyz")
+	rootCmd.Flags().StringVar(&robotAssignStrategy, "strategy", "balanced", "Assignment strategy: balanced (default), speed, quality, dependency. Optional with --robot-assign")
 
 	// Robot-health flag for project health summary
-	rootCmd.Flags().BoolVar(&robotHealth, "robot-health", false, "Output project health summary as JSON for AI agents")
+	rootCmd.Flags().BoolVar(&robotHealth, "robot-health", false, "Get project health: tests, linting, coverage, dependencies (JSON). Example: ntm --robot-health")
 
 	// Robot-recipes flag for recipe listing
-	rootCmd.Flags().BoolVar(&robotRecipes, "robot-recipes", false, "List available recipes as JSON for AI agents")
+	rootCmd.Flags().BoolVar(&robotRecipes, "robot-recipes", false, "List available spawn recipes/presets (JSON). Use with --robot-spawn --spawn-preset")
 
 	// Robot-mail flag for Agent Mail state
-	rootCmd.Flags().BoolVar(&robotMail, "robot-mail", false, "Output Agent Mail state as JSON for AI agents")
+	rootCmd.Flags().BoolVar(&robotMail, "robot-mail", false, "Get Agent Mail inbox/outbox state (JSON). Shows pending messages and coordination status")
 
 	// Robot-ack flags for send confirmation tracking
-	rootCmd.Flags().StringVar(&robotAck, "robot-ack", "", "Watch panes for acknowledgment after send (JSON output)")
-	rootCmd.Flags().StringVar(&robotAckTimeout, "ack-timeout", "30s", "Timeout for acknowledgment (e.g., 30s, 5000ms) (used with --robot-ack)")
-	rootCmd.Flags().IntVar(&robotAckPoll, "ack-poll", 500, "Poll interval in milliseconds (used with --robot-ack)")
-	rootCmd.Flags().BoolVar(&robotAckTrack, "track", false, "Combined send+ack mode: send message and wait for acknowledgment (used with --robot-send)")
+	rootCmd.Flags().StringVar(&robotAck, "robot-ack", "", "Watch for agent responses after send. Required: SESSION. Example: ntm --robot-ack=proj --ack-timeout=30s")
+	rootCmd.Flags().StringVar(&robotAckTimeout, "ack-timeout", "30s", "Max wait time for responses (e.g., 30s, 5000ms, 1m). Works with --robot-ack, --track")
+	rootCmd.Flags().IntVar(&robotAckPoll, "ack-poll", 500, "Poll interval in ms. Optional with --robot-ack. Lower = faster detection, higher CPU")
+	rootCmd.Flags().BoolVar(&robotAckTrack, "track", false, "Combined send+ack: send --msg and wait for response. Use with --robot-send. Example: ntm --robot-send=proj --msg='hello' --track")
 
 	// Robot-spawn flags for structured session creation
-	rootCmd.Flags().StringVar(&robotSpawn, "robot-spawn", "", "Create session and spawn agents (JSON output)")
-	rootCmd.Flags().IntVar(&robotSpawnCC, "spawn-cc", 0, "Number of Claude agents (used with --robot-spawn)")
-	rootCmd.Flags().IntVar(&robotSpawnCod, "spawn-cod", 0, "Number of Codex agents (used with --robot-spawn)")
-	rootCmd.Flags().IntVar(&robotSpawnGmi, "spawn-gmi", 0, "Number of Gemini agents (used with --robot-spawn)")
-	rootCmd.Flags().StringVar(&robotSpawnPreset, "spawn-preset", "", "Recipe/preset name (used with --robot-spawn)")
-	rootCmd.Flags().BoolVar(&robotSpawnNoUser, "spawn-no-user", false, "Don't create user pane (used with --robot-spawn)")
-	rootCmd.Flags().BoolVar(&robotSpawnWait, "spawn-wait", false, "Wait for agents to be ready (used with --robot-spawn)")
-	rootCmd.Flags().StringVar(&robotSpawnTimeout, "spawn-timeout", "30s", "Timeout for ready detection (e.g., 30s, 1m) (used with --robot-spawn)")
+	rootCmd.Flags().StringVar(&robotSpawn, "robot-spawn", "", "Create session with agents. Required: SESSION name. Example: ntm --robot-spawn=myproject --spawn-cc=2")
+	rootCmd.Flags().IntVar(&robotSpawnCC, "spawn-cc", 0, "Claude Code agents to spawn. Use with --robot-spawn. Example: --spawn-cc=2")
+	rootCmd.Flags().IntVar(&robotSpawnCod, "spawn-cod", 0, "Codex CLI agents to spawn. Use with --robot-spawn. Example: --spawn-cod=1")
+	rootCmd.Flags().IntVar(&robotSpawnGmi, "spawn-gmi", 0, "Gemini CLI agents to spawn. Use with --robot-spawn. Example: --spawn-gmi=1")
+	rootCmd.Flags().StringVar(&robotSpawnPreset, "spawn-preset", "", "Use recipe preset instead of counts. See --robot-recipes. Example: --spawn-preset=standard")
+	rootCmd.Flags().BoolVar(&robotSpawnNoUser, "spawn-no-user", false, "Skip user pane creation. Optional with --robot-spawn. For headless/automation")
+	rootCmd.Flags().BoolVar(&robotSpawnWait, "spawn-wait", false, "Wait for agents to show ready state before returning. Recommended for automation")
+	rootCmd.Flags().StringVar(&robotSpawnTimeout, "spawn-timeout", "30s", "Max wait for agent ready state (e.g., 30s, 1m). Use with --spawn-wait")
 
 	// Robot-interrupt flags for priority course correction
-	rootCmd.Flags().StringVar(&robotInterrupt, "robot-interrupt", "", "Interrupt agents with Ctrl+C and optionally send message (JSON output)")
-	rootCmd.Flags().StringVar(&robotInterruptMsg, "interrupt-msg", "", "Message to send after interrupt (used with --robot-interrupt)")
-	rootCmd.Flags().BoolVar(&robotInterruptAll, "interrupt-all", false, "Include all panes including user (used with --robot-interrupt)")
-	rootCmd.Flags().BoolVar(&robotInterruptForce, "interrupt-force", false, "Send Ctrl+C even if agent appears idle (used with --robot-interrupt)")
-	rootCmd.Flags().BoolVar(&robotInterruptNoWait, "interrupt-no-wait", false, "Don't wait for ready state (used with --robot-interrupt)")
-	rootCmd.Flags().StringVar(&robotInterruptTimeout, "interrupt-timeout", "10s", "Timeout for ready state (e.g., 10s, 5000ms) (used with --robot-interrupt)")
+	rootCmd.Flags().StringVar(&robotInterrupt, "robot-interrupt", "", "Send Ctrl+C to stop agents, optionally send new task. Required: SESSION. Example: ntm --robot-interrupt=proj --interrupt-msg='Stop and fix bug'")
+	rootCmd.Flags().StringVar(&robotInterruptMsg, "interrupt-msg", "", "New task to send after Ctrl+C. Optional with --robot-interrupt. Agents receive this after stopping")
+	rootCmd.Flags().BoolVar(&robotInterruptAll, "interrupt-all", false, "Interrupt all panes including user. Default: agents only. Use with --robot-interrupt")
+	rootCmd.Flags().BoolVar(&robotInterruptForce, "interrupt-force", false, "Send Ctrl+C even if agent shows idle/ready. Use for stuck agents")
+	rootCmd.Flags().BoolVar(&robotInterruptNoWait, "interrupt-no-wait", false, "Return immediately after Ctrl+C without waiting for ready state")
+	rootCmd.Flags().StringVar(&robotInterruptTimeout, "interrupt-timeout", "10s", "Max wait for ready state after interrupt (e.g., 10s, 5000ms). Ignored with --interrupt-no-wait")
 
 	// Robot-terse flag for ultra-compact output
-	rootCmd.Flags().BoolVar(&robotTerse, "robot-terse", false, "Output ultra-compact single-line state (e.g., S:proj|A:2/3|W:2|I:1|E:0|C:0%|B:R10/I5/B2|M:3|!:1c,2w)")
+	rootCmd.Flags().BoolVar(&robotTerse, "robot-terse", false, "Single-line state: S:session|A:ready/total|W:working|I:idle|B:beads|M:mail|!:alerts. Minimal tokens")
 
 	// Robot-markdown flags for token-efficient markdown output
-	rootCmd.Flags().BoolVar(&robotMarkdown, "robot-markdown", false, "Output system state as token-efficient markdown for LLM consumption")
-	rootCmd.Flags().BoolVar(&robotMarkdownCompact, "md-compact", false, "Use ultra-compact markdown format (used with --robot-markdown)")
-	rootCmd.Flags().StringVar(&robotMarkdownSession, "md-session", "", "Filter markdown output to specific session (used with --robot-markdown)")
-	rootCmd.Flags().StringVar(&robotMarkdownSections, "md-sections", "", "Comma-separated sections to include: sessions, beads, alerts, mail (used with --robot-markdown)")
-	rootCmd.Flags().IntVar(&robotMarkdownMaxBeads, "md-max-beads", 0, "Override max beads shown per category (used with --robot-markdown)")
-	rootCmd.Flags().IntVar(&robotMarkdownMaxAlerts, "md-max-alerts", 0, "Override max alerts shown (used with --robot-markdown)")
+	rootCmd.Flags().BoolVar(&robotMarkdown, "robot-markdown", false, "System state as markdown tables. LLM-friendly, ~50% fewer tokens than JSON")
+	rootCmd.Flags().BoolVar(&robotMarkdownCompact, "md-compact", false, "Ultra-compact markdown: abbreviations, minimal whitespace. Use with --robot-markdown")
+	rootCmd.Flags().StringVar(&robotMarkdownSession, "md-session", "", "Filter to one session. Optional with --robot-markdown. Example: --md-session=myproject")
+	rootCmd.Flags().StringVar(&robotMarkdownSections, "md-sections", "", "Include only specific sections: sessions,beads,alerts,mail. Example: --md-sections=sessions,beads")
+	rootCmd.Flags().IntVar(&robotMarkdownMaxBeads, "md-max-beads", 0, "Max beads per category (0=default). Optional with --robot-markdown")
+	rootCmd.Flags().IntVar(&robotMarkdownMaxAlerts, "md-max-alerts", 0, "Max alerts to show (0=default). Optional with --robot-markdown")
 
 	// Robot-save flags for session state persistence
-	rootCmd.Flags().StringVar(&robotSave, "robot-save", "", "Save session state as JSON for AI agents")
-	rootCmd.Flags().StringVar(&robotSaveOutput, "save-output", "", "Custom output file path (used with --robot-save)")
+	rootCmd.Flags().StringVar(&robotSave, "robot-save", "", "Save session state for later restore. Required: SESSION. Example: ntm --robot-save=proj --save-output=backup.json")
+	rootCmd.Flags().StringVar(&robotSaveOutput, "save-output", "", "Output file path. Optional with --robot-save. Default: ntm-save-{session}-{timestamp}.json")
 
 	// Robot-restore flags for session state restoration
-	rootCmd.Flags().StringVar(&robotRestore, "robot-restore", "", "Restore session from saved state (JSON output)")
-	rootCmd.Flags().BoolVar(&robotRestoreDry, "dry-run", false, "Preview restore without executing (used with --robot-restore)")
+	rootCmd.Flags().StringVar(&robotRestore, "robot-restore", "", "Restore session from saved state. Required: path to save file. Example: ntm --robot-restore=backup.json")
+	rootCmd.Flags().BoolVar(&robotRestoreDry, "dry-run", false, "Preview mode: show what would happen without executing. Use with --robot-restore, --robot-interrupt, --robot-send, or --robot-spawn")
 
-	// Robot-cass flags for CASS integration
-	rootCmd.Flags().BoolVar(&robotCassStatus, "robot-cass-status", false, "Output CASS health and stats as JSON")
-	rootCmd.Flags().StringVar(&robotCassSearch, "robot-cass-search", "", "Search CASS index and return JSON results")
-	rootCmd.Flags().BoolVar(&robotCassInsights, "robot-cass-insights", false, "Output CASS aggregated insights as JSON")
-	rootCmd.Flags().StringVar(&robotCassContext, "robot-cass-context", "", "Get relevant past context for a query as JSON")
+	// Robot-cass flags for CASS (Cross-Agent Semantic Search) integration
+	rootCmd.Flags().BoolVar(&robotCassStatus, "robot-cass-status", false, "Get CASS health: index status, message counts, freshness (JSON)")
+	rootCmd.Flags().StringVar(&robotCassSearch, "robot-cass-search", "", "Search past agent conversations. Required: QUERY. Example: ntm --robot-cass-search='authentication error'")
+	rootCmd.Flags().BoolVar(&robotCassInsights, "robot-cass-insights", false, "Get CASS aggregated insights: topics, patterns, agent activity (JSON)")
+	rootCmd.Flags().StringVar(&robotCassContext, "robot-cass-context", "", "Get relevant past context for a task. Example: ntm --robot-cass-context='how to implement auth'")
 
-	// CASS filters
-	rootCmd.Flags().StringVar(&cassAgent, "cass-agent", "", "Filter CASS search by agent type")
-	rootCmd.Flags().StringVar(&cassWorkspace, "cass-workspace", "", "Filter CASS search by workspace")
-	rootCmd.Flags().StringVar(&cassSince, "cass-since", "", "Filter CASS search by time (e.g. 7d)")
-	rootCmd.Flags().IntVar(&cassLimit, "cass-limit", 10, "Limit CASS search results")
+	// CASS filters - work with --robot-cass-search and --robot-cass-context
+	rootCmd.Flags().StringVar(&cassAgent, "cass-agent", "", "Filter CASS by agent: claude, codex, gemini, cursor, etc. Example: --cass-agent=claude")
+	rootCmd.Flags().StringVar(&cassWorkspace, "cass-workspace", "", "Filter CASS by workspace/project path. Example: --cass-workspace=/path/to/project")
+	rootCmd.Flags().StringVar(&cassSince, "cass-since", "", "Filter CASS by recency: 1d, 7d, 30d, etc. Example: --cass-since=7d")
+	rootCmd.Flags().IntVar(&cassLimit, "cass-limit", 10, "Max CASS results to return. Example: --cass-limit=20")
 
 	// Sync version info with robot package
 	robot.Version = Version

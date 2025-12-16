@@ -36,11 +36,11 @@ type CASSStatusOutput struct {
 
 // CASSIndexStats holds index statistics
 type CASSIndexStats struct {
-	Exists        bool  `json:"exists"`
-	Fresh         bool  `json:"fresh"`
-	LastIndexedAt int64 `json:"last_indexed_at"`
-	Conversations int64 `json:"conversations"`
-	Messages      int64 `json:"messages"`
+	Exists        bool   `json:"exists"`
+	Fresh         bool   `json:"fresh"`
+	LastIndexedAt string `json:"last_indexed_at"` // RFC3339 timestamp
+	Conversations int64  `json:"conversations"`
+	Messages      int64  `json:"messages"`
 }
 
 // PrintCASSStatus outputs CASS health and stats as JSON
@@ -58,7 +58,7 @@ func PrintCASSStatus() error {
 		output.Healthy = status.Healthy
 		output.Index.Exists = true
 		output.Index.Fresh = status.Index.Healthy
-		output.Index.LastIndexedAt = status.LastIndexedAt.UnixMilli()
+		output.Index.LastIndexedAt = FormatTimestamp(status.LastIndexedAt)
 		output.Index.Conversations = status.Conversations
 		output.Index.Messages = status.Messages
 	}
@@ -81,7 +81,7 @@ type CASSSearchHit struct {
 	Title      string  `json:"title"`
 	Score      float64 `json:"score"`
 	Snippet    string  `json:"snippet"`
-	CreatedAt  int64   `json:"created_at"`
+	CreatedAt  string  `json:"created_at"` // RFC3339 timestamp
 }
 
 // PrintCASSSearch outputs search results as JSON
@@ -107,9 +107,9 @@ func PrintCASSSearch(query, agent, workspace, since string, limit int) error {
 	}
 
 	for i, hit := range resp.Hits {
-		createdAt := int64(0)
+		createdAt := ""
 		if hit.CreatedAt != nil {
-			createdAt = *hit.CreatedAt * 1000 // Convert to ms
+			createdAt = FormatUnixSeconds(*hit.CreatedAt)
 		}
 		output.Hits[i] = CASSSearchHit{
 			SourcePath: hit.SourcePath,
@@ -2033,6 +2033,8 @@ type SendOutput struct {
 	Failed         []SendError      `json:"failed"`
 	MessagePreview string           `json:"message_preview"`
 	AgentHints     *SendAgentHints  `json:"_agent_hints,omitempty"`
+	DryRun         bool             `json:"dry_run,omitempty"`
+	WouldSendTo    []string         `json:"would_send_to,omitempty"`
 }
 
 // SendAgentHints provides agent guidance specific to send output
@@ -2056,6 +2058,7 @@ type SendOptions struct {
 	AgentTypes []string // Filter by agent types (e.g., "claude", "codex")
 	Exclude    []string // Panes to exclude
 	DelayMs    int      // Delay between sends in milliseconds
+	DryRun     bool     // Preview mode: show what would happen without executing
 }
 
 // PrintSend sends a message to multiple panes atomically and returns structured results
@@ -2169,6 +2172,14 @@ func PrintSend(opts SendOptions) error {
 
 		targetPanes = append(targetPanes, pane)
 		output.Targets = append(output.Targets, paneKey)
+	}
+
+	// Dry-run mode: show what would happen without executing
+	if opts.DryRun {
+		output.DryRun = true
+		output.WouldSendTo = output.Targets
+		output.Success = true
+		return encodeJSON(output)
 	}
 
 	// Send to all targets

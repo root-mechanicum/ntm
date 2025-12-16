@@ -24,6 +24,8 @@ type InterruptOutput struct {
 	Failed         []InterruptError     `json:"failed"`
 	TimeoutMs      int                  `json:"timeout_ms"`
 	TimedOut       bool                 `json:"timed_out"`
+	DryRun         bool                 `json:"dry_run,omitempty"`
+	WouldAffect    []string             `json:"would_affect,omitempty"`
 }
 
 // PaneState captures the state of a pane before interruption
@@ -50,6 +52,7 @@ type InterruptOptions struct {
 	TimeoutMs       int      // Timeout for waiting for ready state (default 10000)
 	PollMs          int      // Poll interval (default 300)
 	PreserveContext bool     // Log context before interrupt (for potential resume)
+	DryRun          bool     // Preview mode: show what would happen without executing
 }
 
 // PrintInterrupt sends Ctrl+C to panes and optionally a follow-up message
@@ -161,6 +164,17 @@ func PrintInterrupt(opts InterruptOptions) error {
 			LastOutput: lastOutput,
 			AgentType:  detectAgentType(pane.Title),
 		}
+	}
+
+	// Dry-run mode: show what would happen without executing
+	if opts.DryRun {
+		output.DryRun = true
+		for _, pane := range targetPanes {
+			paneKey := fmt.Sprintf("%d", pane.Index)
+			output.WouldAffect = append(output.WouldAffect, paneKey)
+		}
+		output.CompletedAt = time.Now().UTC()
+		return encodeJSON(output)
 	}
 
 	// Send Ctrl+C to all targets

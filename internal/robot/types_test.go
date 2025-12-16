@@ -323,6 +323,128 @@ func TestNotImplementedResponse(t *testing.T) {
 	})
 }
 
+// =============================================================================
+// Timestamp Helper Tests
+// =============================================================================
+
+func TestFormatTimestamp(t *testing.T) {
+	// Test with a known time
+	knownTime := time.Date(2025, 12, 15, 10, 30, 0, 0, time.UTC)
+	result := FormatTimestamp(knownTime)
+	expected := "2025-12-15T10:30:00Z"
+	if result != expected {
+		t.Errorf("FormatTimestamp() = %q, want %q", result, expected)
+	}
+
+	// Verify the result is valid RFC3339
+	_, err := time.Parse(time.RFC3339, result)
+	if err != nil {
+		t.Errorf("Result is not valid RFC3339: %v", err)
+	}
+}
+
+func TestFormatTimestampConvertsToUTC(t *testing.T) {
+	// Test that non-UTC times are converted to UTC
+	loc, _ := time.LoadLocation("America/New_York")
+	localTime := time.Date(2025, 12, 15, 5, 30, 0, 0, loc) // 5:30 AM EST = 10:30 AM UTC
+	result := FormatTimestamp(localTime)
+	expected := "2025-12-15T10:30:00Z"
+	if result != expected {
+		t.Errorf("FormatTimestamp() = %q, want %q (should convert to UTC)", result, expected)
+	}
+}
+
+func TestFormatTimestampPtr(t *testing.T) {
+	t.Run("nil time", func(t *testing.T) {
+		result := FormatTimestampPtr(nil)
+		if result != "" {
+			t.Errorf("FormatTimestampPtr(nil) = %q, want empty string", result)
+		}
+	})
+
+	t.Run("valid time", func(t *testing.T) {
+		knownTime := time.Date(2025, 12, 15, 10, 30, 0, 0, time.UTC)
+		result := FormatTimestampPtr(&knownTime)
+		expected := "2025-12-15T10:30:00Z"
+		if result != expected {
+			t.Errorf("FormatTimestampPtr() = %q, want %q", result, expected)
+		}
+	})
+}
+
+func TestFormatUnixMillis(t *testing.T) {
+	t.Run("zero returns empty", func(t *testing.T) {
+		result := FormatUnixMillis(0)
+		if result != "" {
+			t.Errorf("FormatUnixMillis(0) = %q, want empty string", result)
+		}
+	})
+
+	t.Run("valid milliseconds", func(t *testing.T) {
+		// 2025-12-15T10:30:00Z in milliseconds
+		ms := int64(1765795800000)
+		result := FormatUnixMillis(ms)
+		// Verify it's valid RFC3339
+		_, err := time.Parse(time.RFC3339, result)
+		if err != nil {
+			t.Errorf("Result is not valid RFC3339: %v", err)
+		}
+		// Verify it ends with Z (UTC)
+		if result[len(result)-1] != 'Z' {
+			t.Errorf("Result %q should end with Z", result)
+		}
+	})
+}
+
+func TestFormatUnixSeconds(t *testing.T) {
+	t.Run("zero returns empty", func(t *testing.T) {
+		result := FormatUnixSeconds(0)
+		if result != "" {
+			t.Errorf("FormatUnixSeconds(0) = %q, want empty string", result)
+		}
+	})
+
+	t.Run("valid seconds", func(t *testing.T) {
+		// 2025-12-15T10:30:00Z in seconds
+		sec := int64(1765795800)
+		result := FormatUnixSeconds(sec)
+		// Verify it's valid RFC3339
+		parsed, err := time.Parse(time.RFC3339, result)
+		if err != nil {
+			t.Errorf("Result is not valid RFC3339: %v", err)
+		}
+		// Verify round-trip
+		if parsed.Unix() != sec {
+			t.Errorf("Round-trip failed: got %d, want %d", parsed.Unix(), sec)
+		}
+	})
+}
+
+func TestTimestampConsistency(t *testing.T) {
+	// All timestamp functions should produce consistent RFC3339 format
+	now := time.Now()
+	nowMs := now.UnixMilli()
+	nowSec := now.Unix()
+
+	results := []string{
+		FormatTimestamp(now),
+		FormatUnixMillis(nowMs),
+		FormatUnixSeconds(nowSec),
+	}
+
+	for i, result := range results {
+		// All should be valid RFC3339
+		_, err := time.Parse(time.RFC3339, result)
+		if err != nil {
+			t.Errorf("Result %d is not valid RFC3339: %v", i, err)
+		}
+		// All should end with Z
+		if result[len(result)-1] != 'Z' {
+			t.Errorf("Result %d = %q should end with Z", i, result)
+		}
+	}
+}
+
 func TestTailAgentHints(t *testing.T) {
 	t.Run("all idle agents", func(t *testing.T) {
 		panes := map[string]PaneOutput{

@@ -263,3 +263,40 @@ func AddAgentHints(data interface{}, hints *AgentHints) WithAgentHints {
 		AgentHints: hints,
 	}
 }
+
+// =============================================================================
+// Timestamp Helpers - RFC3339 Standardization
+// =============================================================================
+// All robot command timestamps use RFC3339 format (ISO8601) in UTC.
+// These helpers ensure consistency across all output types.
+
+// FormatTimestamp returns an RFC3339 string for any time.Time in UTC.
+// Use this for all timestamp fields in robot output.
+func FormatTimestamp(t time.Time) string {
+	return t.UTC().Format(time.RFC3339)
+}
+
+// FormatTimestampPtr handles nil time pointers, returning empty string for nil.
+func FormatTimestampPtr(t *time.Time) string {
+	if t == nil {
+		return ""
+	}
+	return FormatTimestamp(*t)
+}
+
+// FormatUnixMillis converts Unix milliseconds to RFC3339 string.
+// Use this when converting from external APIs that return Unix timestamps.
+func FormatUnixMillis(ms int64) string {
+	if ms == 0 {
+		return ""
+	}
+	return FormatTimestamp(time.UnixMilli(ms))
+}
+
+// FormatUnixSeconds converts Unix seconds to RFC3339 string.
+func FormatUnixSeconds(sec int64) string {
+	if sec == 0 {
+		return ""
+	}
+	return FormatTimestamp(time.Unix(sec, 0))
+}
