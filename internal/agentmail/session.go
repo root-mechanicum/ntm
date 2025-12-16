@@ -156,7 +156,7 @@ func SaveSessionAgent(sessionName, projectKey string, info *SessionAgentInfo) er
 	}
 
 	// Atomic rename
-	if err := os.Rename(tmpPath, path); err != nil {
+	if err = os.Rename(tmpPath, path); err != nil {
 		return fmt.Errorf("renaming session agent file: %w", err)
 	}
 

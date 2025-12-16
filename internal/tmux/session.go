@@ -559,15 +559,29 @@ func (c *Client) SendKeys(target, keys string, enter bool) error {
 			return err
 		}
 	} else {
-		for i := 0; i < len(keys); i += chunkSize {
-			end := i + chunkSize
+		// Iterate through the string, chunking by bytes but respecting rune boundaries
+		start := 0
+		for start < len(keys) {
+			end := start + chunkSize
 			if end > len(keys) {
 				end = len(keys)
+			} else {
+				// If we are cutting in the middle of a string, ensure we don't split a utf8 character.
+				// We back up from 'end' until we find the start of a valid utf8 sequence or hit 'start'.
+				// However, a simpler way in Go is to verify if keys[start:end] is valid,
+				// or just check the rune starting at 'end'.
+				// If keys[end] is a continuation byte (top two bits are 10xxxxxx), back up.
+				// UTF-8 continuation bytes are 0x80-0xBF (10000000-10111111).
+				for end > start && (keys[end]&0xC0 == 0x80) {
+					end--
+				}
 			}
-			chunk := keys[i:end]
+
+			chunk := keys[start:end]
 			if err := c.RunSilent("send-keys", "-t", target, "-l", "--", chunk); err != nil {
 				return err
 			}
+			start = end
 		}
 	}
 

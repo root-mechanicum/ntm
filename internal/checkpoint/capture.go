@@ -205,6 +205,8 @@ func (c *Capturer) captureGitState(workingDir, sessionName, checkpointID string)
 			} else {
 				os.Remove(patchPath) // Clean up empty file
 			}
+		} else {
+			os.Remove(patchPath) // Clean up failed capture
 		}
 	}
 

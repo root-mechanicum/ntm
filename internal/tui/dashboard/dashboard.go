@@ -1824,6 +1824,12 @@ func (m Model) renderStatsBar() string {
 		parts = append(parts, userBadge)
 	}
 
+	// Scan status badge
+	scanBadge := m.renderScanBadge()
+	if scanBadge != "" {
+		parts = append(parts, scanBadge)
+	}
+
 	// Agent Mail status badge
 	mailBadge := m.renderAgentMailBadge()
 	if mailBadge != "" {

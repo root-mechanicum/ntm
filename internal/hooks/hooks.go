@@ -227,6 +227,10 @@ func generateHookScript(hookType HookType, repoRoot string) (string, error) {
 
 // generatePreCommitScript generates the pre-commit hook script.
 func generatePreCommitScript(ntmPath, repoRoot string) string {
+	// Sanitize repoRoot to prevent injection via newlines
+	safeRepoRoot := strings.ReplaceAll(repoRoot, "\n", " ")
+	safeRepoRoot = strings.ReplaceAll(safeRepoRoot, "\r", " ")
+
 	return fmt.Sprintf(`#!/bin/bash
 # NTM_MANAGED_HOOK - Do not edit manually
 # Installed by: ntm hooks install pre-commit

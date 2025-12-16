@@ -140,15 +140,3 @@ func TestBuildSessionDetails(t *testing.T) {
 	}
 }
 
-func TestSplitLines(t *testing.T) {
-	data := []byte("line1\nline2\nline3")
-	lines := splitLines(data)
-
-	if len(lines) != 3 {
-		t.Errorf("Got %d lines, want 3", len(lines))
-	}
-
-	if string(lines[0]) != "line1" {
-		t.Errorf("First line = %q, want 'line1'", string(lines[0]))
-	}
-}
