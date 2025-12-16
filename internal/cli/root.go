@@ -300,6 +300,13 @@ Shell Integration:
 			}
 			return
 		}
+		if robotSchema != "" {
+			if err := robot.PrintSchema(robotSchema); err != nil {
+				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				os.Exit(1)
+			}
+			return
+		}
 		if robotAck != "" {
 			// Parse pane filter
 			var paneFilter []string
@@ -507,6 +514,9 @@ var (
 	// Robot-recipes flag
 	robotRecipes bool // list available recipes as JSON
 
+	// Robot-schema flag
+	robotSchema string // schema type to generate
+
 	// Robot-mail flag
 	robotMail bool // Agent Mail state output
 
@@ -606,6 +616,9 @@ func init() {
 
 	// Robot-recipes flag for recipe listing
 	rootCmd.Flags().BoolVar(&robotRecipes, "robot-recipes", false, "List available spawn recipes/presets (JSON). Use with --robot-spawn --spawn-preset")
+
+	// Robot-schema flag for JSON Schema generation
+	rootCmd.Flags().StringVar(&robotSchema, "robot-schema", "", "Generate JSON Schema for response types. Required: TYPE (status, send, spawn, interrupt, tail, ack, snapshot, all)")
 
 	// Robot-mail flag for Agent Mail state
 	rootCmd.Flags().BoolVar(&robotMail, "robot-mail", false, "Get Agent Mail inbox/outbox state (JSON). Shows pending messages and coordination status")
