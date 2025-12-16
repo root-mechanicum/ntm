@@ -45,8 +45,11 @@ func TestNewLoader_RespectsProjectTemplatesDir(t *testing.T) {
 	if tmpl.Source != SourceProject {
 		t.Fatalf("expected SourceProject, got %s", tmpl.Source.String())
 	}
-	if tmpl.SourcePath != templatePath {
-		t.Fatalf("expected %s, got %s", templatePath, tmpl.SourcePath)
+	// Resolve symlinks for comparison (macOS /var -> /private/var)
+	expectedPath, _ := filepath.EvalSymlinks(templatePath)
+	gotPath, _ := filepath.EvalSymlinks(tmpl.SourcePath)
+	if gotPath != expectedPath {
+		t.Fatalf("expected %s, got %s", expectedPath, gotPath)
 	}
 }
 
@@ -89,7 +92,10 @@ func TestNewLoader_IgnoresTemplateDirTraversal(t *testing.T) {
 	if tmpl.Source != SourceProject {
 		t.Fatalf("expected SourceProject, got %s", tmpl.Source.String())
 	}
-	if tmpl.SourcePath != templatePath {
-		t.Fatalf("expected %s, got %s", templatePath, tmpl.SourcePath)
+	// Resolve symlinks for comparison (macOS /var -> /private/var)
+	expectedPath, _ := filepath.EvalSymlinks(templatePath)
+	gotPath, _ := filepath.EvalSymlinks(tmpl.SourcePath)
+	if gotPath != expectedPath {
+		t.Fatalf("expected %s, got %s", expectedPath, gotPath)
 	}
 }
