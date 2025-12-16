@@ -88,7 +88,7 @@ func TestDetectFromTitle(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			detection := detectFromTitle(tt.title)
+			detection := DetectFromTitle(tt.title)
 			if detection.Type != tt.wantType {
 				t.Errorf("detectFromTitle(%q) type = %v, want %v", tt.title, detection.Type, tt.wantType)
 			}
@@ -112,7 +112,7 @@ func TestDetectFromNTMTitle(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			detection := detectFromNTMTitle(tt.title)
+			detection := DetectFromNTMTitle(tt.title)
 			if detection.Type != tt.wantType {
 				t.Errorf("detectFromNTMTitle(%q) type = %v, want %v", tt.title, detection.Type, tt.wantType)
 			}

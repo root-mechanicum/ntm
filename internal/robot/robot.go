@@ -1309,82 +1309,13 @@ func getBlockersForIssue(issueID string) []string {
 }
 
 func detectAgentType(title string) string {
-	// Try to detect from pane title (supports both canonical and short forms)
-	// Note: Order matters - check short forms after canonical to avoid false positives
-	switch {
-	case contains(title, "claude"):
-		return "claude"
-	case containsShortForm(title, "cc"):
-		return "claude"
-	case contains(title, "codex"):
-		return "codex"
-	case containsShortForm(title, "cod"):
-		return "codex"
-	case contains(title, "gemini"):
-		return "gemini"
-	case containsShortForm(title, "gmi"):
-		return "gemini"
-	case contains(title, "cursor"):
-		return "cursor"
-	case contains(title, "windsurf"):
-		return "windsurf"
-	case contains(title, "aider"):
-		return "aider"
-	default:
-		return "unknown"
+	if detection := DetectFromNTMTitle(title); detection.Type != "unknown" {
+		return detection.Type
 	}
-}
-
-// containsShortForm checks if title contains the short form as a word boundary
-// e.g., "session__cc_1" contains "cc" as a word, but "success" does not
-func containsShortForm(title, short string) bool {
-	lower := toLower(title)
-	short = toLower(short)
-
-	// Find all occurrences and check for word boundaries
-	for i := 0; i <= len(lower)-len(short); i++ {
-		if lower[i:i+len(short)] == short {
-			// Check if it's at a word boundary (preceded/followed by non-alpha)
-			beforeOK := i == 0 || !isAlpha(lower[i-1])
-			afterOK := i+len(short) == len(lower) || !isAlpha(lower[i+len(short)])
-			if beforeOK && afterOK {
-				return true
-			}
-		}
+	if detection := DetectFromTitle(title); detection.Type != "unknown" {
+		return detection.Type
 	}
-	return false
-}
-
-func isAlpha(c byte) bool {
-	return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
-}
-
-func contains(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr ||
-		len(s) > 0 && containsLower(s, substr))
-}
-
-func containsLower(s, substr string) bool {
-	s = toLower(s)
-	substr = toLower(substr)
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
-	}
-	return false
-}
-
-func toLower(s string) string {
-	b := make([]byte, len(s))
-	for i := 0; i < len(s); i++ {
-		c := s[i]
-		if c >= 'A' && c <= 'Z' {
-			c += 'a' - 'A'
-		}
-		b[i] = c
-	}
-	return string(b)
+	return "unknown"
 }
 
 func encodeJSON(v interface{}) error {

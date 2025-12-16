@@ -110,12 +110,12 @@ func DetectAgentTypeEnhanced(pane tmux.Pane, content string) AgentDetection {
 	}
 
 	// Try title-based detection (medium confidence)
-	if detection := detectFromTitle(pane.Title); detection.Type != "unknown" {
+	if detection := DetectFromTitle(pane.Title); detection.Type != "unknown" {
 		return detection
 	}
 
 	// Try NTM pane title convention (e.g., session__cc_1)
-	if detection := detectFromNTMTitle(pane.Title); detection.Type != "unknown" {
+	if detection := DetectFromNTMTitle(pane.Title); detection.Type != "unknown" {
 		return detection
 	}
 
@@ -164,8 +164,8 @@ func detectFromContent(content string) AgentDetection {
 	return AgentDetection{Type: "unknown", Confidence: 0.0, Method: MethodUnknown}
 }
 
-// detectFromTitle checks pane title for agent type keywords
-func detectFromTitle(title string) AgentDetection {
+// DetectFromTitle checks pane title for agent type keywords
+func DetectFromTitle(title string) AgentDetection {
 	title = strings.ToLower(title)
 
 	agents := []string{"claude", "codex", "gemini", "cursor", "windsurf", "aider"}
@@ -182,15 +182,16 @@ func detectFromTitle(title string) AgentDetection {
 	return AgentDetection{Type: "unknown", Confidence: 0.0, Method: MethodUnknown}
 }
 
-// detectFromNTMTitle checks for NTM's pane title convention (session__type_n)
-func detectFromNTMTitle(title string) AgentDetection {
-	// Check for __cc, __cod, __gmi suffixes
+// DetectFromNTMTitle checks for NTM's pane title convention (session__type_n)
+func DetectFromNTMTitle(title string) AgentDetection {
+	// Check for __cc, __cod, __gmi suffixes (case-insensitive)
+	lower := strings.ToLower(title)
 	switch {
-	case strings.Contains(title, "__cc"):
+	case strings.Contains(lower, "__cc"):
 		return AgentDetection{Type: "claude", Confidence: 0.9, Method: MethodTitle}
-	case strings.Contains(title, "__cod"):
+	case strings.Contains(lower, "__cod"):
 		return AgentDetection{Type: "codex", Confidence: 0.9, Method: MethodTitle}
-	case strings.Contains(title, "__gmi"):
+	case strings.Contains(lower, "__gmi"):
 		return AgentDetection{Type: "gemini", Confidence: 0.9, Method: MethodTitle}
 	}
 

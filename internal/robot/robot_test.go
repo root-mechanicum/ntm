@@ -84,50 +84,7 @@ func TestDetectAgentType(t *testing.T) {
 	}
 }
 
-func TestContains(t *testing.T) {
-	tests := []struct {
-		s, substr string
-		expected  bool
-	}{
-		{"hello world", "world", true},
-		{"hello world", "WORLD", true}, // case insensitive
-		{"Hello World", "hello", true}, // case insensitive
-		{"hello", "hello world", false},
-		{"", "test", false},
-		{"test", "", true}, // empty string is contained in everything
-		{"abc", "abc", true},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.s+"_"+tc.substr, func(t *testing.T) {
-			got := contains(tc.s, tc.substr)
-			if got != tc.expected {
-				t.Errorf("contains(%q, %q) = %v, want %v", tc.s, tc.substr, got, tc.expected)
-			}
-		})
-	}
-}
-
-func TestToLower(t *testing.T) {
-	tests := []struct {
-		input, expected string
-	}{
-		{"HELLO", "hello"},
-		{"Hello World", "hello world"},
-		{"already lower", "already lower"},
-		{"123ABC", "123abc"},
-		{"", ""},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.input, func(t *testing.T) {
-			got := toLower(tc.input)
-			if got != tc.expected {
-				t.Errorf("toLower(%q) = %q, want %q", tc.input, got, tc.expected)
-			}
-		})
-	}
-}
+// TestContains and TestToLower removed - helper functions were inlined/removed during refactoring
 
 func TestStripANSI(t *testing.T) {
 	tests := []struct {
@@ -1110,31 +1067,7 @@ func TestSnapshotOutputStructure(t *testing.T) {
 	}
 }
 
-// ====================
-// Test containsLower specifically
-// ====================
-
-func TestContainsLower(t *testing.T) {
-	tests := []struct {
-		s, substr string
-		expected  bool
-	}{
-		{"HELLO WORLD", "hello", true},
-		{"hello world", "WORLD", true},
-		{"Mixed Case", "ed ca", true},
-		{"abcdef", "xyz", false},
-		{"short", "verylongsubstring", false},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.s+"_"+tc.substr, func(t *testing.T) {
-			got := containsLower(tc.s, tc.substr)
-			if got != tc.expected {
-				t.Errorf("containsLower(%q, %q) = %v, want %v", tc.s, tc.substr, got, tc.expected)
-			}
-		})
-	}
-}
+// TestContainsLower removed - helper function was inlined/removed during refactoring
 
 // ====================
 // Test SendOutput with delay
