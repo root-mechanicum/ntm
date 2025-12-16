@@ -303,7 +303,7 @@ func (m *FilesPanel) View() string {
 		if maxFilename < 10 {
 			maxFilename = 10
 		}
-		filename = layout.TruncateRunes(filename, maxFilename, "...")
+		filename = layout.Truncate(filename, maxFilename)
 		filenameStyled := lipgloss.NewStyle().Foreground(t.Text).Render(filename)
 
 		// Agent attribution

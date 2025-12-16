@@ -80,6 +80,13 @@ func TruncateRunes(s string, max int, suffix string) string {
 	return string(runes[:max-len([]rune(suffix))]) + suffix
 }
 
+// Truncate is a convenience wrapper for TruncateRunes using the standard
+// single-character ellipsis "…" (U+2026). This is the preferred truncation
+// function for visual consistency across the TUI.
+func Truncate(s string, max int) string {
+	return TruncateRunes(s, max, "…")
+}
+
 // SplitProportions returns left/right widths for split view given total width.
 // It removes a small padding budget to prevent edge wrapping.
 func SplitProportions(total int) (left int, right int) {

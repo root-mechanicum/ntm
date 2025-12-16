@@ -15,6 +15,7 @@ import (
 	"github.com/Dicklesworthstone/ntm/internal/tmux"
 	"github.com/Dicklesworthstone/ntm/internal/tokens"
 	"github.com/Dicklesworthstone/ntm/internal/tracker"
+	"github.com/Dicklesworthstone/ntm/internal/tui/layout"
 	"github.com/Dicklesworthstone/ntm/internal/tui/styles"
 	"github.com/Dicklesworthstone/ntm/internal/tui/theme"
 )
@@ -500,7 +501,7 @@ func RenderPaneRow(row PaneTableRow, dims LayoutDimensions, t theme.Theme) strin
 
 	title := row.Title
 	if len(title) > titleWidth {
-		title = title[:titleWidth-3] + "..."
+		title = layout.Truncate(title, titleWidth)
 	}
 	titleStyle := lipgloss.NewStyle().Foreground(t.Text)
 	if row.IsSelected {
@@ -772,15 +773,10 @@ func getStatusIconAndColor(state string, t theme.Theme, tick int) (string, lipgl
 	}
 }
 
-// truncate shortens a string to maxLen with ellipsis
+// truncate shortens a string to maxLen with ellipsis.
+// Uses the standard single-character ellipsis "…" (U+2026).
 func truncate(s string, maxLen int) string {
-	if len(s) <= maxLen {
-		return s
-	}
-	if maxLen <= 3 {
-		return s[:maxLen]
-	}
-	return s[:maxLen-3] + "..."
+	return layout.Truncate(s, maxLen)
 }
 
 // RenderTableHeader renders the header row for pane table

@@ -229,6 +229,51 @@ func TestProportionsSmallValues(t *testing.T) {
 	}
 }
 
+// TestTruncate tests the convenience truncation function with single-char ellipsis.
+func TestTruncate(t *testing.T) {
+	tests := []struct {
+		name string
+		s    string
+		max  int
+		want string
+	}{
+		{"empty string", "", 10, ""},
+		{"short string no truncate", "hello", 10, "hello"},
+		{"exact length", "hello", 5, "hello"},
+		{"truncate with ellipsis", "hello world", 8, "hello w…"},
+		{"max zero", "hello", 0, ""},
+		{"max negative", "hello", -1, ""},
+		{"max one", "hello", 1, "…"},
+		{"unicode string", "héllo wörld", 8, "héllo w…"},
+		{"emoji truncate", "👋🌍🎉✨", 3, "👋🌍…"},
+		{"emoji exact", "👋🌍", 2, "👋🌍"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := Truncate(tt.s, tt.max)
+			if got != tt.want {
+				t.Errorf("Truncate(%q, %d) = %q, want %q",
+					tt.s, tt.max, got, tt.want)
+			}
+		})
+	}
+}
+
+// TestTruncateUsesEllipsis verifies Truncate uses single-char ellipsis (U+2026).
+func TestTruncateUsesEllipsis(t *testing.T) {
+	result := Truncate("hello world", 8)
+	// Should end with "…" (U+2026), not "..." (three periods)
+	if result != "hello w…" {
+		t.Errorf("Truncate should use single-char ellipsis '…', got %q", result)
+	}
+	// Verify it's exactly 8 runes
+	runes := []rune(result)
+	if len(runes) != 8 {
+		t.Errorf("Truncate result should be 8 runes, got %d", len(runes))
+	}
+}
+
 // TestTierConstants verifies tier constant values match thresholds.
 func TestTierConstants(t *testing.T) {
 	// Verify threshold constants

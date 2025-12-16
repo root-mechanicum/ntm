@@ -2698,7 +2698,7 @@ func (m Model) renderSidebar(width, height int) string {
 	if len(m.agentMailLockInfo) > 0 {
 		lines = append(lines, lipgloss.NewStyle().Foreground(t.Lavender).Bold(true).Render("Active Locks"))
 		for _, lock := range m.agentMailLockInfo {
-			lines = append(lines, fmt.Sprintf("🔒 %s", layout.TruncateRunes(lock.PathPattern, width-4, "...")))
+			lines = append(lines, fmt.Sprintf("🔒 %s", layout.Truncate(lock.PathPattern, width-4)))
 			lines = append(lines, lipgloss.NewStyle().Foreground(t.Subtext).Render(fmt.Sprintf("  by %s (%s)", lock.AgentName, lock.ExpiresIn)))
 		}
 		lines = append(lines, "")
@@ -3125,7 +3125,7 @@ func (m Model) renderPaneDetail(width int) string {
 				lines = append(lines, fmt.Sprintf("  ...and %d more", len(m.agentMailLockInfo)-5))
 				break
 			}
-			lines = append(lines, fmt.Sprintf("  🔒 %s (%s)", layout.TruncateRunes(lock.PathPattern, 20, "..."), lock.AgentName))
+			lines = append(lines, fmt.Sprintf("  🔒 %s (%s)", layout.Truncate(lock.PathPattern, 20), lock.AgentName))
 		}
 	}
 
@@ -3161,7 +3161,7 @@ func (m Model) renderPaneDetail(width int) string {
 		if err == nil {
 			lines = append(lines, rendered)
 		} else {
-			lines = append(lines, layout.TruncateRunes(status.LastOutput, 500, "..."))
+			lines = append(lines, layout.Truncate(status.LastOutput, 500))
 		}
 	}
 

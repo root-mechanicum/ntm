@@ -788,10 +788,10 @@ func TestTruncate(t *testing.T) {
 		want   string
 	}{
 		{"hello", 10, "hello"},
-		{"hello world", 5, "he..."},
+		{"hello world", 5, "hell…"}, // Single-char ellipsis (U+2026) saves 2 chars
 		{"hi", 10, "hi"},
 		{"", 5, ""},
-		{"abcdef", 3, "abc"}, // maxLen <= 3 returns first maxLen chars without ellipsis
+		{"abcdef", 3, "ab…"}, // Single-char ellipsis: 2 chars + "…"
 	}
 
 	for _, tc := range tests {
