@@ -1,6 +1,7 @@
 package components
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
@@ -16,6 +17,7 @@ const (
 	StateEmpty StateKind = iota
 	StateLoading
 	StateError
+	StateRetrying // Retry in progress with attempt tracking
 )
 
 // EmptyStateIcon represents contextual icons for empty states.
@@ -141,12 +143,14 @@ func RenderEmptyState(opts EmptyStateOptions) string {
 }
 
 type StateOptions struct {
-	Kind    StateKind
-	Icon    string
-	Message string
-	Hint    string
-	Width   int
-	Align   lipgloss.Position
+	Kind        StateKind
+	Icon        string
+	Message     string
+	Hint        string
+	Width       int
+	Align       lipgloss.Position
+	Attempt     int // Current retry attempt (for StateRetrying)
+	MaxAttempts int // Max attempts (0 = unlimited)
 }
 
 func RenderState(opts StateOptions) string {
@@ -188,6 +192,26 @@ func RenderState(opts StateOptions) string {
 			icon = strings.TrimSpace(ic.Warning)
 			if icon == "" {
 				icon = "!"
+			}
+		}
+	case StateRetrying:
+		lineStyle = lipgloss.NewStyle().Foreground(t.Yellow).Italic(true)
+		hintStyle = lipgloss.NewStyle().Foreground(t.Overlay).Italic(true)
+		if message == "" {
+			message = "Retrying…"
+		}
+		if icon == "" {
+			icon = strings.TrimSpace(ic.Gear)
+			if icon == "" {
+				icon = "↻"
+			}
+		}
+		// Build attempt info as hint if not provided
+		if hint == "" && opts.Attempt > 0 {
+			if opts.MaxAttempts > 0 {
+				hint = fmt.Sprintf("Attempt %d of %d", opts.Attempt, opts.MaxAttempts)
+			} else {
+				hint = fmt.Sprintf("Attempt %d", opts.Attempt)
 			}
 		}
 	default:
@@ -259,4 +283,17 @@ func LoadingState(message string, width int) string {
 
 func ErrorState(message, hint string, width int) string {
 	return RenderState(StateOptions{Kind: StateError, Message: message, Hint: hint, Width: width})
+}
+
+// RetryState renders a retry-in-progress state with attempt tracking.
+// Shows a spinner/gear icon with the message and attempt count.
+// If maxAttempts is 0, shows "Attempt N" instead of "Attempt N of M".
+func RetryState(message string, attempt, maxAttempts, width int) string {
+	return RenderState(StateOptions{
+		Kind:        StateRetrying,
+		Message:     message,
+		Attempt:     attempt,
+		MaxAttempts: maxAttempts,
+		Width:       width,
+	})
 }

@@ -105,6 +105,11 @@ type PanelBase struct {
 	height     int
 	focused    bool
 	lastUpdate time.Time // When data was last successfully updated
+
+	// Retry tracking
+	retrying   bool // Whether a retry is in progress
+	retryCount int  // Current retry attempt number
+	maxRetries int  // Maximum retry attempts (0 = unlimited)
 }
 
 // NewPanelBase creates a new PanelBase with the given config.
@@ -162,6 +167,47 @@ func (b *PanelBase) LastUpdate() time.Time {
 // SetLastUpdate records when data was last successfully updated.
 func (b *PanelBase) SetLastUpdate(t time.Time) {
 	b.lastUpdate = t
+}
+
+// IsRetrying returns whether a retry operation is in progress.
+func (b *PanelBase) IsRetrying() bool {
+	return b.retrying
+}
+
+// RetryCount returns the current retry attempt number.
+func (b *PanelBase) RetryCount() int {
+	return b.retryCount
+}
+
+// MaxRetries returns the maximum retry attempts (0 = unlimited).
+func (b *PanelBase) MaxRetries() int {
+	return b.maxRetries
+}
+
+// SetMaxRetries sets the maximum retry attempts.
+func (b *PanelBase) SetMaxRetries(max int) {
+	b.maxRetries = max
+}
+
+// StartRetry marks the panel as retrying and increments the attempt count.
+func (b *PanelBase) StartRetry() {
+	b.retrying = true
+	b.retryCount++
+}
+
+// EndRetry marks the panel as no longer retrying.
+// Call with success=true to reset retry count, false to keep it for display.
+func (b *PanelBase) EndRetry(success bool) {
+	b.retrying = false
+	if success {
+		b.retryCount = 0
+	}
+}
+
+// ResetRetry clears all retry state.
+func (b *PanelBase) ResetRetry() {
+	b.retrying = false
+	b.retryCount = 0
 }
 
 // PadToHeight pads content with empty lines to fill the specified height.
