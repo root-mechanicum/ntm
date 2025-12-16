@@ -141,6 +141,7 @@ func extractNewOutput(before, after string) string {
 }
 
 func findPaneForStage(session, agentType, model string) (string, error) {
+	targetType := normalizeAgentType(agentType)
 	panes, err := tmux.GetPanes(session)
 	if err != nil {
 		return "", err
@@ -148,7 +149,7 @@ func findPaneForStage(session, agentType, model string) (string, error) {
 
 	// First pass: look for exact match (type + model)
 	for _, p := range panes {
-		if string(p.Type) == agentType {
+		if string(p.Type) == targetType {
 			// Check model if specified
 			if model != "" && p.Variant != model {
 				continue
@@ -161,13 +162,26 @@ func findPaneForStage(session, agentType, model string) (string, error) {
 	// Only if model was specified but not found
 	if model != "" {
 		for _, p := range panes {
-			if string(p.Type) == agentType {
+			if string(p.Type) == targetType {
 				return p.ID, nil
 			}
 		}
 	}
 
 	return "", fmt.Errorf("no agent found for type %s (model %s)", agentType, model)
+}
+
+func normalizeAgentType(t string) string {
+	switch strings.ToLower(t) {
+	case "claude", "cc", "claude-code":
+		return "cc"
+	case "codex", "cod", "openai":
+		return "cod"
+	case "gemini", "gmi", "google":
+		return "gmi"
+	default:
+		return t
+	}
 }
 
 func waitForIdle(ctx context.Context, detector status.Detector, paneID string) error {
