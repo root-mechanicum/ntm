@@ -344,14 +344,20 @@ Shell Integration:
 			}
 			return
 		}
-		// TODO(ntm-20n): --robot-assign is in development
 		if robotAssign != "" {
-			robot.PrintRobotUnavailable(
-				"robot-assign",
-				"Work assignment is planned for a future release",
-				"v1.3",
-				"Use 'ntm --robot-plan' with 'bd ready' to manually assign work",
-			)
+			var beads []string
+			if robotAssignBeads != "" {
+				beads = strings.Split(robotAssignBeads, ",")
+			}
+			opts := robot.AssignOptions{
+				Session:  robotAssign,
+				Beads:    beads,
+				Strategy: robotAssignStrategy,
+			}
+			if err := robot.PrintAssign(opts); err != nil {
+				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				os.Exit(1)
+			}
 			return
 		}
 		if robotSpawn != "" {

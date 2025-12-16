@@ -1886,3 +1886,247 @@ func TestContextOutputJSON(t *testing.T) {
 		t.Errorf("Model mismatch: got %q, want %q", result.Agents[0].Model, "sonnet")
 	}
 }
+
+// ====================
+// Tests for assign.go
+// ====================
+
+func TestInferTaskType(t *testing.T) {
+	tests := []struct {
+		name     string
+		bead     bv.BeadPreview
+		expected string
+	}{
+		{"bug with fix", bv.BeadPreview{ID: "1", Title: "Fix login bug"}, "bug"},
+		{"bug with error", bv.BeadPreview{ID: "2", Title: "Error handling broken"}, "bug"},
+		{"feature with implement", bv.BeadPreview{ID: "3", Title: "Implement new dashboard"}, "feature"},
+		{"feature with add", bv.BeadPreview{ID: "4", Title: "Add user settings"}, "feature"},
+		{"refactor", bv.BeadPreview{ID: "5", Title: "Refactor auth module"}, "refactor"},
+		{"documentation", bv.BeadPreview{ID: "6", Title: "Update API documentation"}, "documentation"},
+		{"testing", bv.BeadPreview{ID: "7", Title: "Add unit tests for parser"}, "testing"},
+		{"analysis", bv.BeadPreview{ID: "8", Title: "Investigate memory leak"}, "analysis"},
+		{"generic task", bv.BeadPreview{ID: "9", Title: "Update configuration"}, "task"},
+		{"empty title", bv.BeadPreview{ID: "10", Title: ""}, "task"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := inferTaskType(tc.bead)
+			if got != tc.expected {
+				t.Errorf("inferTaskType(%q) = %q, want %q", tc.bead.Title, got, tc.expected)
+			}
+		})
+	}
+}
+
+func TestParsePriority(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected int
+	}{
+		{"P0", "P0", 0},
+		{"P1", "P1", 1},
+		{"P2", "P2", 2},
+		{"P3", "P3", 3},
+		{"P4", "P4", 4},
+		{"invalid - too short", "P", 2},
+		{"invalid - too long", "P12", 2},
+		{"invalid - no P", "2", 2},
+		{"invalid - lowercase", "p1", 2},
+		{"invalid - negative", "P-1", 2},
+		{"empty", "", 2},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := parsePriority(tc.input)
+			if got != tc.expected {
+				t.Errorf("parsePriority(%q) = %d, want %d", tc.input, got, tc.expected)
+			}
+		})
+	}
+}
+
+func TestCalculateConfidence(t *testing.T) {
+	tests := []struct {
+		name      string
+		agentType string
+		bead      bv.BeadPreview
+		strategy  string
+		minConf   float64
+		maxConf   float64
+	}{
+		// Claude strengths
+		{"claude analysis", "claude", bv.BeadPreview{Title: "Analyze codebase"}, "balanced", 0.85, 0.95},
+		{"claude refactor", "claude", bv.BeadPreview{Title: "Refactor module"}, "balanced", 0.85, 0.95},
+		{"claude generic", "claude", bv.BeadPreview{Title: "Some task"}, "balanced", 0.65, 0.75},
+
+		// Codex strengths
+		{"codex feature", "codex", bv.BeadPreview{Title: "Implement feature"}, "balanced", 0.85, 0.95},
+		{"codex bug", "codex", bv.BeadPreview{Title: "Fix bug"}, "balanced", 0.75, 0.85},
+
+		// Gemini strengths
+		{"gemini docs", "gemini", bv.BeadPreview{Title: "Update documentation"}, "balanced", 0.85, 0.95},
+
+		// Strategy adjustments
+		{"speed boost", "claude", bv.BeadPreview{Title: "Some task"}, "speed", 0.75, 0.85},
+		{"dependency P1", "claude", bv.BeadPreview{Title: "Task", Priority: "P1"}, "dependency", 0.75, 0.85},
+		{"dependency P0", "claude", bv.BeadPreview{Title: "Task", Priority: "P0"}, "dependency", 0.75, 0.95},
+
+		// Unknown agent
+		{"unknown agent", "unknown", bv.BeadPreview{Title: "Task"}, "balanced", 0.65, 0.75},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := calculateConfidence(tc.agentType, tc.bead, tc.strategy)
+			if got < tc.minConf || got > tc.maxConf {
+				t.Errorf("calculateConfidence(%q, %q, %q) = %.2f, want in range [%.2f, %.2f]",
+					tc.agentType, tc.bead.Title, tc.strategy, got, tc.minConf, tc.maxConf)
+			}
+		})
+	}
+}
+
+func TestGenerateReasoning(t *testing.T) {
+	tests := []struct {
+		name        string
+		agentType   string
+		bead        bv.BeadPreview
+		strategy    string
+		mustContain []string
+	}{
+		{"claude refactor balanced", "claude", bv.BeadPreview{Title: "Refactor code"}, "balanced",
+			[]string{"excels at refactor", "balanced"}},
+		{"codex feature speed", "codex", bv.BeadPreview{Title: "Add feature"}, "speed",
+			[]string{"excels at feature", "speed"}},
+		{"gemini docs quality", "gemini", bv.BeadPreview{Title: "Write documentation"}, "quality",
+			[]string{"excels at documentation", "quality"}},
+		{"P0 critical", "claude", bv.BeadPreview{Title: "Fix", Priority: "P0"}, "dependency",
+			[]string{"critical priority"}},
+		{"P1 high", "claude", bv.BeadPreview{Title: "Fix", Priority: "P1"}, "dependency",
+			[]string{"high priority"}},
+		{"generic task", "unknown", bv.BeadPreview{Title: "Do stuff"}, "balanced",
+			[]string{"balanced"}},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := generateReasoning(tc.agentType, tc.bead, tc.strategy)
+			for _, substr := range tc.mustContain {
+				if !strings.Contains(strings.ToLower(got), strings.ToLower(substr)) {
+					t.Errorf("generateReasoning(%q, %q, %q) = %q, should contain %q",
+						tc.agentType, tc.bead.Title, tc.strategy, got, substr)
+				}
+			}
+		})
+	}
+}
+
+func TestGenerateAssignHints(t *testing.T) {
+	t.Run("no work available", func(t *testing.T) {
+		hints := generateAssignHints(nil, nil, nil, nil)
+		if hints.Summary != "No work available to assign" {
+			t.Errorf("Expected 'No work available to assign', got %q", hints.Summary)
+		}
+	})
+
+	t.Run("beads but no idle agents", func(t *testing.T) {
+		beads := []bv.BeadPreview{{ID: "1", Title: "Task"}, {ID: "2", Title: "Task2"}}
+		hints := generateAssignHints(nil, nil, beads, nil)
+		if !strings.Contains(hints.Summary, "2 beads ready but no idle agents") {
+			t.Errorf("Expected summary about beads but no agents, got %q", hints.Summary)
+		}
+	})
+
+	t.Run("recommendations generated", func(t *testing.T) {
+		recs := []AssignRecommend{
+			{Agent: "1", AssignBead: "ntm-123"},
+			{Agent: "2", AssignBead: "ntm-456"},
+		}
+		idleAgents := []string{"1", "2"}
+		hints := generateAssignHints(recs, idleAgents, nil, nil)
+		if !strings.Contains(hints.Summary, "2 assignments recommended") {
+			t.Errorf("Expected summary about 2 assignments, got %q", hints.Summary)
+		}
+		if len(hints.SuggestedCommands) != 2 {
+			t.Errorf("Expected 2 suggested commands, got %d", len(hints.SuggestedCommands))
+		}
+	})
+
+	t.Run("stale beads warning", func(t *testing.T) {
+		inProgress := []bv.BeadInProgress{
+			{ID: "1", Title: "Stale", UpdatedAt: time.Now().Add(-48 * time.Hour)},
+		}
+		hints := generateAssignHints(nil, nil, nil, inProgress)
+		found := false
+		for _, w := range hints.Warnings {
+			if strings.Contains(w, "stale") {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("Expected stale warning, got %v", hints.Warnings)
+		}
+	})
+}
+
+func TestAssignOutputJSON(t *testing.T) {
+	// Test JSON serialization round-trip
+	output := AssignOutput{
+		RobotResponse: NewRobotResponse(true),
+		Session:       "test-session",
+		Strategy:      "balanced",
+		GeneratedAt:   time.Now().UTC(),
+		Recommendations: []AssignRecommend{
+			{
+				Agent:      "1",
+				AgentType:  "claude",
+				Model:      "sonnet",
+				AssignBead: "ntm-abc",
+				BeadTitle:  "Test task",
+				Priority:   "P1",
+				Confidence: 0.85,
+				Reasoning:  "test reasoning",
+			},
+		},
+		BlockedBeads: []BlockedBead{},
+		IdleAgents:   []string{"1"},
+		Summary: AssignSummary{
+			TotalAgents:     2,
+			IdleAgents:      1,
+			WorkingAgents:   1,
+			ReadyBeads:      3,
+			BlockedBeads:    0,
+			Recommendations: 1,
+		},
+	}
+
+	data, err := json.Marshal(output)
+	if err != nil {
+		t.Fatalf("Marshal failed: %v", err)
+	}
+
+	var result AssignOutput
+	if err := json.Unmarshal(data, &result); err != nil {
+		t.Fatalf("Unmarshal failed: %v", err)
+	}
+
+	if result.Session != output.Session {
+		t.Errorf("Session mismatch: got %q, want %q", result.Session, output.Session)
+	}
+	if result.Strategy != output.Strategy {
+		t.Errorf("Strategy mismatch: got %q, want %q", result.Strategy, output.Strategy)
+	}
+	if len(result.Recommendations) != 1 {
+		t.Errorf("Recommendations count mismatch: got %d, want 1", len(result.Recommendations))
+	}
+	if result.Recommendations[0].Confidence != 0.85 {
+		t.Errorf("Confidence mismatch: got %.2f, want 0.85", result.Recommendations[0].Confidence)
+	}
+	if result.Summary.IdleAgents != 1 {
+		t.Errorf("IdleAgents mismatch: got %d, want 1", result.Summary.IdleAgents)
+	}
+}
