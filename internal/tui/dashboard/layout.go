@@ -228,6 +228,13 @@ func RenderMiniBar(value float64, width int, t theme.Theme) string {
 // RenderContextMiniBar renders context usage with warning indicator
 // When context is >80%, warning indicators shimmer to draw attention
 func RenderContextMiniBar(percent float64, width int, tick int, t theme.Theme) string {
+	if percent > 100 {
+		percent = 100
+	}
+	if percent < 0 {
+		percent = 0
+	}
+
 	bar := styles.ShimmerProgressBar(percent/100, width-4, "█", "░", tick, string(t.Green), string(t.Blue), string(t.Yellow), string(t.Red))
 
 	// Add warning icon for high usage with shimmer effect
@@ -304,7 +311,7 @@ func BuildPaneTableRows(
 		row.CurrentBead = currentBeadForPane(pane, beads)
 		if hasStatus {
 			row.Status = st.State.String()
-			row.TokenVelocity = tokenVelocityFromStatus(st)
+			row.TokenVelocity = ps.TokenVelocity
 			if row.ModelVariant == "" {
 				row.ModelVariant = st.AgentType
 			}
@@ -733,6 +740,9 @@ func RenderPaneDetail(pane tmux.Pane, ps PaneStatus, dims LayoutDimensions, t th
 func renderDetailContextBar(percent float64, width int, t theme.Theme, tick int) string {
 	if percent > 100 {
 		percent = 100
+	}
+	if percent < 0 {
+		percent = 0
 	}
 
 	filled := int(percent * float64(width) / 100)

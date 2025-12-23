@@ -215,6 +215,7 @@ type Model struct {
 	paneOutputCaptureCursor int
 	paneOutputCache         map[string]string
 	paneOutputLastCaptured  map[string]time.Time
+	renderedOutputCache     map[string]string // Cache for expensive markdown rendering
 
 	// Health badge (bv drift status)
 	healthStatus  string // "ok", "warning", "critical", "no_baseline", "unavailable"
@@ -290,6 +291,8 @@ type PaneStatus struct {
 	ContextLimit   int     // Context limit for the model
 	ContextPercent float64 // Usage percentage (0-100+)
 	ContextModel   string  // Model name for context limit lookup
+
+	TokenVelocity float64 // Estimated tokens/sec
 }
 
 // AgentMailLockInfo represents a file lock for dashboard display
@@ -408,6 +411,7 @@ func New(session, projectDir string) Model {
 		paneOutputCaptureBudget:    20,
 		paneOutputCache:            make(map[string]string),
 		paneOutputLastCaptured:     make(map[string]time.Time),
+		renderedOutputCache:        make(map[string]string),
 		healthStatus:               "unknown",
 		healthMessage:              "",
 		cassSearch: components.NewCassSearch(func(hit cass.SearchHit) tea.Cmd {
@@ -1153,13 +1157,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			if now.Sub(m.lastBeadsFetch) >= m.beadsRefreshInterval && !m.fetchingBeads {
 				m.fetchingBeads = true
-				cmds = append(cmds, m.fetchBeadsCmd())
 				m.lastBeadsFetch = now
+				cmds = append(cmds, m.fetchBeadsCmd())
 			}
 			if now.Sub(m.lastCassContextFetch) >= m.cassContextRefreshInterval && !m.fetchingCassContext {
 				m.fetchingCassContext = true
-				cmds = append(cmds, m.fetchCASSContextCmd())
 				m.lastCassContextFetch = now
+				cmds = append(cmds, m.fetchCASSContextCmd())
 			}
 		}
 
@@ -1252,6 +1256,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.paneOutputLastCaptured == nil {
 				m.paneOutputLastCaptured = make(map[string]time.Time)
 			}
+			if m.renderedOutputCache == nil {
+				m.renderedOutputCache = make(map[string]string)
+			}
 
 			// Process compaction checks and context tracking on the main thread using fetched outputs
 			for _, data := range msg.Outputs {
@@ -1279,13 +1286,25 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				switch data.AgentType {
 				case string(tmux.AgentClaude):
 					agentType = "claude"
-					modelName = "opus" // Default to opus for Claude agents
+					if m.cfg != nil {
+						modelName = m.cfg.Models.DefaultClaude
+					} else {
+						modelName = "claude-sonnet-4-20250514"
+					}
 				case string(tmux.AgentCodex):
 					agentType = "codex"
-					modelName = "gpt4" // Default to GPT-4 for Codex agents
+					if m.cfg != nil {
+						modelName = m.cfg.Models.DefaultCodex
+					} else {
+						modelName = "gpt-4"
+					}
 				case string(tmux.AgentGemini):
 					agentType = "gemini"
-					modelName = "gemini" // Default Gemini
+					if m.cfg != nil {
+						modelName = m.cfg.Models.DefaultGemini
+					} else {
+						modelName = "gemini-2.0-flash"
+					}
 				}
 
 				// Use variant if available
@@ -1347,8 +1366,22 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				state = "compacted"
 			}
 			ps.State = state
+			
+			// Pre-calculate token velocity
+			ps.TokenVelocity = tokenVelocityFromStatus(st)
 			m.paneStatus[idx] = ps
 			m.agentStatuses[st.PaneID] = st
+
+			// Cache expensive markdown rendering
+			if st.LastOutput != "" && m.renderer != nil {
+				rendered, err := m.renderer.Render(st.LastOutput)
+				if err == nil {
+					if m.renderedOutputCache == nil {
+						m.renderedOutputCache = make(map[string]string)
+					}
+					m.renderedOutputCache[st.PaneID] = rendered
+				}
+			}
 		}
 		m.lastRefresh = msg.Time
 		return m, followUp
@@ -2376,7 +2409,7 @@ func (m Model) renderHelpBar() string {
 	)
 
 	// Use the reusable RenderHelpBar component with width-aware truncation.
-	// Hints are progressively hidden from right-to-left when they don't fit.
+	// Hints are progressively hidden from right-to-left when they don’t fit.
 	return components.RenderHelpBar(components.HelpBarOptions{
 		Hints: hints,
 		Width: m.width - 4, // Account for margins
@@ -2756,7 +2789,7 @@ func (m Model) renderSidebar(width, height int) string {
 	}
 
 	// Command history (best-effort, height-gated)
-	if m.historyPanel != nil && height > 0 && (m.historyError != nil || len(m.cmdHistory) > 0) {
+	if m.historyPanel != nil && height > 0 && (len(m.cmdHistory) > 0 || m.historyError != nil) {
 		used := lipgloss.Height(strings.Join(lines, "\n"))
 		spacer := 1
 		panelHeight := height - used - spacer
@@ -2908,6 +2941,11 @@ func (m Model) renderBeadsPanel(width, height int) string {
 
 func (m Model) renderAlertsPanel(width, height int) string {
 	m.alertsPanel.SetSize(width, height)
+	if m.focusedPanel == PanelAlerts {
+		m.alertsPanel.Focus()
+	} else {
+		m.alertsPanel.Blur()
+	}
 	return m.alertsPanel.View()
 }
 
@@ -3174,16 +3212,23 @@ func (m Model) renderPaneDetail(width int) string {
 	}
 
 	// Recent Output (rendered with glamour)
-	if status, ok := m.agentStatuses[p.ID]; ok && status.LastOutput != "" && m.renderer != nil {
+	if st, ok := m.agentStatuses[p.ID]; ok && st.LastOutput != "" && m.renderer != nil {
 		lines = append(lines, "")
 		lines = append(lines, lipgloss.NewStyle().Bold(true).Foreground(t.Lavender).Render("Recent Output"))
 		lines = append(lines, "")
 
-		rendered, err := m.renderer.Render(status.LastOutput)
-		if err == nil {
-			lines = append(lines, rendered)
+		// Use cached rendering if available
+		if cached, ok := m.renderedOutputCache[p.ID]; ok {
+			lines = append(lines, cached)
 		} else {
-			lines = append(lines, layout.Truncate(status.LastOutput, 500))
+			// Fallback (should be covered by cache update, but safe default)
+			rendered, err := m.renderer.Render(st.LastOutput)
+			if err == nil {
+				m.renderedOutputCache[p.ID] = rendered
+				lines = append(lines, rendered)
+			} else {
+				lines = append(lines, layout.Truncate(st.LastOutput, 500))
+			}
 		}
 	}
 
