@@ -474,6 +474,52 @@ ntm tutorial        # Launch interactive tutorial
 ntm upgrade         # Check for and install updates
 ```
 
+### Agent Profiles
+
+Profiles (also called personas) define agent behavioral characteristics including agent type, model, system prompts, and focus patterns. NTM includes built-in profiles for common roles like architect, implementer, reviewer, tester, and documenter.
+
+| Command | Arguments | Description |
+|---------|-----------|-------------|
+| `ntm profiles list` | `[--agent TYPE] [--tag TAG] [--json]` | List available profiles |
+| `ntm profiles show` | `<name> [--json]` | Show detailed profile information |
+| `ntm personas list` | `[--agent TYPE] [--tag TAG] [--json]` | Alias for `profiles list` |
+| `ntm personas show` | `<name> [--json]` | Alias for `profiles show` |
+
+**Profile Sources (later overrides earlier):**
+1. **Built-in**: Compiled into NTM (architect, implementer, reviewer, tester, documenter)
+2. **User**: `~/.config/ntm/personas.toml`
+3. **Project**: `.ntm/personas.toml`
+
+**Profile Sets:**
+
+Profile sets are named groups of profiles for quick spawning:
+
+```toml
+# In ~/.config/ntm/personas.toml or .ntm/personas.toml
+[[persona_sets]]
+name = "backend-team"
+description = "Full backend development team"
+personas = ["architect", "implementer", "implementer", "tester"]
+```
+
+**Examples:**
+
+```bash
+ntm profiles list                    # List all profiles
+ntm profiles list --agent claude     # Filter by agent type
+ntm profiles list --tag review       # Filter by tag
+ntm profiles list --json             # JSON output for scripts
+ntm profiles show architect          # Show profile details
+ntm profiles show architect --json   # JSON output with source info
+```
+
+**Using Profiles with Spawn:**
+
+```bash
+ntm spawn myproject --profiles=architect,implementer,tester
+ntm spawn myproject --profile-set=backend-team
+```
+
 ### AI Agent Integration (Robot Mode)
 
 NTM provides machine-readable output for integration with AI coding agents and automation pipelines. All robot commands output JSON by default and follow consistent exit codes (0=success, 1=error, 2=unavailable).
