@@ -256,11 +256,7 @@ func (r *Rotator) CheckAndRotate(sessionName, workDir string) ([]RotationResult,
 	for _, agentInfo := range agentsToRotate {
 		result := r.rotateAgent(sessionName, agentInfo.AgentID, workDir)
 		results = append(results, result)
-
-		// If rotation failed, log but continue with others
-		if !result.Success {
-			continue
-		}
+		// Failed rotations are captured in results; continue with others
 	}
 
 	return results, nil
