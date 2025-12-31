@@ -1107,3 +1107,289 @@ func TestRoutingContext(t *testing.T) {
 		t.Errorf("ExplicitPane = %d, want 1", ctx.ExplicitPane)
 	}
 }
+
+// =============================================================================
+// Additional Edge Case Tests
+// =============================================================================
+
+func TestSingleAgentEdgeCases(t *testing.T) {
+	t.Run("single agent all strategies", func(t *testing.T) {
+		router := NewRouter()
+		agent := []ScoredAgent{
+			{PaneID: "cc_1", PaneIndex: 1, Score: 75, State: StateWaiting, Excluded: false},
+		}
+
+		strategies := GetStrategyNames()
+		for _, strat := range strategies {
+			if strat == StrategyExplicit {
+				// Explicit needs ExplicitPane set
+				ctx := RoutingContext{ExplicitPane: 1}
+				result := router.Route(agent, strat, ctx)
+				if result.Selected == nil || result.Selected.PaneID != "cc_1" {
+					t.Errorf("Strategy %s failed for single agent", strat)
+				}
+			} else if strat == StrategySticky {
+				// Sticky works with or without LastAgent
+				ctx := RoutingContext{LastAgent: "cc_1"}
+				result := router.Route(agent, strat, ctx)
+				if result.Selected == nil || result.Selected.PaneID != "cc_1" {
+					t.Errorf("Strategy %s failed for single agent", strat)
+				}
+			} else {
+				result := router.Route(agent, strat, RoutingContext{})
+				if result.Selected == nil || result.Selected.PaneID != "cc_1" {
+					t.Errorf("Strategy %s failed for single agent", strat)
+				}
+			}
+		}
+	})
+
+	t.Run("single agent excluded", func(t *testing.T) {
+		router := NewRouter()
+		agent := []ScoredAgent{
+			{PaneID: "cc_1", Score: 75, State: StateError, Excluded: true},
+		}
+
+		result := router.Route(agent, StrategyLeastLoaded, RoutingContext{})
+		if result.Selected != nil {
+			t.Error("Should return nil when single agent is excluded")
+		}
+	})
+}
+
+func TestAllBusyEdgeCases(t *testing.T) {
+	router := NewRouter()
+
+	t.Run("all agents generating", func(t *testing.T) {
+		agents := []ScoredAgent{
+			{PaneID: "cc_1", State: StateGenerating, Excluded: true, ExcludeReason: "agent is currently generating"},
+			{PaneID: "cc_2", State: StateGenerating, Excluded: true, ExcludeReason: "agent is currently generating"},
+			{PaneID: "cc_3", State: StateGenerating, Excluded: true, ExcludeReason: "agent is currently generating"},
+		}
+
+		result := router.Route(agents, StrategyLeastLoaded, RoutingContext{})
+		if result.Selected != nil {
+			t.Error("Should return nil when all agents are generating")
+		}
+	})
+
+	t.Run("all agents high context", func(t *testing.T) {
+		agents := []ScoredAgent{
+			{PaneID: "cc_1", ContextUsage: 95, Excluded: true, ExcludeReason: "context usage above threshold"},
+			{PaneID: "cc_2", ContextUsage: 92, Excluded: true, ExcludeReason: "context usage above threshold"},
+		}
+
+		result := router.Route(agents, StrategyLeastLoaded, RoutingContext{})
+		if result.Selected != nil {
+			t.Error("Should return nil when all agents have high context usage")
+		}
+	})
+}
+
+func TestAllErrorEdgeCases(t *testing.T) {
+	router := NewRouter()
+
+	t.Run("all agents in error state", func(t *testing.T) {
+		agents := []ScoredAgent{
+			{PaneID: "cc_1", State: StateError, HealthState: HealthUnhealthy, Excluded: true},
+			{PaneID: "cc_2", State: StateError, HealthState: HealthUnhealthy, Excluded: true},
+		}
+
+		result := router.Route(agents, StrategyLeastLoaded, RoutingContext{})
+		if result.Selected != nil {
+			t.Error("Should return nil when all agents are in error state")
+		}
+		if result.Reason != "no suitable agent found" {
+			t.Errorf("Reason = %q, want 'no suitable agent found'", result.Reason)
+		}
+	})
+
+	t.Run("all agents rate limited", func(t *testing.T) {
+		agents := []ScoredAgent{
+			{PaneID: "cc_1", RateLimited: true, Excluded: true, ExcludeReason: "agent is rate limited"},
+			{PaneID: "cc_2", RateLimited: true, Excluded: true, ExcludeReason: "agent is rate limited"},
+		}
+
+		result := router.Route(agents, StrategyLeastLoaded, RoutingContext{})
+		if result.Selected != nil {
+			t.Error("Should return nil when all agents are rate limited")
+		}
+	})
+}
+
+func TestCalculateFinalScoreEdgeCases(t *testing.T) {
+	scorer := NewAgentScorer(DefaultRoutingConfig())
+
+	t.Run("score above 100 gets clamped", func(t *testing.T) {
+		agent := &ScoredAgent{
+			ScoreDetail: ScoreBreakdown{
+				ContextContrib: 50,
+				StateContrib:   50,
+				RecencyContrib: 30,
+				AffinityBonus:  20, // Total: 150
+			},
+		}
+
+		score := scorer.calculateFinalScore(agent)
+		if score != 100 {
+			t.Errorf("Score = %f, want 100 (clamped)", score)
+		}
+	})
+
+	t.Run("negative contributions get clamped to 0", func(t *testing.T) {
+		agent := &ScoredAgent{
+			ScoreDetail: ScoreBreakdown{
+				ContextContrib: -10,
+				StateContrib:   -10,
+				RecencyContrib: -10,
+				AffinityBonus:  0,
+			},
+		}
+
+		score := scorer.calculateFinalScore(agent)
+		if score != 0 {
+			t.Errorf("Score = %f, want 0 (clamped)", score)
+		}
+	})
+
+	t.Run("score rounds to 2 decimal places", func(t *testing.T) {
+		agent := &ScoredAgent{
+			ScoreDetail: ScoreBreakdown{
+				ContextContrib: 33.333,
+				StateContrib:   33.333,
+				RecencyContrib: 16.667,
+			},
+		}
+
+		score := scorer.calculateFinalScore(agent)
+		// Should round to 83.33
+		if score != 83.33 {
+			t.Errorf("Score = %f, want 83.33", score)
+		}
+	})
+}
+
+func TestNewAgentScorerFromConfig(t *testing.T) {
+	// Test that it creates a scorer with defaults when config is nil
+	scorer := NewAgentScorerFromConfig(nil)
+	if scorer == nil {
+		t.Fatal("NewAgentScorerFromConfig(nil) returned nil")
+	}
+
+	// Verify defaults are applied
+	cfg := scorer.config
+	if cfg.ContextWeight != 0.4 {
+		t.Errorf("ContextWeight = %f, want 0.4", cfg.ContextWeight)
+	}
+	if cfg.StateWeight != 0.4 {
+		t.Errorf("StateWeight = %f, want 0.4", cfg.StateWeight)
+	}
+	if cfg.RecencyWeight != 0.2 {
+		t.Errorf("RecencyWeight = %f, want 0.2", cfg.RecencyWeight)
+	}
+}
+
+func TestCalculateScoreComponentsEdgeCases(t *testing.T) {
+	scorer := NewAgentScorer(DefaultRoutingConfig())
+
+	t.Run("context usage above 100", func(t *testing.T) {
+		agent := &ScoredAgent{
+			ContextUsage: 150, // Invalid but should handle gracefully
+			State:        StateWaiting,
+		}
+
+		breakdown := scorer.calculateScoreComponents(agent, "")
+		// 100 - 150 = -50, clamped to 0
+		if breakdown.ContextScore != 0 {
+			t.Errorf("ContextScore = %f, want 0 (clamped)", breakdown.ContextScore)
+		}
+	})
+
+	t.Run("affinity enabled with prompt", func(t *testing.T) {
+		cfg := DefaultRoutingConfig()
+		cfg.AffinityEnabled = true
+		scorer := NewAgentScorer(cfg)
+
+		agent := &ScoredAgent{
+			State: StateWaiting,
+		}
+
+		breakdown := scorer.calculateScoreComponents(agent, "test prompt")
+		// calculateAffinity returns 0 for now (TODO in code)
+		if breakdown.AffinityBonus != 0 {
+			t.Errorf("AffinityBonus = %f, want 0 (not implemented)", breakdown.AffinityBonus)
+		}
+	})
+}
+
+func TestStateToScoreDefaultCase(t *testing.T) {
+	scorer := NewAgentScorer(DefaultRoutingConfig())
+
+	// Test with an invalid state (cast from string)
+	invalidState := AgentState("invalid_state")
+	score := scorer.stateToScore(invalidState)
+	// Default case returns 0
+	if score != 0 {
+		t.Errorf("stateToScore(invalid) = %f, want 0", score)
+	}
+}
+
+func TestRoundRobinAvailableEdgeCase(t *testing.T) {
+	t.Run("wraps around with mixed excluded", func(t *testing.T) {
+		strat := &RoundRobinAvailableStrategy{lastIndex: 2}
+		agents := []ScoredAgent{
+			{PaneID: "cc_1", Excluded: false},
+			{PaneID: "cc_2", Excluded: true},
+			{PaneID: "cc_3", Excluded: true},
+			{PaneID: "cc_4", Excluded: false},
+		}
+
+		// lastIndex=2, so starts checking at (2+1)%4=3 (cc_4, available)
+		selected := strat.Select(agents, RoutingContext{})
+		if selected == nil {
+			t.Fatal("Select() returned nil")
+		}
+		if selected.PaneID != "cc_4" {
+			t.Errorf("Select() = %s, want cc_4", selected.PaneID)
+		}
+
+		// Next call: lastIndex=3, starts at (3+1)%4=0 (cc_1, available)
+		selected = strat.Select(agents, RoutingContext{})
+		if selected == nil {
+			t.Fatal("Select() returned nil")
+		}
+		if selected.PaneID != "cc_1" {
+			t.Errorf("Select() = %s, want cc_1", selected.PaneID)
+		}
+	})
+}
+
+func TestRouteWithRelaxationNoEffect(t *testing.T) {
+	router := NewRouter()
+
+	t.Run("relaxation has no effect on non-THINKING agents", func(t *testing.T) {
+		agents := []ScoredAgent{
+			{PaneID: "cc_1", State: StateGenerating, Excluded: true, ExcludeReason: "agent is currently generating"},
+		}
+
+		result := router.RouteWithRelaxation(agents, StrategyLeastLoaded, RoutingContext{})
+		// GENERATING (not THINKING) should not be relaxed
+		if result.Selected != nil {
+			t.Error("Relaxation should not affect GENERATING agents")
+		}
+	})
+}
+
+func TestEmptyAgentsListAllStrategies(t *testing.T) {
+	router := NewRouter()
+
+	strategies := GetStrategyNames()
+	for _, strat := range strategies {
+		t.Run(string(strat), func(t *testing.T) {
+			result := router.Route([]ScoredAgent{}, strat, RoutingContext{})
+			if result.Selected != nil {
+				t.Errorf("Strategy %s should return nil for empty list", strat)
+			}
+		})
+	}
+}
