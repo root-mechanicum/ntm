@@ -503,9 +503,7 @@ func deriveAgentTypeFromID(agentID string) string {
 	typePart := parts[1]
 	// typePart is like "cc_2" or "cod_1_variant"
 	typeParts := strings.Split(typePart, "_")
-	if len(typeParts) == 0 {
-		return "unknown"
-	}
+	// strings.Split always returns at least one element, so typeParts[0] is safe
 	return agentTypeLong(typeParts[0])
 }
 
@@ -569,6 +567,28 @@ func (r *Rotator) NeedsWarning() ([]string, string) {
 
 // ManualRotate triggers a rotation for a specific agent regardless of threshold.
 func (r *Rotator) ManualRotate(session, agentID, workDir string) RotationResult {
+	// Check prerequisites that rotateAgent assumes
+	if r.monitor == nil {
+		return RotationResult{
+			Success:    false,
+			OldAgentID: agentID,
+			Method:     RotationManual,
+			State:      RotationStateFailed,
+			Error:      "no monitor available",
+			Timestamp:  time.Now(),
+		}
+	}
+	if r.spawner == nil {
+		return RotationResult{
+			Success:    false,
+			OldAgentID: agentID,
+			Method:     RotationManual,
+			State:      RotationStateFailed,
+			Error:      "no spawner available",
+			Timestamp:  time.Now(),
+		}
+	}
+
 	result := r.rotateAgent(session, agentID, workDir)
 	result.Method = RotationManual
 	return result

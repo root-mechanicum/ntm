@@ -443,6 +443,46 @@ func TestRotationResultFormatForDisplay(t *testing.T) {
 	}
 }
 
+func TestManualRotate_NoMonitor(t *testing.T) {
+	t.Parallel()
+
+	r := NewRotator(RotatorConfig{
+		Config: config.DefaultContextRotationConfig(),
+	})
+
+	result := r.ManualRotate("test-session", "test__cc_1", "/tmp")
+	if result.Success {
+		t.Error("expected failure when no monitor")
+	}
+	if !strings.Contains(result.Error, "no monitor") {
+		t.Errorf("expected 'no monitor' error, got: %s", result.Error)
+	}
+	if result.Method != RotationManual {
+		t.Errorf("expected RotationManual method, got: %s", result.Method)
+	}
+}
+
+func TestManualRotate_NoSpawner(t *testing.T) {
+	t.Parallel()
+
+	monitor := NewContextMonitor(DefaultMonitorConfig())
+	r := NewRotator(RotatorConfig{
+		Monitor: monitor,
+		Config:  config.DefaultContextRotationConfig(),
+	})
+
+	result := r.ManualRotate("test-session", "test__cc_1", "/tmp")
+	if result.Success {
+		t.Error("expected failure when no spawner")
+	}
+	if !strings.Contains(result.Error, "no spawner") {
+		t.Errorf("expected 'no spawner' error, got: %s", result.Error)
+	}
+	if result.Method != RotationManual {
+		t.Errorf("expected RotationManual method, got: %s", result.Method)
+	}
+}
+
 func TestDefaultPaneSpawnerGetAgentCommand(t *testing.T) {
 	t.Parallel()
 
