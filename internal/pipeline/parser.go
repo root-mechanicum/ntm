@@ -438,25 +438,29 @@ func validateVariableRefs(w *Workflow, result *ValidationResult) {
 		}
 	}
 
-	// Check all prompts and conditions
-	for i, step := range w.Steps {
-		stepField := fmt.Sprintf("steps[%d]", i)
-		if step.Prompt != "" {
-			checkString(step.Prompt, stepField+".prompt")
-		}
-		if step.When != "" {
-			checkString(step.When, stepField+".when")
-		}
-		for j, pStep := range step.Parallel {
-			pField := fmt.Sprintf("%s.parallel[%d]", stepField, j)
-			if pStep.Prompt != "" {
-				checkString(pStep.Prompt, pField+".prompt")
+	// Check all prompts and conditions recursively
+	var checkSteps func(steps []Step, prefix string)
+	checkSteps = func(steps []Step, prefix string) {
+		for i, step := range steps {
+			stepField := fmt.Sprintf("%s[%d]", prefix, i)
+			if step.Prompt != "" {
+				checkString(step.Prompt, stepField+".prompt")
 			}
-			if pStep.When != "" {
-				checkString(pStep.When, pField+".when")
+			if step.When != "" {
+				checkString(step.When, stepField+".when")
+			}
+			// Check parallel sub-steps
+			if len(step.Parallel) > 0 {
+				checkSteps(step.Parallel, stepField+".parallel")
+			}
+			// Check loop sub-steps
+			if step.Loop != nil {
+				checkSteps(step.Loop.Steps, stepField+".loop.steps")
 			}
 		}
 	}
+
+	checkSteps(w.Steps, "steps")
 }
 
 // Helper validation functions

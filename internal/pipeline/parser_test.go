@@ -3,6 +3,7 @@ package pipeline
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -621,6 +622,46 @@ func TestValidate_VariableReferences(t *testing.T) {
 	// Should produce warning for unknown reference type
 	if len(result.Warnings) == 0 {
 		t.Error("expected warning for unknown variable reference type")
+	}
+}
+
+func TestValidate_VariableReferencesInLoopSubsteps(t *testing.T) {
+	t.Parallel()
+
+	// This tests that variable references in loop sub-steps are validated
+	w := &Workflow{
+		SchemaVersion: "2.0",
+		Name:          "test",
+		Steps: []Step{
+			{
+				ID: "loop_step",
+				Loop: &LoopConfig{
+					Items: "items",
+					As:    "item",
+					Steps: []Step{
+						{ID: "inner", Prompt: "Process ${unknown.ref}"},
+					},
+				},
+			},
+		},
+	}
+
+	result := Validate(w)
+	// Should produce warning for unknown reference type in loop sub-step
+	if len(result.Warnings) == 0 {
+		t.Error("expected warning for unknown variable reference in loop sub-step")
+	}
+
+	// Check that the field path includes loop.steps
+	found := false
+	for _, w := range result.Warnings {
+		if strings.Contains(w.Field, "loop.steps") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("expected warning field to contain 'loop.steps'")
 	}
 }
 
