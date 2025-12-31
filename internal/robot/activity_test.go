@@ -1,6 +1,7 @@
 package robot
 
 import (
+	"strings"
 	"testing"
 	"time"
 )
@@ -853,7 +854,7 @@ func TestGenerateActivityHints(t *testing.T) {
 				t.Fatal("expected hints, got nil")
 			}
 
-			if tt.wantSummaryHas != "" && !strContains(hints.Summary, tt.wantSummaryHas) {
+			if tt.wantSummaryHas != "" && !strings.Contains(hints.Summary, tt.wantSummaryHas) {
 				t.Errorf("expected summary to contain %q, got %q", tt.wantSummaryHas, hints.Summary)
 			}
 
@@ -917,16 +918,3 @@ func TestActivityAgentHints(t *testing.T) {
 	}
 }
 
-// Helper function for string contains check
-func strContains(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || len(s) > 0 && strContainsImpl(s, substr))
-}
-
-func strContainsImpl(s, substr string) bool {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
-	}
-	return false
-}
