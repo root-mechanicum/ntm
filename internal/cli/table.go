@@ -24,13 +24,12 @@ const (
 
 // StyledTable renders beautiful terminal tables with box-drawing
 type StyledTable struct {
-	headers     []string
-	rows        [][]string
-	widths      []int
-	style       TableStyle
-	title       string
-	footer      string
-	showRowNums bool
+	headers []string
+	rows    [][]string
+	widths  []int
+	style   TableStyle
+	title   string
+	footer  string
 }
 
 // NewStyledTable creates a new styled table with headers
@@ -62,12 +61,6 @@ func (t *StyledTable) WithFooter(footer string) *StyledTable {
 // WithStyle sets the table style
 func (t *StyledTable) WithStyle(style TableStyle) *StyledTable {
 	t.style = style
-	return t
-}
-
-// WithRowNumbers enables row numbering
-func (t *StyledTable) WithRowNumbers() *StyledTable {
-	t.showRowNums = true
 	return t
 }
 
