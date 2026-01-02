@@ -15,36 +15,36 @@ import (
 // These are approximate values based on published specifications.
 var ContextLimits = map[string]int64{
 	// Claude models
-	"claude-sonnet-4":       200000,
-	"claude-opus-4":         200000,
-	"claude-opus-4.5":       200000,
-	"claude-haiku":          200000,
-	"claude-3-opus":         200000,
-	"claude-3-sonnet":       200000,
-	"claude-3-haiku":        200000,
-	"claude-3.5-sonnet":     200000,
-	"claude-3.5-haiku":      200000,
-	"claude-sonnet-4-5":     200000,
-	"claude-opus-4-5":       200000,
+	"claude-sonnet-4":   200000,
+	"claude-opus-4":     200000,
+	"claude-opus-4.5":   200000,
+	"claude-haiku":      200000,
+	"claude-3-opus":     200000,
+	"claude-3-sonnet":   200000,
+	"claude-3-haiku":    200000,
+	"claude-3.5-sonnet": 200000,
+	"claude-3.5-haiku":  200000,
+	"claude-sonnet-4-5": 200000,
+	"claude-opus-4-5":   200000,
 
 	// OpenAI models
-	"gpt-4":           128000,
-	"gpt-4-turbo":     128000,
-	"gpt-4o":          128000,
-	"gpt-4o-mini":     128000,
-	"gpt-5":           256000,
-	"gpt-5-codex":     256000,
-	"o1":              128000,
-	"o1-mini":         128000,
-	"o1-preview":      128000,
-	"o3-mini":         200000,
+	"gpt-4":       128000,
+	"gpt-4-turbo": 128000,
+	"gpt-4o":      128000,
+	"gpt-4o-mini": 128000,
+	"gpt-5":       256000,
+	"gpt-5-codex": 256000,
+	"o1":          128000,
+	"o1-mini":     128000,
+	"o1-preview":  128000,
+	"o3-mini":     200000,
 
 	// Google models
-	"gemini-2.0-flash":       1000000,
-	"gemini-2.0-flash-lite":  1000000,
-	"gemini-1.5-pro":         1000000,
-	"gemini-1.5-flash":       1000000,
-	"gemini-pro":             32000,
+	"gemini-2.0-flash":      1000000,
+	"gemini-2.0-flash-lite": 1000000,
+	"gemini-1.5-pro":        1000000,
+	"gemini-1.5-flash":      1000000,
+	"gemini-pro":            32000,
 
 	// Default fallback
 	"default": 128000,
@@ -174,12 +174,13 @@ func ParseRobotModeContext(output string) *ContextEstimate {
 		}
 	}
 
-	if !hasUsed || contextLimit == 0 {
-		return nil
-	}
-
+	// Apply default limit if none was found in the data
 	if !hasLimit {
 		contextLimit = float64(ContextLimits["default"])
+	}
+
+	if !hasUsed || contextLimit == 0 {
+		return nil
 	}
 
 	return &ContextEstimate{
@@ -495,12 +496,12 @@ func (m *ContextMonitor) AgentsAboveThreshold(threshold float64) []AgentContextI
 
 		if estimate.UsagePercent >= threshold {
 			results = append(results, AgentContextInfo{
-				AgentID:    agentID,
-				PaneID:     state.PaneID,
-				Model:      state.Model,
-				Estimate:   estimate,
-				NeedsWarn:  estimate.UsagePercent >= m.warningThreshold,
-				NeedsRotat: estimate.UsagePercent >= m.rotateThreshold,
+				AgentID:     agentID,
+				PaneID:      state.PaneID,
+				Model:       state.Model,
+				Estimate:    estimate,
+				NeedsWarn:   estimate.UsagePercent >= m.warningThreshold,
+				NeedsRotate: estimate.UsagePercent >= m.rotateThreshold,
 			})
 		}
 	}
@@ -537,12 +538,12 @@ func (m *ContextMonitor) getEstimateLocked(state *ContextState) *ContextEstimate
 
 // AgentContextInfo provides context info for an agent.
 type AgentContextInfo struct {
-	AgentID    string           `json:"agent_id"`
-	PaneID     string           `json:"pane_id"`
-	Model      string           `json:"model"`
-	Estimate   *ContextEstimate `json:"estimate"`
-	NeedsWarn  bool             `json:"needs_warning"`
-	NeedsRotat bool             `json:"needs_rotation"`
+	AgentID     string           `json:"agent_id"`
+	PaneID      string           `json:"pane_id"`
+	Model       string           `json:"model"`
+	Estimate    *ContextEstimate `json:"estimate"`
+	NeedsWarn   bool             `json:"needs_warning"`
+	NeedsRotate bool             `json:"needs_rotation"`
 }
 
 // GetAllEstimates returns estimates for all monitored agents.
