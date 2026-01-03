@@ -1,66 +1,237 @@
 # NTM Improvement Plan
 
-This document outlines strategic improvements to elevate NTM from a capable power-user tool to the definitive command center for AI-assisted development. NTM is the **cockpit** of the Agentic Coding Flywheel—the orchestration layer that coordinates all other tools in the Dicklesworthstone Stack.
+> **Document Purpose**: This is a comprehensive, self-contained strategic plan for improving NTM (Neural Terminal Manager). It is designed to be read by any LLM or human without requiring additional context—everything needed to understand and evaluate the plan is included here.
+
+---
+
+## About This Document
+
+This plan outlines strategic improvements to elevate **NTM** from a capable power-user tool to the definitive command center for AI-assisted development. The document covers:
+
+1. **What NTM is** and its role in the broader ecosystem
+2. **The complete tool ecosystem** (the "Dicklesworthstone Stack")
+3. **Existing integrations** (CAAM, CM, SLB, Agent Mail)
+4. **Underexplored high-value integrations** (bv robot modes, CASS search, s2p, UBS)
+5. **Concrete implementation patterns** with Go code examples
+6. **Priority matrix** for implementation sequencing
+
+**Key Insight**: NTM is the **cockpit** of an Agentic Coding Flywheel—an orchestration layer that coordinates multiple AI coding agents working in parallel. Most of the ecosystem tools have capabilities that remain **largely untapped** by NTM's current implementation.
 
 ---
 
 ## Table of Contents
 
-1. [Executive Summary](#executive-summary)
-2. [The Flywheel Vision](#the-flywheel-vision)
-3. [Integration: CAAM (Coding Agent Account Manager)](#integration-caam-coding-agent-account-manager)
-4. [Integration: CASS Memory System](#integration-cass-memory-system)
-5. [Integration: SLB (Safety Guardrails)](#integration-slb-safety-guardrails)
-6. [Integration: MCP Agent Mail](#integration-mcp-agent-mail)
-7. [Unified Architecture](#unified-architecture)
-8. [Web Dashboard](#web-dashboard)
-9. [Zero-Config Quick Start](#zero-config-quick-start)
-10. [Notifications System](#notifications-system)
-11. [Session Templates](#session-templates)
-12. [Intelligent Error Recovery](#intelligent-error-recovery)
-13. [IDE Integration](#ide-integration)
-14. [Agent Orchestration Patterns](#agent-orchestration-patterns)
-15. [Interactive Tutorial & Onboarding](#interactive-tutorial--onboarding)
-16. [Shareable Sessions](#shareable-sessions)
-17. [UX Polish](#ux-polish)
-18. [Implementation Roadmap](#implementation-roadmap)
+1. [What is NTM?](#what-is-ntm)
+2. [The Dicklesworthstone Stack (Complete Ecosystem)](#the-dicklesworthstone-stack-complete-ecosystem)
+3. [The Agentic Coding Flywheel](#the-agentic-coding-flywheel)
+4. [Current Integration Status](#current-integration-status)
+5. [UNDEREXPLORED: bv (Beads Viewer) Robot Modes](#underexplored-bv-beads-viewer-robot-modes)
+6. [UNDEREXPLORED: CASS Historical Context Injection](#underexplored-cass-historical-context-injection)
+7. [UNDEREXPLORED: s2p (Source-to-Prompt) Context Preparation](#underexplored-s2p-source-to-prompt-context-preparation)
+8. [UNDEREXPLORED: UBS Dashboard & Agent Notifications](#underexplored-ubs-dashboard--agent-notifications)
+9. [Existing Integration: CAAM (Coding Agent Account Manager)](#existing-integration-caam-coding-agent-account-manager)
+10. [Existing Integration: CASS Memory System (CM)](#existing-integration-cass-memory-system-cm)
+11. [Existing Integration: SLB (Safety Guardrails)](#existing-integration-slb-safety-guardrails)
+12. [Existing Integration: MCP Agent Mail](#existing-integration-mcp-agent-mail)
+13. [Ecosystem Discovery: Additional Tools](#ecosystem-discovery-additional-tools)
+14. [Priority Matrix](#priority-matrix)
+15. [Unified Architecture](#unified-architecture)
+16. [Web Dashboard](#web-dashboard)
+17. [Implementation Roadmap](#implementation-roadmap)
+18. [Success Metrics](#success-metrics)
 
 ---
 
-## Executive Summary
+## What is NTM?
 
-NTM is positioned as the **central orchestration layer** in a complete AI development ecosystem. The Agentic Coding Flywheel Setup (ACFS) demonstrates this vision: NTM is one of eight coordinated tools that together transform raw compute into a productive multi-agent development environment.
+### Overview
 
-### The Dicklesworthstone Stack
+**NTM (Neural Terminal Manager)** is a Go-based command-line tool for orchestrating multiple AI coding agents in parallel within tmux sessions. It allows developers to:
 
-| Tool | Command | Purpose | NTM Role |
-|------|---------|---------|----------|
-| **NTM** | `ntm` | Agent cockpit - spawn, orchestrate, monitor | **Central hub** |
-| **MCP Agent Mail** | `am` | Inter-agent messaging & file reservations | Message routing |
-| **UBS** | `ubs` | Bug scanning with quality guardrails | Pre-commit checks |
-| **Beads Viewer** | `bv` | Task management with graph analysis | Work assignment |
-| **CASS** | `cass` | Session search across all agents | Historical context |
-| **CASS Memory** | `cm` | Procedural memory for agents | Rule injection |
-| **CAAM** | `caam` | Account switching & rate limit failover | Auth orchestration |
-| **SLB** | `slb` | Two-person rule for dangerous commands | Safety layer |
+- **Spawn** multiple AI agents (Claude, Codex, Gemini) in parallel tmux panes
+- **Monitor** agent status (idle, working, error, waiting for input)
+- **Coordinate** work distribution across agents
+- **Track** context window usage and trigger rotations
+- **Provide** robot-mode JSON output for programmatic consumption
 
-### Current Gaps & Improvements
+### Core Capabilities
 
-| Gap | Impact | Solution |
-|-----|--------|----------|
-| No account orchestration | Agents hit rate limits, manual switching | CAAM integration |
-| No persistent memory | Agents re-learn same lessons | CM integration |
-| No safety gates | Dangerous commands execute unchecked | SLB integration |
-| No web interface | Terminal-only monitoring | Web dashboard |
-| Complex setup | High barrier to entry | Zero-config mode |
-| Silent operation | Users miss important events | Notification system |
-| No templates | Repetitive configuration | Template system |
+| Capability | Command | Description |
+|-----------|---------|-------------|
+| **Spawn sessions** | `ntm spawn myproject --cc=3 --cod=2` | Create tmux session with 3 Claude + 2 Codex agents |
+| **List sessions** | `ntm list` | Show all active NTM sessions with agent counts |
+| **Monitor status** | `ntm status myproject` | Real-time TUI showing all agent states |
+| **Robot output** | `ntm --robot-status` | JSON output for programmatic integration |
+| **Kill sessions** | `ntm kill myproject` | Terminate session and all agents |
+| **Dashboard** | `ntm dashboard` | Web-based monitoring (planned) |
+
+### Agent Types Supported
+
+| Type | CLI | Provider | Strengths |
+|------|-----|----------|-----------|
+| `cc` | Claude Code | Anthropic | Analysis, architecture, complex refactoring |
+| `cod` | Codex CLI | OpenAI | Fast implementations, bug fixes |
+| `gmi` | Gemini CLI | Google | Documentation, research, multi-modal |
+
+### Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                        NTM Core                                   │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                 │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐          │
+│  │  CLI Layer   │  │  TUI Layer   │  │ Robot Layer  │          │
+│  │  (commands)  │  │  (bubbletea) │  │  (JSON API)  │          │
+│  └──────┬───────┘  └──────┬───────┘  └──────┬───────┘          │
+│         │                 │                 │                   │
+│         └─────────────────┼─────────────────┘                   │
+│                           │                                     │
+│  ┌────────────────────────▼─────────────────────────────────┐   │
+│  │                    Session Manager                        │   │
+│  │  - Spawn/kill tmux sessions                               │   │
+│  │  - Manage agent panes                                     │   │
+│  │  - Track agent state                                      │   │
+│  └────────────────────────┬─────────────────────────────────┘   │
+│                           │                                     │
+│  ┌────────────────────────▼─────────────────────────────────┐   │
+│  │                     tmux Backend                          │   │
+│  │  - CreateSession, KillSession                             │   │
+│  │  - GetPanes, CapturePaneOutput                            │   │
+│  │  - SendKeys                                               │   │
+│  └──────────────────────────────────────────────────────────┘   │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Key Source Files
+
+| File | Purpose |
+|------|---------|
+| `cmd/ntm/main.go` | CLI entry point, flag parsing |
+| `internal/cli/` | Command implementations (spawn, list, kill, status) |
+| `internal/robot/` | Robot mode JSON output generators |
+| `internal/tmux/` | tmux session/pane management |
+| `internal/status/` | Agent state detection (idle, working, error) |
+| `internal/monitor/` | Real-time agent monitoring |
+| `internal/context/` | Context window tracking |
+| `internal/pipeline/` | Multi-stage pipeline execution |
 
 ---
 
-## The Flywheel Vision
+## The Dicklesworthstone Stack (Complete Ecosystem)
 
-The Agentic Coding Flywheel is a closed-loop learning system where each cycle compounds:
+NTM is part of a larger ecosystem of coordinated tools designed for AI-assisted software development. Understanding this ecosystem is crucial for understanding the integration opportunities.
+
+### Tool Overview
+
+| Tool | Command | Language | LOC | Purpose | Current NTM Integration |
+|------|---------|----------|-----|---------|------------------------|
+| **NTM** | `ntm` | Go | ~15K | Agent orchestration (this project) | N/A (this is NTM) |
+| **MCP Agent Mail** | `am` | Python | ~8K | Inter-agent messaging, file reservations | ✅ Basic |
+| **UBS** | `ubs` | Python | ~12K | Static bug scanning (8 languages) | ✅ Via `internal/scanner/` |
+| **Beads/bv** | `bd`, `bv` | Go | ~10K | Issue tracking with dependency graphs | ⚠️ Minimal (uses GetReady) |
+| **CASS** | `cass` | Rust | ~50K | Session indexing across 11 agent types | ❌ None |
+| **CASS Memory (CM)** | `cm` | Python | ~5K | Three-layer cognitive memory | ⚠️ Planned |
+| **CAAM** | `caam` | Python | ~3K | Account switching, rate limit failover | ⚠️ Planned |
+| **SLB** | `slb` | Go | ~4K | Two-person rule for dangerous commands | ⚠️ Planned |
+| **s2p** | `s2p` | TypeScript | ~3.5K | Source-to-prompt conversion with token counting | ❌ None |
+
+### Ecosystem Relationships
+
+```
+                    ┌─────────────────────────────────────┐
+                    │           Human Developer           │
+                    └────────────────┬────────────────────┘
+                                     │
+                    ┌────────────────▼────────────────────┐
+                    │              NTM                     │
+                    │   (Central Orchestration Layer)     │
+                    └────────────────┬────────────────────┘
+                                     │
+       ┌─────────────┬───────────────┼───────────────┬─────────────┐
+       │             │               │               │             │
+       ▼             ▼               ▼               ▼             ▼
+┌────────────┐ ┌──────────┐ ┌───────────────┐ ┌──────────┐ ┌────────────┐
+│    CAAM    │ │   SLB    │ │  Agent Mail   │ │   bv     │ │    CASS    │
+│ (Accounts) │ │ (Safety) │ │ (Messaging)   │ │ (Tasks)  │ │ (History)  │
+└─────┬──────┘ └────┬─────┘ └───────┬───────┘ └────┬─────┘ └─────┬──────┘
+      │             │               │              │             │
+      │             │               │              │             │
+      └─────────────┴───────────────┼──────────────┴─────────────┘
+                                    │
+                    ┌───────────────▼───────────────┐
+                    │         AI Agents             │
+                    │  Claude | Codex | Gemini      │
+                    └───────────────┬───────────────┘
+                                    │
+       ┌────────────────────────────┼────────────────────────────┐
+       │                            │                            │
+       ▼                            ▼                            ▼
+┌────────────────┐         ┌───────────────┐          ┌─────────────────┐
+│      UBS       │         │      CM       │          │       s2p       │
+│ (Bug Scanning) │         │   (Memory)    │          │ (Context Prep)  │
+└────────────────┘         └───────────────┘          └─────────────────┘
+```
+
+### Tool Details
+
+#### 1. UBS (Ultimate Bug Scanner)
+- **Purpose**: Multi-language static analysis with 1000+ bug patterns
+- **Languages**: Python, JavaScript, TypeScript, Go, Rust, Java, C, C++
+- **Output**: JSON/JSONL with severity, line numbers, fix suggestions
+- **Performance**: Sub-5-second scans on typical codebases
+- **NTM Integration**: Already integrated via `internal/scanner/` with Beads bridge
+
+#### 2. bv (Beads Viewer)
+- **Purpose**: Issue/task tracking with dependency graph analysis
+- **Key Feature**: **12+ robot modes** for AI-consumable output
+- **Graph Analysis**: PageRank, betweenness centrality, HITS, k-core decomposition
+- **Execution Planning**: Parallel track generation for multi-agent work distribution
+- **NTM Integration**: **UNDEREXPLORED** - Only uses basic `GetReadyPreview`
+
+#### 3. CASS (Coding Agent Session Search)
+- **Purpose**: Unified indexing of sessions from 11 agent types
+- **Agents Indexed**: Claude, Codex, Cursor, Aider, Roo, Cline, Windsurf, etc.
+- **Search**: Full-text, semantic, and hybrid search across all sessions
+- **Performance**: Sub-60ms search latency on 100K+ sessions
+- **NTM Integration**: **NONE** - Major opportunity for historical context
+
+#### 4. CM (CASS Memory)
+- **Purpose**: Three-layer cognitive memory (episodic/working/procedural)
+- **Key Feature**: Rules with confidence scoring and 90-day decay
+- **Pipeline**: ACE (Acquire, Consolidate, Express) for rule lifecycle
+- **NTM Integration**: Planned but not implemented
+
+#### 5. CAAM (Coding Agent Account Manager)
+- **Purpose**: Sub-100ms account switching for rate limit failover
+- **Key Feature**: Vault-based OAuth token management
+- **Smart Rotation**: Multi-factor scoring (health, recency, cooldown)
+- **NTM Integration**: Planned but not implemented
+
+#### 6. SLB (Safety Guardrails)
+- **Purpose**: Two-person rule for dangerous commands
+- **Risk Tiers**: CRITICAL (2+ approvals), DANGEROUS (1), CAUTION (delay), SAFE
+- **Key Feature**: HMAC-signed reviews for audit trail
+- **NTM Integration**: Planned but not implemented
+
+#### 7. s2p (source_to_prompt_tui)
+- **Purpose**: Convert source code to LLM-ready prompts
+- **Key Feature**: Real-time token counting to prevent context overflow
+- **Output**: Structured XML for reliable LLM parsing
+- **NTM Integration**: **NONE** - Opportunity for context preparation
+
+#### 8. MCP Agent Mail
+- **Purpose**: Inter-agent messaging and file reservation
+- **Key Feature**: Git-backed message persistence
+- **File Reservations**: Prevent multi-agent edit conflicts
+- **NTM Integration**: Basic integration exists, could be deeper
+
+---
+
+## The Agentic Coding Flywheel
+
+The tools form a closed-loop learning system where each cycle compounds:
 
 ```
                     ┌────────────────────────────────────────┐
@@ -70,6 +241,8 @@ The Agentic Coding Flywheel is a closed-loop learning system where each cycle co
     │   - Ready work queue          │                        │
     │   - Dependency graph          │                        │
     │   - Priority scoring          │                        │
+    │   - Execution track planning  │ ◀── NEW: Use bv       │
+    │   - Graph-based prioritization│     robot modes       │
     └───────────────┬───────────────┘                        │
                     │                                        │
     ┌───────────────▼───────────────┐                        │
@@ -80,10 +253,12 @@ The Agentic Coding Flywheel is a closed-loop learning system where each cycle co
     └───────────────┬───────────────┘                        │
                     │                                        │
     ┌───────────────▼───────────────┐                        │
-    │      EXECUTE (NTM + Agents)   │ ◄── SAFETY (SLB)       │
+    │      EXECUTE (NTM + Agents)   │ ◀── SAFETY (SLB)       │
     │   - Multi-agent sessions      │     Two-person rule    │
     │   - Account rotation (CAAM)   │     for dangerous ops  │
     │   - Parallel task dispatch    │                        │
+    │   - Context preparation (s2p) │ ◀── NEW                │
+    │   - Historical context (CASS) │ ◀── NEW                │
     └───────────────┬───────────────┘                        │
                     │                                        │
     ┌───────────────▼───────────────┐                        │
@@ -91,6 +266,7 @@ The Agentic Coding Flywheel is a closed-loop learning system where each cycle co
     │   - Static analysis           │                        │
     │   - Bug detection             │                        │
     │   - Pre-commit checks         │                        │
+    │   - Agent notifications       │ ◀── NEW                │
     └───────────────┬───────────────┘                        │
                     │                                        │
     ┌───────────────▼───────────────┐                        │
@@ -101,750 +277,1197 @@ The Agentic Coding Flywheel is a closed-loop learning system where each cycle co
     └───────────────┴────────────────────────────────────────┘
 ```
 
-NTM sits at the center of EXECUTE—the active work phase where agents create value. But NTM should also orchestrate the entire loop, pulling context from PLAN, coordinating via Agent Mail, gating through SLB, triggering SCAN, and feeding REMEMBER.
+---
+
+## Current Integration Status
+
+### Integration Maturity Levels
+
+| Integration | Status | Maturity | Gap Analysis |
+|-------------|--------|----------|--------------|
+| **UBS** | ✅ Implemented | Production | Dashboard/notifications missing |
+| **bv (basic)** | ⚠️ Minimal | PoC | 12+ robot modes unused |
+| **Agent Mail** | ✅ Implemented | Basic | File reservations underused |
+| **CAAM** | ❌ Planned | Design | Rate limit failover missing |
+| **CM** | ❌ Planned | Design | Memory injection missing |
+| **SLB** | ❌ Planned | Design | Safety gates missing |
+| **CASS** | ❌ None | Gap | Historical context missing |
+| **s2p** | ❌ None | Gap | Context preparation missing |
+
+### The Gap: What's Missing
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                   CURRENT STATE                                   │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                 │
+│  NTM spawns agents → Agents work → NTM monitors status          │
+│                                                                 │
+│  Problems:                                                       │
+│  ❌ No smart task distribution (agents get random work)          │
+│  ❌ No historical context (agents reinvent solutions)            │
+│  ❌ No token budget management (agents overflow context)         │
+│  ❌ No rate limit failover (agents hit limits, stop)             │
+│  ❌ No safety gates (dangerous commands execute unchecked)       │
+│  ❌ No bug notifications (agents don't know about scan results) │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────┐
+│                   TARGET STATE                                   │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                 │
+│  NTM spawns agents with:                                         │
+│  ✅ Smart task assignment (bv graph analysis → optimal pairing)  │
+│  ✅ Historical context (CASS → relevant past solutions)          │
+│  ✅ Token budgets (s2p → context fits in window)                 │
+│  ✅ Automatic failover (CAAM → seamless account switching)       │
+│  ✅ Safety gates (SLB → dangerous commands require approval)     │
+│  ✅ Bug notifications (UBS → agents notified of issues)          │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
+```
 
 ---
 
-## Integration: CAAM (Coding Agent Account Manager)
+## UNDEREXPLORED: bv (Beads Viewer) Robot Modes
 
-### What CAAM Does
+### The Opportunity
 
-CAAM enables **sub-100ms account switching** for AI coding CLIs (Claude, Codex, Gemini) by managing OAuth token files directly. Key capabilities:
+The `bv` command has **12+ robot modes** designed for AI consumption that NTM barely uses. These modes provide sophisticated graph analysis, execution planning, and work distribution that could dramatically improve agent coordination.
 
-- **Vault-based profiles**: Backup/restore auth files without browser OAuth
-- **Smart rotation**: Multi-factor scoring (health, recency, cooldown) for profile selection
-- **Rate limit failover**: `caam run` automatically switches accounts on rate limit
-- **Health scoring**: Token validity tracking with expiry warnings
-- **Project associations**: Directory-specific account bindings
+### Available Robot Modes
 
-### Integration Architecture
+| Mode | Command | Output | NTM Usage |
+|------|---------|--------|-----------|
+| `--robot-status` | `bv --robot-status` | Project health summary | ❌ Unused |
+| `--robot-ready` | `bv --robot-ready` | Ready work with priorities | ✅ Used |
+| `--robot-blocked` | `bv --robot-blocked` | Blocked items with blockers | ❌ Unused |
+| `--robot-graph` | `bv --robot-graph` | Full dependency graph | ❌ Unused |
+| `--robot-insights` | `bv --robot-insights` | Graph metrics (PageRank, etc.) | ❌ Unused |
+| `--robot-plan` | `bv --robot-plan` | Execution plan with tracks | ❌ Unused |
+| `--robot-triage` | `bv --robot-triage` | Prioritized triage list | ❌ Unused |
+| `--robot-triage-by-track` | `bv --robot-triage-by-track` | Work grouped by track | ❌ Unused |
+| `--robot-triage-by-label` | `bv --robot-triage-by-label` | Work grouped by label | ❌ Unused |
+| `--robot-label-health` | `bv --robot-label-health` | Label usage analysis | ❌ Unused |
+| `--robot-suggest` | `bv --robot-suggest` | Suggested dependencies | ❌ Unused |
+| `--robot-feedback` | `bv --robot-feedback` | Learning loop data | ❌ Unused |
 
-```
-┌─────────────────────────────────────────────────────────────────────┐
-│                           NTM Spawn                                  │
-├─────────────────────────────────────────────────────────────────────┤
-│                                                                     │
-│  ntm spawn myproject --cc=3 --cod=2                                 │
-│       │                                                             │
-│       ▼                                                             │
-│  ┌─────────────┐    ┌─────────────┐    ┌─────────────┐              │
-│  │ Agent 1     │    │ Agent 2     │    │ Agent 3     │              │
-│  │ (claude)    │    │ (claude)    │    │ (claude)    │              │
-│  └──────┬──────┘    └──────┬──────┘    └──────┬──────┘              │
-│         │                  │                  │                     │
-│         ▼                  ▼                  ▼                     │
-│  ┌──────────────────────────────────────────────────┐               │
-│  │               CAAM Account Layer                  │               │
-│  │  ┌──────────┐ ┌──────────┐ ┌──────────┐          │               │
-│  │  │ Profile A│ │ Profile B│ │ Profile C│          │               │
-│  │  │ alice@   │ │ bob@     │ │ work@    │          │               │
-│  │  │ Health:🟢│ │ Health:🟢│ │ Cooldown │          │               │
-│  │  └──────────┘ └──────────┘ └──────────┘          │               │
-│  └──────────────────────────────────────────────────┘               │
-│                                                                     │
-└─────────────────────────────────────────────────────────────────────┘
-```
+### Integration 1: Track-Based Agent Assignment
 
-### Concrete Integration Points
-
-#### 1. Spawn with Account Assignment
-
-```bash
-# New flag: --account-strategy
-ntm spawn myproject --cc=3 --account-strategy=round-robin
-
-# Explicit account assignment
-ntm spawn myproject --cc=alice@gmail.com,bob@gmail.com,work@company.com
-
-# Project-based (uses caam project associations)
-ntm spawn myproject --cc=3 --accounts=project
-```
-
-**Implementation** (`internal/cli/spawn.go`):
-```go
-func assignAccounts(agentType string, count int, strategy string) ([]string, error) {
-    switch strategy {
-    case "round-robin":
-        // Query caam for available profiles
-        profiles, err := caamListProfiles(agentType)
-        if err != nil {
-            return nil, err
-        }
-        // Distribute agents across profiles
-        assignments := make([]string, count)
-        for i := 0; i < count; i++ {
-            assignments[i] = profiles[i%len(profiles)].AccountLabel
-        }
-        return assignments, nil
-
-    case "smart":
-        // Use caam's smart selection for each agent
-        assignments := make([]string, count)
-        for i := 0; i < count; i++ {
-            // Each call rotates to next-best profile
-            profile, err := caamNextProfile(agentType)
-            if err != nil {
-                return nil, err
-            }
-            assignments[i] = profile.AccountLabel
-        }
-        return assignments, nil
-
-    case "project":
-        // Use caam project get for current directory
-        profile, err := caamProjectGet(agentType)
-        if err != nil {
-            return nil, err
-        }
-        // All agents use same project-associated account
-        assignments := make([]string, count)
-        for i := 0; i < count; i++ {
-            assignments[i] = profile.AccountLabel
-        }
-        return assignments, nil
-    }
-    return nil, fmt.Errorf("unknown strategy: %s", strategy)
-}
-```
-
-#### 2. Automatic Rate Limit Failover
-
-When an agent hits a rate limit, NTM should automatically:
-1. Detect the rate limit (via output parsing or exit code)
-2. Mark the current profile in cooldown (`caam cooldown set`)
-3. Switch to next available profile (`caam activate --auto`)
-4. Retry the operation
+Instead of random assignment, use bv's execution plan to assign entire **tracks** to agents:
 
 ```go
-// internal/monitor/ratelimit.go
-type RateLimitHandler struct {
-    session string
-    paneID  string
+// internal/robot/assign.go - ENHANCED
+
+type ExecutionTrack struct {
+    TrackID   string   `json:"track_id"`
+    Items     []string `json:"items"`      // Bead IDs in dependency order
+    Parallel  bool     `json:"parallel"`   // Can execute in parallel with other tracks
+    EstEffort int      `json:"est_effort"` // Estimated effort units
 }
 
-func (h *RateLimitHandler) OnRateLimit(agentType, currentProfile string) error {
-    // 1. Mark cooldown
-    if err := exec.Command("caam", "cooldown", "set",
-        fmt.Sprintf("%s/%s", agentType, currentProfile)).Run(); err != nil {
-        log.Printf("Failed to set cooldown: %v", err)
-    }
+type ExecutionPlan struct {
+    Tracks     []ExecutionTrack `json:"tracks"`
+    CritPath   []string         `json:"critical_path"`
+    Parallelism int             `json:"max_parallelism"`
+}
 
-    // 2. Get next profile
-    out, err := exec.Command("caam", "next", agentType, "--json").Output()
+// getExecutionPlan fetches bv's execution plan for the project
+func getExecutionPlan() (*ExecutionPlan, error) {
+    out, err := exec.Command("bv", "--robot-plan", "--json").Output()
     if err != nil {
-        return fmt.Errorf("no available profiles: %w", err)
-    }
-    var next struct { Profile string `json:"profile"` }
-    json.Unmarshal(out, &next)
-
-    // 3. Activate new profile
-    if err := exec.Command("caam", "activate", agentType, next.Profile).Run(); err != nil {
-        return fmt.Errorf("failed to activate %s: %w", next.Profile, err)
+        return nil, fmt.Errorf("bv --robot-plan failed: %w", err)
     }
 
-    // 4. Notify via Agent Mail
-    sendAgentMail(h.session, "rate-limit-failover", fmt.Sprintf(
-        "Agent switched from %s to %s due to rate limit", currentProfile, next.Profile))
+    var plan ExecutionPlan
+    if err := json.Unmarshal(out, &plan); err != nil {
+        return nil, err
+    }
+    return &plan, nil
+}
 
+// assignByTracks distributes work to agents by track, not individual items
+func assignByTracks(agents []assignAgentInfo, plan *ExecutionPlan) []AssignRecommend {
+    var recommendations []AssignRecommend
+
+    idleAgents := filterIdle(agents)
+
+    // Sort tracks by: critical path first, then by effort (larger first)
+    sortedTracks := sortTracks(plan.Tracks, plan.CritPath)
+
+    for i, track := range sortedTracks {
+        if i >= len(idleAgents) {
+            break
+        }
+
+        agent := idleAgents[i]
+
+        // Assign entire track to one agent for coherent work
+        recommendations = append(recommendations, AssignRecommend{
+            Agent:      fmt.Sprintf("%d", agent.paneIdx),
+            AgentType:  agent.agentType,
+            Model:      agent.model,
+            AssignBead: track.Items[0], // Start with first item
+            BeadTitle:  fmt.Sprintf("Track %s (%d items)", track.TrackID, len(track.Items)),
+            Priority:   determinePriority(track, plan.CritPath),
+            Confidence: 0.9, // High confidence - bv planned this
+            Reasoning:  fmt.Sprintf("Track-based assignment: %d related items in dependency order", len(track.Items)),
+            TrackItems: track.Items, // NEW: All items in track
+        })
+    }
+
+    return recommendations
+}
+```
+
+### Integration 2: Graph-Based Prioritization
+
+Use bv's graph metrics to identify the most impactful work:
+
+```go
+// internal/robot/insights.go - NEW FILE
+
+type GraphInsights struct {
+    // PageRank: Items that many others depend on (high = critical)
+    PageRank map[string]float64 `json:"pagerank"`
+
+    // Betweenness: Items that connect different parts of the graph (high = bridges)
+    Betweenness map[string]float64 `json:"betweenness"`
+
+    // InDegree: How many items depend on this (high = blocking many)
+    InDegree map[string]int `json:"in_degree"`
+
+    // KCore: Core decomposition (high = deeply embedded)
+    KCore map[string]int `json:"k_core"`
+}
+
+// getGraphInsights fetches bv's graph analysis
+func getGraphInsights() (*GraphInsights, error) {
+    out, err := exec.Command("bv", "--robot-insights", "--json").Output()
+    if err != nil {
+        return nil, err
+    }
+
+    var insights GraphInsights
+    if err := json.Unmarshal(out, &insights); err != nil {
+        return nil, err
+    }
+    return &insights, nil
+}
+
+// prioritizeByImpact uses graph metrics to identify highest-impact work
+func prioritizeByImpact(beads []bv.BeadPreview, insights *GraphInsights) []bv.BeadPreview {
+    // Score each bead by composite metric
+    type scored struct {
+        bead  bv.BeadPreview
+        score float64
+    }
+
+    var scoredBeads []scored
+    for _, b := range beads {
+        score := 0.0
+
+        // High PageRank = many things depend on this
+        if pr, ok := insights.PageRank[b.ID]; ok {
+            score += pr * 100
+        }
+
+        // High InDegree = blocking many items
+        if deg, ok := insights.InDegree[b.ID]; ok {
+            score += float64(deg) * 10
+        }
+
+        // High Betweenness = bridge between clusters
+        if bc, ok := insights.Betweenness[b.ID]; ok {
+            score += bc * 50
+        }
+
+        scoredBeads = append(scoredBeads, scored{b, score})
+    }
+
+    // Sort by score descending
+    sort.Slice(scoredBeads, func(i, j int) bool {
+        return scoredBeads[i].score > scoredBeads[j].score
+    })
+
+    result := make([]bv.BeadPreview, len(scoredBeads))
+    for i, s := range scoredBeads {
+        result[i] = s.bead
+    }
+    return result
+}
+```
+
+### Integration 3: Smart Suggestions for Dependency Discovery
+
+Use bv's suggestion system to discover implicit dependencies:
+
+```go
+// internal/robot/suggest.go - NEW FILE
+
+type DependencySuggestion struct {
+    FromID     string  `json:"from_id"`
+    ToID       string  `json:"to_id"`
+    Confidence float64 `json:"confidence"`
+    Reason     string  `json:"reason"`
+}
+
+// getSuggestions fetches bv's dependency suggestions
+func getSuggestions() ([]DependencySuggestion, error) {
+    out, err := exec.Command("bv", "--robot-suggest", "--json").Output()
+    if err != nil {
+        return nil, err
+    }
+
+    var suggestions []DependencySuggestion
+    if err := json.Unmarshal(out, &suggestions); err != nil {
+        return nil, err
+    }
+    return suggestions, nil
+}
+
+// applyHighConfidenceSuggestions auto-applies suggestions above threshold
+func applyHighConfidenceSuggestions(threshold float64) error {
+    suggestions, err := getSuggestions()
+    if err != nil {
+        return err
+    }
+
+    for _, s := range suggestions {
+        if s.Confidence >= threshold {
+            // Apply the dependency
+            cmd := exec.Command("bd", "dep", "add", s.FromID, s.ToID)
+            if err := cmd.Run(); err != nil {
+                log.Printf("Failed to add dependency %s -> %s: %v", s.FromID, s.ToID, err)
+            }
+        }
+    }
     return nil
 }
 ```
 
-#### 3. Health Dashboard Integration
+### Integration 4: Label-Based Work Distribution
 
-Query CAAM's SQLite database for real-time health metrics:
+Use bv's label analysis for specialized agent assignment:
 
 ```go
-// internal/dashboard/caam.go
-type ProfileHealth struct {
-    Provider     string    `json:"provider"`
-    AccountLabel string    `json:"account_label"`
-    HealthStatus string    `json:"health_status"` // healthy, warning, critical
-    TokenExpiry  time.Time `json:"token_expiry"`
-    InCooldown   bool      `json:"in_cooldown"`
-    CooldownEnds time.Time `json:"cooldown_ends,omitempty"`
+// internal/robot/labels.go - NEW FILE
+
+type LabelHealth struct {
+    Label       string   `json:"label"`
+    OpenCount   int      `json:"open_count"`
+    ClosedCount int      `json:"closed_count"`
+    StaleCount  int      `json:"stale_count"`
+    RecentItems []string `json:"recent_items"`
 }
 
-func GetAccountHealth() ([]ProfileHealth, error) {
-    // Query ~/.caam/data/caam.db directly
-    db, err := sql.Open("sqlite3", filepath.Join(os.Getenv("HOME"), ".caam/data/caam.db"))
+// getLabelHealth fetches bv's label analysis
+func getLabelHealth() ([]LabelHealth, error) {
+    out, err := exec.Command("bv", "--robot-label-health", "--json").Output()
     if err != nil {
         return nil, err
     }
-    defer db.Close()
 
-    rows, err := db.Query(`
-        SELECT p.provider, p.account_label, p.health_status,
-               p.token_expiry, c.ends_at IS NOT NULL as in_cooldown, c.ends_at
-        FROM profiles p
-        LEFT JOIN cooldowns c ON p.id = c.profile_id AND c.ends_at > datetime('now')
-        ORDER BY p.provider, p.account_label
-    `)
-    // ... parse and return
+    var health []LabelHealth
+    if err := json.Unmarshal(out, &health); err != nil {
+        return nil, err
+    }
+    return health, nil
+}
+
+// assignByLabel matches labels to specialized agents
+func assignByLabel(agents []assignAgentInfo) ([]AssignRecommend, error) {
+    // Get work grouped by label
+    out, err := exec.Command("bv", "--robot-triage-by-label", "--json").Output()
+    if err != nil {
+        return nil, err
+    }
+
+    var triageByLabel map[string][]bv.BeadPreview
+    if err := json.Unmarshal(out, &triageByLabel); err != nil {
+        return nil, err
+    }
+
+    var recommendations []AssignRecommend
+
+    // Label-to-agent-type mapping
+    labelAgentMap := map[string]string{
+        "security":      "claude", // Claude better at security analysis
+        "performance":   "claude", // Claude better at architecture
+        "documentation": "gemini", // Gemini good at docs
+        "bug":           "codex",  // Codex fast at fixes
+        "test":          "codex",  // Codex good at tests
+    }
+
+    for label, beads := range triageByLabel {
+        preferredType := labelAgentMap[label]
+
+        // Find idle agent of preferred type
+        for _, agent := range agents {
+            if agent.state == "idle" && agent.agentType == preferredType {
+                if len(beads) > 0 {
+                    recommendations = append(recommendations, AssignRecommend{
+                        Agent:      fmt.Sprintf("%d", agent.paneIdx),
+                        AgentType:  agent.agentType,
+                        AssignBead: beads[0].ID,
+                        BeadTitle:  beads[0].Title,
+                        Confidence: 0.85,
+                        Reasoning:  fmt.Sprintf("Label '%s' matches %s agent specialty", label, preferredType),
+                    })
+                    break
+                }
+            }
+        }
+    }
+
+    return recommendations, nil
 }
 ```
 
-#### 4. Robot Mode Output
-
-Add CAAM status to `--robot-status`:
-
-```json
-{
-  "success": true,
-  "sessions": [...],
-  "account_health": {
-    "claude": [
-      {"account": "alice@gmail.com", "status": "healthy", "cooldown": false},
-      {"account": "bob@gmail.com", "status": "warning", "cooldown": true, "cooldown_ends": "2025-01-03T16:30:00Z"}
-    ],
-    "codex": [
-      {"account": "work@company.com", "status": "healthy", "cooldown": false}
-    ]
-  }
-}
-```
-
-### New NTM Commands
+### New NTM Commands for bv Integration
 
 ```bash
-# Account management
-ntm accounts status                    # Show all account health
-ntm accounts rotate <session>          # Force rotation for session's agents
-ntm accounts cooldown list             # Show active cooldowns
-ntm accounts set <pane> <account>      # Assign specific account to pane
+# Graph-based work analysis
+ntm work insights                     # Show graph metrics for open work
+ntm work critical-path                # Show items on critical path
+ntm work tracks                       # Show execution tracks
 
-# In robot mode
-ntm --robot-accounts                   # JSON account health output
+# Smart assignment
+ntm assign --strategy=track           # Assign by execution track
+ntm assign --strategy=impact          # Assign by graph impact
+ntm assign --strategy=label           # Assign by label specialization
+
+# Dependency discovery
+ntm work suggest                      # Show suggested dependencies
+ntm work suggest --apply=0.8          # Auto-apply high-confidence suggestions
+
+# Robot mode
+ntm --robot-tracks                    # JSON execution tracks
+ntm --robot-insights                  # JSON graph metrics
 ```
 
 ---
 
-## Integration: CASS Memory System
+## UNDEREXPLORED: CASS Historical Context Injection
 
-### What CASS Memory Does
+### The Opportunity
 
-CASS Memory (`cm`) is a **three-layer cognitive memory system** that gives agents persistent learning:
+CASS indexes **50K+ sessions** across **11 different agent types** with sub-60ms search. NTM could inject relevant historical context before spawning agents, so they don't reinvent solutions.
 
-1. **Episodic Memory** (CASS): Raw session logs from all agents
-2. **Working Memory** (Diary): Structured session summaries
-3. **Procedural Memory** (Playbook): Distilled rules with confidence scoring
+### CASS Capabilities
 
-Key capabilities:
-- **Cross-agent learning**: Rules from Claude benefit Codex and vice versa
-- **Confidence decay**: 90-day half-life prevents stale rules
-- **Anti-pattern conversion**: Bad rules automatically become warnings
-- **Evidence-based validation**: Rules require historical support before acceptance
+| Feature | Description |
+|---------|-------------|
+| **Multi-agent indexing** | Claude, Codex, Cursor, Aider, Roo, Cline, Windsurf, etc. |
+| **Full-text search** | Search across all session content |
+| **Semantic search** | Embedding-based similarity search |
+| **Hybrid search** | Combined full-text + semantic |
+| **Multi-machine** | Unified index across multiple development machines |
 
-### The ACE Pipeline
+### Integration 1: Pre-Task Context Enrichment
 
-```
-GENERATOR (cm context)    →    REFLECTOR (cm reflect)
-Get relevant rules             Extract new rules from sessions
-before task                    after task completion
-       │                              │
-       │                              ▼
-       │                       VALIDATOR
-       │                       Search evidence in CASS
-       │                       Accept/reject based on proof
-       │                              │
-       ▼                              ▼
-   AGENT WORK              CURATOR (deterministic)
-   Apply rules             Update playbook with new rules
-   Record feedback         Handle conflicts, duplicates
-```
-
-### Integration Architecture
-
-```
-┌─────────────────────────────────────────────────────────────────────┐
-│                         NTM Session Lifecycle                        │
-├─────────────────────────────────────────────────────────────────────┤
-│                                                                     │
-│  PRE-TASK                                                           │
-│  ┌────────────────────────────────────────────────────────────┐     │
-│  │ cm context "implement JWT authentication" --json            │     │
-│  │                                                             │     │
-│  │ Returns:                                                    │     │
-│  │ - relevantBullets: rules that apply to this task           │     │
-│  │ - antiPatterns: pitfalls to avoid                          │     │
-│  │ - historySnippets: past sessions solving similar problems  │     │
-│  │ - suggestedCassQueries: deeper searches if needed          │     │
-│  └───────────────────────────────┬────────────────────────────┘     │
-│                                  │                                  │
-│                                  ▼                                  │
-│  INJECT INTO AGENT CONTEXT                                          │
-│  ┌────────────────────────────────────────────────────────────┐     │
-│  │ Agent system prompt includes:                               │     │
-│  │                                                             │     │
-│  │ ## CASS Memory Context                                      │     │
-│  │ The following rules have been learned from past sessions:   │     │
-│  │                                                             │     │
-│  │ ### Rules (apply these)                                     │     │
-│  │ - [b-8f3a2c] Always validate JWT expiry before debugging   │     │
-│  │ - [b-2d4e6f] Use httptest for auth endpoint testing        │     │
-│  │                                                             │     │
-│  │ ### Anti-patterns (avoid these)                             │     │
-│  │ - [b-9a1b3c] Don't cache tokens without expiry validation  │     │
-│  │                                                             │     │
-│  │ When a rule helps, note: [cass: helpful b-xyz]             │     │
-│  │ When a rule harms, note: [cass: harmful b-xyz]             │     │
-│  └────────────────────────────────────────────────────────────┘     │
-│                                                                     │
-│  DURING WORK                                                        │
-│  Agent references rules, leaves inline feedback                     │
-│  // [cass: helpful b-8f3a2c] - caught the token expiry issue        │
-│                                                                     │
-│  POST-TASK                                                          │
-│  ┌────────────────────────────────────────────────────────────┐     │
-│  │ cm reflect --days 1 --json                                  │     │
-│  │                                                             │     │
-│  │ Extracts patterns from new session, proposes rules          │     │
-│  │ Validator checks evidence, curator updates playbook         │     │
-│  └────────────────────────────────────────────────────────────┘     │
-│                                                                     │
-└─────────────────────────────────────────────────────────────────────┘
-```
-
-### Concrete Integration Points
-
-#### 1. Pre-Task Context Injection
-
-When spawning agents or sending prompts, inject relevant memory:
+Before sending a prompt to an agent, search CASS for relevant past solutions:
 
 ```go
-// internal/memory/context.go
-type MemoryContext struct {
-    Rules        []Rule       `json:"relevantBullets"`
-    AntiPatterns []Rule       `json:"antiPatterns"`
-    History      []Snippet    `json:"historySnippets"`
-    Queries      []string     `json:"suggestedCassQueries"`
+// internal/context/historical.go - NEW FILE
+
+type HistoricalContext struct {
+    Sessions []SessionSnippet `json:"sessions"`
+    Query    string           `json:"query"`
+    Count    int              `json:"count"`
 }
 
-func GetMemoryContext(taskDescription string) (*MemoryContext, error) {
-    out, err := exec.Command("cm", "context", taskDescription, "--json").Output()
+type SessionSnippet struct {
+    SessionID   string    `json:"session_id"`
+    AgentType   string    `json:"agent_type"`
+    Timestamp   time.Time `json:"timestamp"`
+    Snippet     string    `json:"snippet"`
+    Relevance   float64   `json:"relevance"`
+    ProjectPath string    `json:"project_path,omitempty"`
+}
+
+// searchHistoricalContext searches CASS for relevant past sessions
+func searchHistoricalContext(task string, limit int) (*HistoricalContext, error) {
+    // Use CASS semantic search for best results
+    cmd := exec.Command("cass", "search",
+        "--query", task,
+        "--limit", fmt.Sprintf("%d", limit),
+        "--mode", "hybrid",  // Combined full-text + semantic
+        "--json",
+    )
+
+    out, err := cmd.Output()
     if err != nil {
-        // Graceful degradation: continue without memory
-        log.Printf("cm context failed (continuing without memory): %v", err)
-        return &MemoryContext{}, nil
+        // CASS not available, continue without historical context
+        log.Printf("CASS search failed (continuing without history): %v", err)
+        return &HistoricalContext{Query: task}, nil
     }
 
-    var ctx MemoryContext
+    var ctx HistoricalContext
+    if err := json.Unmarshal(out, &ctx); err != nil {
+        return nil, err
+    }
+    ctx.Query = task
+    return &ctx, nil
+}
+
+// formatHistoricalPrompt formats historical context for injection into agent prompt
+func formatHistoricalPrompt(ctx *HistoricalContext) string {
+    if len(ctx.Sessions) == 0 {
+        return ""
+    }
+
+    var sb strings.Builder
+    sb.WriteString("## Historical Context (from past sessions)\n\n")
+    sb.WriteString("Similar problems have been solved before. Here are relevant snippets:\n\n")
+
+    for i, s := range ctx.Sessions {
+        sb.WriteString(fmt.Sprintf("### Session %d (%s, %s)\n",
+            i+1, s.AgentType, s.Timestamp.Format("2006-01-02")))
+        sb.WriteString("```\n")
+        // Truncate long snippets
+        snippet := s.Snippet
+        if len(snippet) > 500 {
+            snippet = snippet[:500] + "..."
+        }
+        sb.WriteString(snippet)
+        sb.WriteString("\n```\n\n")
+    }
+
+    sb.WriteString("Use these as reference, but adapt to current context.\n\n")
+    return sb.String()
+}
+
+// enrichPromptWithHistory adds historical context to a task prompt
+func enrichPromptWithHistory(prompt string, historyLimit int) (string, error) {
+    ctx, err := searchHistoricalContext(prompt, historyLimit)
+    if err != nil {
+        return prompt, err
+    }
+
+    historicalSection := formatHistoricalPrompt(ctx)
+    if historicalSection == "" {
+        return prompt, nil
+    }
+
+    return fmt.Sprintf("%s\n---\n\n%s", historicalSection, prompt), nil
+}
+```
+
+### Integration 2: Project-Specific History
+
+Search only sessions from the current project:
+
+```go
+// internal/context/project_history.go
+
+// searchProjectHistory searches CASS for sessions in the current project
+func searchProjectHistory(projectPath, task string, limit int) (*HistoricalContext, error) {
+    cmd := exec.Command("cass", "search",
+        "--query", task,
+        "--project", projectPath,  // Filter to current project
+        "--limit", fmt.Sprintf("%d", limit),
+        "--mode", "semantic",
+        "--json",
+    )
+
+    out, err := cmd.Output()
+    if err != nil {
+        return nil, err
+    }
+
+    var ctx HistoricalContext
     if err := json.Unmarshal(out, &ctx); err != nil {
         return nil, err
     }
     return &ctx, nil
 }
-
-func FormatMemoryPrompt(ctx *MemoryContext) string {
-    var sb strings.Builder
-    sb.WriteString("## CASS Memory Context\n\n")
-
-    if len(ctx.Rules) > 0 {
-        sb.WriteString("### Rules (apply these)\n")
-        for _, r := range ctx.Rules {
-            sb.WriteString(fmt.Sprintf("- [%s] %s (confidence: %.2f)\n",
-                r.ID, r.Content, r.EffectiveScore))
-        }
-        sb.WriteString("\n")
-    }
-
-    if len(ctx.AntiPatterns) > 0 {
-        sb.WriteString("### Anti-patterns (avoid these)\n")
-        for _, r := range ctx.AntiPatterns {
-            sb.WriteString(fmt.Sprintf("- [%s] PITFALL: %s\n", r.ID, r.Content))
-        }
-        sb.WriteString("\n")
-    }
-
-    sb.WriteString("When a rule helps: `// [cass: helpful <id>]`\n")
-    sb.WriteString("When a rule harms: `// [cass: harmful <id>]`\n")
-
-    return sb.String()
-}
 ```
 
-#### 2. Automatic Post-Session Reflection
+### Integration 3: Error Resolution History
 
-When a session ends or is compacted, trigger reflection:
+When an agent hits an error, search for past solutions:
 
 ```go
-// internal/session/lifecycle.go
-func (m *Manager) OnSessionEnd(session string) {
-    // 1. Wait for session logs to be indexed by CASS
-    time.Sleep(5 * time.Second)
+// internal/monitor/error_history.go
 
-    // 2. Trigger reflection on recent sessions
-    go func() {
-        cmd := exec.Command("cm", "reflect", "--days", "1", "--json")
-        out, err := cmd.Output()
-        if err != nil {
-            log.Printf("Reflection failed: %v", err)
-            return
-        }
+// searchErrorHistory searches CASS for past solutions to similar errors
+func searchErrorHistory(errorMessage string) ([]SessionSnippet, error) {
+    // Extract key error terms
+    keywords := extractErrorKeywords(errorMessage)
+    query := fmt.Sprintf("error fix solution: %s", strings.Join(keywords, " "))
 
-        var result struct {
-            NewRules []struct {
-                Content  string `json:"content"`
-                Category string `json:"category"`
-            } `json:"proposedRules"`
-        }
-        json.Unmarshal(out, &result)
+    cmd := exec.Command("cass", "search",
+        "--query", query,
+        "--limit", "3",
+        "--mode", "semantic",
+        "--json",
+    )
 
-        // 3. Notify via Agent Mail if new rules were learned
-        if len(result.NewRules) > 0 {
-            notifyNewRules(session, result.NewRules)
-        }
-    }()
+    out, err := cmd.Output()
+    if err != nil {
+        return nil, err
+    }
+
+    var result struct {
+        Sessions []SessionSnippet `json:"sessions"`
+    }
+    if err := json.Unmarshal(out, &result); err != nil {
+        return nil, err
+    }
+    return result.Sessions, nil
 }
-```
 
-#### 3. Memory-Aware Task Assignment
+// extractErrorKeywords extracts searchable terms from error message
+func extractErrorKeywords(error string) []string {
+    // Remove noise, extract key terms
+    // Example: "undefined: foo.Bar" -> ["undefined", "foo.Bar"]
+    var keywords []string
 
-Use memory to inform agent selection:
+    // Split on common separators
+    parts := strings.FieldsFunc(error, func(r rune) bool {
+        return r == ':' || r == '\n' || r == '\t'
+    })
 
-```go
-// internal/robot/assign.go - enhance existing logic
-func generateAssignments(agents []agentInfo, beads []bv.BeadPreview, ...) []AssignRecommend {
-    for _, bead := range beads {
-        // Get memory context for this task
-        memCtx, _ := GetMemoryContext(bead.Title)
-
-        // Check if any rules suggest specific agent types
-        for _, rule := range memCtx.Rules {
-            if strings.Contains(rule.Content, "claude excels at") {
-                // Boost claude agent preference
-            }
-            if strings.Contains(rule.Content, "codex faster for") {
-                // Boost codex agent preference
-            }
+    for _, p := range parts {
+        p = strings.TrimSpace(p)
+        if len(p) > 3 && len(p) < 100 {
+            keywords = append(keywords, p)
         }
     }
+
+    return keywords
 }
 ```
 
-#### 4. Robot Mode Output
-
-Add memory status to `--robot-snapshot`:
-
-```json
-{
-  "success": true,
-  "sessions": [...],
-  "memory": {
-    "playbook_size": 247,
-    "proven_rules": 45,
-    "established_rules": 89,
-    "candidate_rules": 113,
-    "anti_patterns": 23,
-    "last_reflection": "2025-01-03T14:30:00Z",
-    "top_categories": ["debugging", "testing", "git"]
-  }
-}
-```
-
-### New NTM Commands
+### New NTM Commands for CASS Integration
 
 ```bash
-# Memory integration
-ntm memory status                      # Show playbook health
-ntm memory context "task description"  # Get relevant rules
-ntm memory reflect                     # Trigger post-session reflection
-ntm memory inject <session> <task>     # Inject rules into running session
+# Historical search
+ntm history search "implement JWT auth"     # Search past sessions
+ntm history project                         # Search current project only
+ntm history errors "undefined: foo.Bar"     # Search error solutions
 
-# In robot mode
-ntm --robot-memory                     # JSON memory status
+# Context injection
+ntm spawn myproject --cc=2 --history=5      # Inject top 5 relevant sessions
+
+# Robot mode
+ntm --robot-history "query"                 # JSON historical context
 ```
 
 ---
 
-## Integration: SLB (Safety Guardrails)
+## UNDEREXPLORED: s2p (Source-to-Prompt) Context Preparation
 
-### What SLB Does
+### The Opportunity
 
-SLB implements a **two-person rule** for potentially destructive commands. Before dangerous operations execute, a second agent (or human) must explicitly approve. Key capabilities:
+s2p converts source code to LLM-ready prompts with **real-time token counting**. This prevents context overflow—a common problem when agents try to read too many files.
 
-- **Risk tier classification**: CRITICAL (2+ approvals), DANGEROUS (1 approval), CAUTION (auto-approve delay), SAFE (immediate)
-- **HMAC-signed reviews**: Cryptographic proof of who approved what
-- **Client-side execution**: Commands run in caller's environment (inherits credentials)
-- **Audit trail**: Complete history in SQLite and Agent Mail
+### s2p Capabilities
 
-### Risk Tier Examples
+| Feature | Description |
+|---------|-------------|
+| **Token counting** | Real-time counting with multiple tokenizer support |
+| **Structured output** | XML format for reliable LLM parsing |
+| **File selection** | Glob patterns, presets, or interactive TUI |
+| **Tree inclusion** | Optional directory structure context |
+| **Smart truncation** | Truncates at logical boundaries (functions, classes) |
 
-| Tier | Pattern Examples | Approvals | Auto-approve |
-|------|------------------|-----------|--------------|
-| CRITICAL | `rm -rf /`, `DROP DATABASE`, `terraform destroy`, `git push --force main` | 2+ | Never |
-| DANGEROUS | `rm -rf ./build`, `git reset --hard`, `kubectl delete deployment` | 1 | Never |
-| CAUTION | `rm file.txt`, `npm uninstall`, `git branch -d` | 0 | After 30s |
-| SAFE | `rm *.log`, `git stash`, `kubectl delete pod` | 0 | Immediate |
+### Integration 1: Token-Budgeted Context Preparation
 
-### Integration Architecture
-
-```
-┌─────────────────────────────────────────────────────────────────────┐
-│                    NTM + SLB Safety Layer                            │
-├─────────────────────────────────────────────────────────────────────┤
-│                                                                     │
-│  Agent wants to run: rm -rf ./node_modules                          │
-│       │                                                             │
-│       ▼                                                             │
-│  ┌─────────────────────────────────────────────────────────────┐    │
-│  │                   SLB Pattern Engine                         │    │
-│  │   Classifies: DANGEROUS (rm -rf with recursive flag)        │    │
-│  │   Requires: 1 approval                                       │    │
-│  └───────────────────────────┬─────────────────────────────────┘    │
-│                              │                                      │
-│       ┌──────────────────────┴────────────────────┐                 │
-│       │                                           │                 │
-│       ▼                                           ▼                 │
-│  ┌────────────┐                           ┌────────────────────┐    │
-│  │ Request    │   Agent Mail Notification │ Reviewer Agent     │    │
-│  │ Created    │ ─────────────────────────▶│ (or Human via TUI) │    │
-│  │            │                           │                    │    │
-│  │ Blocked... │ ◀─────────────────────────│ APPROVED (signed)  │    │
-│  └────────────┘                           └────────────────────┘    │
-│       │                                                             │
-│       ▼                                                             │
-│  ┌─────────────────────────────────────────────────────────────┐    │
-│  │                   Command Executes                           │    │
-│  │   - In agent's shell environment                            │    │
-│  │   - Audit logged to .slb/state.db                           │    │
-│  │   - Notification sent to Agent Mail                         │    │
-│  └─────────────────────────────────────────────────────────────┘    │
-│                                                                     │
-└─────────────────────────────────────────────────────────────────────┘
-```
-
-### Concrete Integration Points
-
-#### 1. SLB-Wrapped Command Execution
-
-For agents, wrap dangerous commands through SLB:
+Before spawning an agent, prepare context within token budget:
 
 ```go
-// internal/agents/execute.go
-type CommandExecutor struct {
-    slbEnabled bool
-    sessionID  string
-    sessionKey string
+// internal/context/s2p.go - NEW FILE
+
+type S2PConfig struct {
+    Files       []string `json:"files"`
+    TokenBudget int      `json:"token_budget"`
+    IncludeTree bool     `json:"include_tree"`
+    Format      string   `json:"format"` // "xml", "markdown", "plain"
 }
 
-func (e *CommandExecutor) Execute(cmd string, justification string) error {
-    // Check if SLB is enabled and command is risky
-    if e.slbEnabled && isRisky(cmd) {
-        return e.executeWithSLB(cmd, justification)
-    }
-    return e.executeDirect(cmd)
+type S2POutput struct {
+    Content     string `json:"content"`
+    TokenCount  int    `json:"token_count"`
+    FileCount   int    `json:"file_count"`
+    Truncated   bool   `json:"truncated"`
+    TruncatedAt string `json:"truncated_at,omitempty"`
 }
 
-func (e *CommandExecutor) executeWithSLB(cmd, justification string) error {
-    // Use slb run for atomic request+wait+execute
+// prepareContext uses s2p to prepare context within token budget
+func prepareContext(cfg S2PConfig) (*S2POutput, error) {
     args := []string{
-        "run", cmd,
-        "--reason", justification,
-        "--session-id", e.sessionID,
+        "--files", strings.Join(cfg.Files, ","),
+        "--budget", fmt.Sprintf("%d", cfg.TokenBudget),
+        "--format", cfg.Format,
+        "--json",
     }
 
-    slbCmd := exec.Command("slb", args...)
-    slbCmd.Stdout = os.Stdout
-    slbCmd.Stderr = os.Stderr
+    if cfg.IncludeTree {
+        args = append(args, "--tree")
+    }
 
-    // This blocks until approved, rejected, or timeout
-    if err := slbCmd.Run(); err != nil {
-        if exitErr, ok := err.(*exec.ExitError); ok {
-            if exitErr.ExitCode() == 2 {
-                return fmt.Errorf("request rejected by reviewer")
-            }
-            if exitErr.ExitCode() == 3 {
-                return fmt.Errorf("request timed out waiting for approval")
-            }
+    cmd := exec.Command("s2p", args...)
+    out, err := cmd.Output()
+    if err != nil {
+        return nil, fmt.Errorf("s2p failed: %w", err)
+    }
+
+    var output S2POutput
+    if err := json.Unmarshal(out, &output); err != nil {
+        return nil, err
+    }
+    return &output, nil
+}
+
+// prepareAgentContext prepares context for an agent with budget enforcement
+func prepareAgentContext(files []string, agentType string) (*S2POutput, error) {
+    // Different agents have different context limits
+    budgets := map[string]int{
+        "claude": 180000, // Claude has large context
+        "codex":  120000, // Codex medium
+        "gemini": 100000, // Gemini
+    }
+
+    budget := budgets[agentType]
+    if budget == 0 {
+        budget = 100000 // Default
+    }
+
+    return prepareContext(S2PConfig{
+        Files:       files,
+        TokenBudget: budget,
+        IncludeTree: true,
+        Format:      "xml", // Best for reliable parsing
+    })
+}
+```
+
+### Integration 2: Automatic File Discovery
+
+Use s2p with glob patterns for automatic file discovery:
+
+```go
+// internal/context/discovery.go
+
+// discoverRelevantFiles finds files relevant to a task
+func discoverRelevantFiles(task string, projectPath string) ([]string, error) {
+    // Use s2p's smart discovery
+    cmd := exec.Command("s2p",
+        "--discover",
+        "--query", task,
+        "--path", projectPath,
+        "--json",
+    )
+
+    out, err := cmd.Output()
+    if err != nil {
+        // Fallback to basic glob
+        return globFiles(projectPath, "**/*.go", "**/*.py", "**/*.js")
+    }
+
+    var result struct {
+        Files []string `json:"files"`
+    }
+    if err := json.Unmarshal(out, &result); err != nil {
+        return nil, err
+    }
+    return result.Files, nil
+}
+```
+
+### Integration 3: Pipeline Stage Context
+
+Prepare context for multi-stage pipelines:
+
+```go
+// internal/pipeline/context.go
+
+// preparePipelineContext prepares context for each pipeline stage
+func preparePipelineContext(pipeline Pipeline) error {
+    for i, stage := range pipeline.Stages {
+        // Determine files relevant to this stage
+        files, err := discoverRelevantFiles(stage.Prompt, pipeline.WorkDir)
+        if err != nil {
+            return err
         }
-        return err
+
+        // Prepare context within budget
+        ctx, err := prepareAgentContext(files, stage.AgentType)
+        if err != nil {
+            return err
+        }
+
+        // Inject into stage prompt
+        pipeline.Stages[i].Prompt = fmt.Sprintf(
+            "## Context (%d tokens, %d files)\n\n%s\n\n---\n\n## Task\n\n%s",
+            ctx.TokenCount, ctx.FileCount, ctx.Content, stage.Prompt,
+        )
+
+        if ctx.Truncated {
+            log.Printf("Stage %d context truncated at %s", i, ctx.TruncatedAt)
+        }
     }
     return nil
 }
 ```
 
-#### 2. NTM as SLB Reviewer Dispatcher
-
-NTM can route SLB approval requests to appropriate reviewers:
-
-```go
-// internal/slb/dispatcher.go
-func WatchSLBRequests(session string) {
-    // Watch for pending SLB requests
-    cmd := exec.Command("slb", "watch", "--json")
-    stdout, _ := cmd.StdoutPipe()
-    cmd.Start()
-
-    scanner := bufio.NewScanner(stdout)
-    for scanner.Scan() {
-        var event struct {
-            Type      string `json:"type"`
-            RequestID string `json:"request_id"`
-            Tier      string `json:"tier"`
-            Command   string `json:"command"`
-            Requestor string `json:"requestor"`
-        }
-        json.Unmarshal(scanner.Bytes(), &event)
-
-        if event.Type == "request_pending" {
-            // Find appropriate reviewer (different agent than requestor)
-            reviewer := findReviewer(session, event.Requestor, event.Tier)
-
-            // Notify via Agent Mail
-            sendReviewRequest(reviewer, event)
-        }
-    }
-}
-
-func findReviewer(session, requestor, tier string) string {
-    panes, _ := tmux.GetPanes(session)
-
-    // For CRITICAL: prefer different model
-    // For DANGEROUS: prefer different agent
-    for _, pane := range panes {
-        if pane.AgentName != requestor {
-            if tier == "critical" && pane.Model != getAgentModel(requestor) {
-                return pane.AgentName
-            }
-            return pane.AgentName
-        }
-    }
-
-    // Fallback: notify human via desktop notification
-    return "HUMAN"
-}
-```
-
-#### 3. SLB Status in Dashboard
-
-Show pending approvals in NTM dashboard:
-
-```go
-// internal/dashboard/slb.go
-type SLBStatus struct {
-    PendingRequests []struct {
-        ID        string    `json:"id"`
-        Command   string    `json:"command"`
-        Tier      string    `json:"tier"`
-        Requestor string    `json:"requestor"`
-        CreatedAt time.Time `json:"created_at"`
-        ExpiresAt time.Time `json:"expires_at"`
-    } `json:"pending"`
-    RecentApprovals int `json:"recent_approvals_24h"`
-    RecentRejections int `json:"recent_rejections_24h"`
-}
-
-func GetSLBStatus() (*SLBStatus, error) {
-    out, err := exec.Command("slb", "pending", "--json").Output()
-    if err != nil {
-        return nil, err
-    }
-    var status SLBStatus
-    json.Unmarshal(out, &status)
-    return &status, nil
-}
-```
-
-#### 4. Emergency Override Integration
-
-For human operators, NTM can facilitate emergency overrides:
+### New NTM Commands for s2p Integration
 
 ```bash
-# In NTM TUI: Ctrl+E opens emergency override prompt
-# Logs to SLB with audit trail
-ntm emergency "rm -rf /stuck/process/files" --reason "Process hung, manual intervention required"
-```
+# Context preparation
+ntm context prepare "*.go" --budget=100000   # Prepare Go files
+ntm context discover "implement auth"        # Find relevant files
 
-### New NTM Commands
+# Spawn with prepared context
+ntm spawn myproject --cc=2 --context="internal/**/*.go"
 
-```bash
-# SLB integration
-ntm safety status                      # Show pending requests
-ntm safety approve <request-id>        # Approve as current user
-ntm safety reject <request-id>         # Reject with reason
-ntm safety history                     # Show recent approvals/rejections
-ntm safety patterns test "cmd"         # Test what tier a command would be
-
-# In robot mode
-ntm --robot-safety                     # JSON safety status
+# Robot mode
+ntm --robot-context "*.go" --budget=50000    # JSON context output
 ```
 
 ---
 
-## Integration: MCP Agent Mail
+## UNDEREXPLORED: UBS Dashboard & Agent Notifications
 
-### Current State
+### The Opportunity
 
-MCP Agent Mail is already integrated with NTM at a basic level. This section describes deeper integration.
+UBS is already integrated in `internal/scanner/`, but the **dashboard integration** and **agent notification** capabilities are minimal. Agents should know about bug scan results.
+
+### Current UBS Integration
+
+The existing integration (`internal/scanner/`) provides:
+- Scanning files on demand
+- Beads bridge (creating issues from findings)
+- JSON output parsing
+
+### What's Missing
+
+1. **Dashboard widget** showing scan status
+2. **Agent notifications** when bugs are found
+3. **Session-level quality metrics**
+4. **Pre-commit integration** with agent awareness
+
+### Integration 1: Dashboard Bug Widget
+
+```go
+// internal/dashboard/ubs.go - NEW FILE
+
+type UBSStatus struct {
+    LastScan       time.Time       `json:"last_scan"`
+    TotalFindings  int             `json:"total_findings"`
+    BySeverity     map[string]int  `json:"by_severity"`
+    RecentFindings []UBSFinding    `json:"recent_findings"`
+    ScanDuration   time.Duration   `json:"scan_duration"`
+}
+
+type UBSFinding struct {
+    File     string `json:"file"`
+    Line     int    `json:"line"`
+    Severity string `json:"severity"`
+    Message  string `json:"message"`
+    Rule     string `json:"rule"`
+}
+
+// getUBSStatus fetches current bug scan status
+func getUBSStatus() (*UBSStatus, error) {
+    // Check for recent scan results
+    resultsPath := filepath.Join(".ubs", "last_scan.json")
+    data, err := os.ReadFile(resultsPath)
+    if err != nil {
+        return &UBSStatus{}, nil // No recent scan
+    }
+
+    var status UBSStatus
+    if err := json.Unmarshal(data, &status); err != nil {
+        return nil, err
+    }
+    return &status, nil
+}
+```
+
+### Integration 2: Agent Bug Notifications
+
+Notify agents when UBS finds bugs in files they're working on:
+
+```go
+// internal/monitor/ubs_notify.go - NEW FILE
+
+type BugNotifier struct {
+    session     string
+    watchedDirs []string
+}
+
+// watchForBugs monitors file changes and notifies agents of new bugs
+func (n *BugNotifier) watchForBugs(ctx context.Context) {
+    ticker := time.NewTicker(30 * time.Second)
+    defer ticker.Stop()
+
+    var lastScanTime time.Time
+
+    for {
+        select {
+        case <-ctx.Done():
+            return
+        case <-ticker.C:
+            // Check for file changes since last scan
+            changedFiles := getChangedFiles(lastScanTime)
+            if len(changedFiles) == 0 {
+                continue
+            }
+
+            // Run quick UBS scan on changed files
+            findings := runQuickScan(changedFiles)
+            lastScanTime = time.Now()
+
+            if len(findings) > 0 {
+                // Notify agents working on affected files
+                n.notifyAgents(findings)
+            }
+        }
+    }
+}
+
+// notifyAgents sends bug findings to relevant agents via Agent Mail
+func (n *BugNotifier) notifyAgents(findings []UBSFinding) {
+    // Group findings by file
+    byFile := make(map[string][]UBSFinding)
+    for _, f := range findings {
+        byFile[f.File] = append(byFile[f.File], f)
+    }
+
+    // Find which agent is working on each file
+    panes, _ := tmux.GetPanes(n.session)
+    for _, pane := range panes {
+        agentFiles := detectAgentWorkingFiles(pane.ID)
+
+        for file, fileFindings := range byFile {
+            if contains(agentFiles, file) {
+                // Send notification to this agent
+                sendBugNotification(pane, file, fileFindings)
+            }
+        }
+    }
+}
+
+// sendBugNotification formats and sends bug notification
+func sendBugNotification(pane tmux.Pane, file string, findings []UBSFinding) {
+    var msg strings.Builder
+    msg.WriteString(fmt.Sprintf("⚠️ UBS found %d issue(s) in %s:\n\n", len(findings), file))
+
+    for _, f := range findings {
+        msg.WriteString(fmt.Sprintf("- Line %d [%s]: %s\n", f.Line, f.Severity, f.Message))
+    }
+
+    // Send via tmux (appears in agent's pane)
+    tmux.SendKeys(pane.ID, fmt.Sprintf("echo '%s'", msg.String()), true)
+
+    // Also send via Agent Mail for persistence
+    agentmail.SendMessage(agentmail.Message{
+        To:         []string{pane.AgentName},
+        Subject:    fmt.Sprintf("Bug findings in %s", file),
+        BodyMD:     msg.String(),
+        Importance: determineBugImportance(findings),
+    })
+}
+
+// determineBugImportance sets importance based on severity
+func determineBugImportance(findings []UBSFinding) string {
+    for _, f := range findings {
+        if f.Severity == "critical" || f.Severity == "high" {
+            return "high"
+        }
+    }
+    return "normal"
+}
+```
+
+### Integration 3: Session Quality Metrics
+
+Track bugs introduced/fixed per agent:
+
+```go
+// internal/metrics/quality.go - NEW FILE
+
+type SessionQuality struct {
+    SessionID      string         `json:"session_id"`
+    StartTime      time.Time      `json:"start_time"`
+    BugsAtStart    int            `json:"bugs_at_start"`
+    BugsNow        int            `json:"bugs_now"`
+    BugsFixed      int            `json:"bugs_fixed"`
+    BugsIntroduced int            `json:"bugs_introduced"`
+    ByAgent        map[string]int `json:"by_agent"` // agent -> net bugs
+}
+
+// trackSessionQuality monitors bug count changes
+func trackSessionQuality(session string) *SessionQuality {
+    sq := &SessionQuality{
+        SessionID: session,
+        StartTime: time.Now(),
+        ByAgent:   make(map[string]int),
+    }
+
+    // Get initial bug count
+    initialFindings := runFullScan()
+    sq.BugsAtStart = len(initialFindings)
+
+    return sq
+}
+
+// updateQualityMetrics updates metrics after file changes
+func (sq *SessionQuality) updateQualityMetrics(agentName string, changedFiles []string) {
+    beforeCount := sq.BugsNow
+
+    // Rescan changed files
+    findings := runQuickScan(changedFiles)
+    sq.BugsNow = len(findings)
+
+    // Calculate delta
+    delta := sq.BugsNow - beforeCount
+
+    if delta > 0 {
+        sq.BugsIntroduced += delta
+        sq.ByAgent[agentName] += delta
+    } else if delta < 0 {
+        sq.BugsFixed += -delta
+        sq.ByAgent[agentName] += delta // negative = good
+    }
+}
+```
+
+### New NTM Commands for UBS Integration
+
+```bash
+# Bug scanning
+ntm scan                              # Run UBS scan
+ntm scan --watch                      # Continuous scanning
+ntm scan --notify                     # Scan with agent notifications
+
+# Quality metrics
+ntm quality                           # Show session quality metrics
+ntm quality --by-agent                # Quality breakdown by agent
+
+# Robot mode
+ntm --robot-bugs                      # JSON bug status
+ntm --robot-quality                   # JSON quality metrics
+```
+
+---
+
+## Existing Integration: CAAM (Coding Agent Account Manager)
+
+*[This section describes the existing planned integration. Key points:]*
+
+### What CAAM Does
+
+- **Sub-100ms account switching** for AI CLIs
+- **Vault-based profiles**: Backup/restore auth without browser OAuth
+- **Smart rotation**: Multi-factor scoring for profile selection
+- **Rate limit failover**: Automatic account switching on rate limit
+- **Health scoring**: Token validity tracking with expiry warnings
+
+### Integration Points
+
+1. **Account assignment on spawn**: `ntm spawn --cc=3 --account-strategy=round-robin`
+2. **Automatic rate limit failover**: Detect rate limit, switch account, retry
+3. **Health dashboard integration**: Show account status in web dashboard
+4. **Robot mode output**: `ntm --robot-accounts`
+
+### Implementation Status: Planned
+
+```go
+// internal/accounts/caam.go - PLANNED
+func assignAccounts(agentType string, count int, strategy string) ([]string, error) {
+    // Query caam for available profiles
+    // Distribute agents across profiles
+    // Return account assignments
+}
+
+func handleRateLimit(paneID, currentProfile string) error {
+    // 1. Mark cooldown via caam
+    // 2. Get next profile
+    // 3. Activate new profile
+    // 4. Notify via Agent Mail
+}
+```
+
+---
+
+## Existing Integration: CASS Memory System (CM)
+
+*[This section describes the existing planned integration. Key points:]*
+
+### What CM Does
+
+- **Three-layer cognitive memory**: Episodic (CASS), Working (Diary), Procedural (Playbook)
+- **Cross-agent learning**: Rules from Claude benefit Codex
+- **Confidence decay**: 90-day half-life prevents stale rules
+- **Evidence-based validation**: Rules require historical support
+
+### Integration Points
+
+1. **Pre-task context injection**: `cm context "task" --json`
+2. **Automatic post-session reflection**: `cm reflect --days 1`
+3. **Memory-aware task assignment**: Use rules to inform agent selection
+4. **Robot mode output**: `ntm --robot-memory`
+
+### Implementation Status: Planned
+
+```go
+// internal/memory/context.go - PLANNED
+func GetMemoryContext(taskDescription string) (*MemoryContext, error) {
+    // Query cm context
+    // Parse rules and anti-patterns
+    // Format for injection
+}
+
+func OnSessionEnd(session string) {
+    // Trigger cm reflect
+    // Notify if new rules learned
+}
+```
+
+---
+
+## Existing Integration: SLB (Safety Guardrails)
+
+*[This section describes the existing planned integration. Key points:]*
+
+### What SLB Does
+
+- **Two-person rule** for destructive commands
+- **Risk tiers**: CRITICAL (2+), DANGEROUS (1), CAUTION (delay), SAFE
+- **HMAC-signed reviews**: Cryptographic audit trail
+- **Client-side execution**: Commands run in caller's environment
+
+### Integration Points
+
+1. **SLB-wrapped command execution**: Agents route dangerous commands through SLB
+2. **NTM as reviewer dispatcher**: Route approval requests to appropriate agents
+3. **Dashboard integration**: Show pending approvals
+4. **Emergency override**: `ntm emergency "cmd" --reason="..."`
+
+### Implementation Status: Planned
+
+```go
+// internal/slb/executor.go - PLANNED
+func (e *CommandExecutor) executeWithSLB(cmd, justification string) error {
+    // Use slb run for atomic request+wait+execute
+    // Block until approved, rejected, or timeout
+}
+
+func WatchSLBRequests(session string) {
+    // Watch for pending requests
+    // Dispatch to appropriate reviewers
+}
+```
+
+---
+
+## Existing Integration: MCP Agent Mail
+
+*[This section describes the existing integration. Key points:]*
+
+### What Agent Mail Does
+
+- **Inter-agent messaging**: Markdown messages between agents
+- **File reservations**: Prevent multi-agent edit conflicts
+- **Thread tracking**: Conversation continuity
+- **Git-backed persistence**: All messages versioned
+
+### Current Integration
+
+- Basic session threads
+- Basic message routing
 
 ### Enhanced Integration Points
 
-#### 1. Automatic Session Threads
+1. **Automatic session threads**: Create thread on session spawn
+2. **File reservation for parallel agents**: Reserve files before work
+3. **Cross-agent communication**: `ntm mail send`, `ntm mail broadcast`
 
-When NTM spawns a session, automatically create an Agent Mail thread:
+### Implementation Status: Basic (could be deeper)
 
-```go
-// internal/session/mail.go
-func CreateSessionThread(session string, agents []AgentInfo) error {
-    // Create thread for session coordination
-    threadID := fmt.Sprintf("NTM-%s", session)
+---
 
-    // Register all agents
-    for _, agent := range agents {
-        _, err := agentmail.RegisterAgent(session, agent.Type, agent.Model, agent.Name)
-        if err != nil {
-            return err
-        }
-    }
+## Ecosystem Discovery: Additional Tools
 
-    // Send initial coordination message
-    return agentmail.SendMessage(agentmail.Message{
-        ProjectKey: getCurrentProjectPath(),
-        SenderName: "NTM-Orchestrator",
-        To:         getAgentNames(agents),
-        Subject:    fmt.Sprintf("Session %s started", session),
-        BodyMD:     formatSessionInfo(session, agents),
-        ThreadID:   threadID,
-        Importance: "normal",
-    })
-}
+Research identified **21 total projects** in the ecosystem. Beyond the core 8, these may offer integration value:
+
+### Potentially Valuable
+
+| Tool | Purpose | Integration Opportunity |
+|------|---------|------------------------|
+| **misc_coding_agent_tips_and_scripts** | Battle-tested patterns | Best practices for NTM workflows |
+| **chat_shared_conversation_to_file** | Conversation export | Post-mortem analysis of sessions |
+| **automated_lint_testing_scripts** | Lint automation | Pre-commit hooks for agents |
+
+### Lower Priority
+
+| Tool | Purpose | Notes |
+|------|---------|-------|
+| llm_price_arena | LLM cost comparison | Informational only |
+| project_to_jsonl | Project conversion | One-time use |
+| repo_to_llm_prompt | Similar to s2p | s2p is more capable |
+
+---
+
+## Priority Matrix
+
+### Effort vs. Impact Analysis
+
+```
+                        HIGH IMPACT
+                             │
+     bv Robot Modes ●────────│──────────● CASS Historical Context
+     (Tier 1: Low Effort)    │            (Tier 1: Medium Effort)
+                             │
+                             │
+                             │
+LOW ─────────────────────────┼───────────────────────────────── HIGH
+EFFORT                       │                                  EFFORT
+                             │
+                             │
+     UBS Notifications ●─────│──────────● s2p Context Prep
+     (Tier 2: Low Effort)    │            (Tier 2: Medium Effort)
+                             │
+                             │
+                        LOW IMPACT
 ```
 
-#### 2. File Reservation for Parallel Agents
+### Implementation Tiers
 
-Before agents work on files, reserve them to prevent conflicts:
+#### Tier 1: Immediate High-Value (Do First)
 
-```go
-// internal/agents/files.go
-func ReserveFilesForTask(session, agentName string, files []string) error {
-    return agentmail.FileReservationPaths(agentmail.Reservation{
-        ProjectKey: getCurrentProjectPath(),
-        AgentName:  agentName,
-        Paths:      files,
-        TTLSeconds: 3600,
-        Exclusive:  true,
-        Reason:     fmt.Sprintf("Working on task in session %s", session),
-    })
-}
+| Integration | Effort | Impact | Why |
+|-------------|--------|--------|-----|
+| **bv Robot Modes** | Low | High | Already have bv, just use more modes |
+| **CASS Historical** | Medium | High | Agents stop reinventing solutions |
 
-func ReleaseFilesAfterTask(session, agentName string) error {
-    return agentmail.ReleaseFileReservations(getCurrentProjectPath(), agentName)
-}
-```
+#### Tier 2: Strategic (Do Next)
 
-#### 3. Cross-Agent Communication via NTM
+| Integration | Effort | Impact | Why |
+|-------------|--------|--------|-----|
+| **s2p Context** | Medium | Medium | Prevents context overflow |
+| **UBS Notifications** | Low | Medium | Already have UBS, just add notifications |
 
-```bash
-# Send message to specific agent in session
-ntm mail send myproject/agent-1 "Please review the auth module changes"
+#### Tier 3: Complete the Ecosystem (Do Later)
 
-# Broadcast to all agents
-ntm mail broadcast myproject "Switching to phase 2"
+| Integration | Effort | Impact | Why |
+|-------------|--------|--------|-----|
+| **CAAM** | Medium | Medium | Rate limits are annoying but not critical |
+| **CM Memory** | High | Medium | Complex, requires pipeline changes |
+| **SLB** | Medium | Medium | Safety important but not daily |
 
-# Check inbox for agent
-ntm mail inbox myproject/agent-1
-```
+### Recommended Sequence
+
+1. **Week 1**: bv robot modes integration (track-based assignment, graph insights)
+2. **Week 2**: CASS historical context injection
+3. **Week 3**: UBS notifications + dashboard widget
+4. **Week 4**: s2p context preparation
+5. **Month 2**: CAAM, CM, SLB integrations
 
 ---
 
@@ -852,22 +1475,26 @@ ntm mail inbox myproject/agent-1
 
 ### The NTM Daemon
 
-To coordinate all integrations, NTM should run a lightweight daemon that:
-
-1. **Monitors account health** (CAAM polling)
-2. **Watches for SLB requests** (approval dispatch)
-3. **Triggers memory reflection** (post-session)
-4. **Routes Agent Mail** (session threads)
-5. **Serves web dashboard** (HTTP/WebSocket)
+To coordinate all integrations, NTM should run a lightweight daemon:
 
 ```go
 // internal/daemon/daemon.go
 type Daemon struct {
-    accountWatcher  *caam.HealthWatcher
-    slbDispatcher   *slb.RequestDispatcher
-    memoryReflector *cm.Reflector
-    mailRouter      *agentmail.Router
-    webServer       *dashboard.Server
+    // Existing
+    sessionManager *session.Manager
+
+    // Integrations
+    accountWatcher  *caam.HealthWatcher    // CAAM
+    slbDispatcher   *slb.RequestDispatcher // SLB
+    memoryReflector *cm.Reflector          // CM
+    mailRouter      *agentmail.Router      // Agent Mail
+    bugNotifier     *ubs.Notifier          // UBS (NEW)
+    contextPreparer *s2p.Preparer          // s2p (NEW)
+    trackPlanner    *bv.TrackPlanner       // bv (NEW)
+    historySearcher *cass.Searcher         // CASS (NEW)
+
+    // Web
+    webServer *dashboard.Server
 }
 
 func (d *Daemon) Start() error {
@@ -876,37 +1503,45 @@ func (d *Daemon) Start() error {
     go d.slbDispatcher.Watch()
     go d.memoryReflector.Watch()
     go d.mailRouter.Watch()
+    go d.bugNotifier.Watch()
+
     return d.webServer.ListenAndServe()
 }
 ```
 
 ### Configuration
 
-Unified configuration for all integrations:
-
 ```toml
 # ~/.config/ntm/config.toml
 
 [integrations]
-# Account management
+# bv integration (NEW)
+bv_track_assignment = true
+bv_graph_insights = true
+bv_auto_suggest = true
+
+# CASS integration (NEW)
+cass_history_injection = true
+cass_history_limit = 5
+cass_semantic_search = true
+
+# s2p integration (NEW)
+s2p_context_prep = true
+s2p_token_budget = 100000
+s2p_format = "xml"
+
+# UBS integration (ENHANCED)
+ubs_notifications = true
+ubs_watch_interval = "30s"
+ubs_dashboard_widget = true
+
+# Existing integrations
 caam_enabled = true
 caam_auto_failover = true
-caam_health_poll_interval = "30s"
-
-# Safety layer
-slb_enabled = true
-slb_auto_dispatch_reviews = true
-slb_default_timeout = "30m"
-
-# Memory system
 cm_enabled = true
 cm_auto_inject = true
-cm_reflect_on_session_end = true
-
-# Agent mail
+slb_enabled = true
 agent_mail_enabled = true
-agent_mail_auto_threads = true
-agent_mail_file_reservations = true
 
 [daemon]
 enabled = true
@@ -917,299 +1552,181 @@ web_port = 8080
 
 ## Web Dashboard
 
-### Enhanced Architecture with Integrations
+### Enhanced Architecture with All Integrations
 
 ```
-┌─────────────────────────────────────────────────────────────────────┐
-│                         NTM Web Dashboard                            │
-├─────────────────────────────────────────────────────────────────────┤
-│                                                                     │
-│  ┌──────────────────────────────────────────────────────────────┐   │
-│  │                    Session Overview                          │   │
-│  │  ┌─────────┐ ┌─────────┐ ┌─────────┐ ┌─────────┐            │   │
-│  │  │ Agent 1 │ │ Agent 2 │ │ Agent 3 │ │ Agent 4 │            │   │
-│  │  │ claude  │ │ claude  │ │ codex   │ │ gemini  │            │   │
-│  │  │ 🟢 alice│ │ 🟡 bob  │ │ 🟢 work │ │ 🟢 main │ ← Accounts  │   │
-│  │  │ Working │ │ Idle    │ │ Working │ │ Waiting │ ← Status   │   │
-│  │  └─────────┘ └─────────┘ └─────────┘ └─────────┘            │   │
-│  └──────────────────────────────────────────────────────────────┘   │
-│                                                                     │
-│  ┌────────────────────────┐  ┌────────────────────────────────┐    │
-│  │   SLB Pending (2)      │  │   Memory Context               │    │
-│  │   ┌──────────────────┐ │  │   247 rules in playbook        │    │
-│  │   │ DANGEROUS        │ │  │   45 proven, 89 established    │    │
-│  │   │ rm -rf ./build   │ │  │                                │    │
-│  │   │ [Approve][Reject]│ │  │   Active rules (this session): │    │
-│  │   └──────────────────┘ │  │   - JWT validation first       │    │
-│  │   ┌──────────────────┐ │  │   - Use httptest for auth      │    │
-│  │   │ CRITICAL         │ │  │                                │    │
-│  │   │ DROP TABLE users │ │  │   [View Playbook]              │    │
-│  │   │ Needs 2 approvals│ │  │                                │    │
-│  │   └──────────────────┘ │  └────────────────────────────────┘    │
-│  └────────────────────────┘                                        │
-│                                                                     │
-│  ┌──────────────────────────────────────────────────────────────┐   │
-│  │                    Agent Output Stream                        │   │
-│  │  [Agent 1] Analyzing auth module structure...                │   │
-│  │  [Agent 1] Found 3 files to modify                           │   │
-│  │  [Agent 1] // [cass: helpful b-8f3a2c] - JWT check helped    │   │
-│  │  [Agent 3] Tests passing: 47/50                              │   │
-│  │  [SLB] Approval request created for: rm -rf ./old_tests      │   │
-│  └──────────────────────────────────────────────────────────────┘   │
-│                                                                     │
-└─────────────────────────────────────────────────────────────────────┘
-```
-
-### WebSocket Events
-
-```typescript
-// Dashboard receives these events
-interface NTMEvent {
-  type: 'agent_output' | 'slb_request' | 'memory_rule' | 'account_health' | 'agent_status';
-  timestamp: string;
-  payload: any;
-}
-
-// Example events
-{ type: 'slb_request', payload: { id: 'abc', tier: 'dangerous', command: 'rm -rf ./build' }}
-{ type: 'account_health', payload: { provider: 'claude', account: 'bob@', status: 'cooldown' }}
-{ type: 'memory_rule', payload: { id: 'b-xyz', applied: true, helpful: true }}
-```
-
----
-
-## Zero-Config Quick Start
-
-### One-Liner with Auto-Detection
-
-```bash
-# Current (complex)
-ntm spawn --session=myproject --agents=claude:2,codex:1 \
-    --workdir=/path/to/project --config=~/.config/ntm/config.toml
-
-# New (simple)
-ntm go "refactor the auth module to use JWT"
-
-# What happens:
-# 1. Detect project type (Go, Node, Python, etc.)
-# 2. Detect available agents (claude, codex, gemini)
-# 3. Query CAAM for available accounts
-# 4. Get memory context from cm
-# 5. Spawn appropriate agents
-# 6. Inject memory rules
-# 7. Start web dashboard
-# 8. Begin work
-```
-
-### Implementation
-
-```go
-// internal/cli/go.go
-func runGoCommand(task string) error {
-    // 1. Detect environment
-    env := detectEnvironment()
-
-    // 2. Get accounts
-    accounts, err := getAvailableAccounts()
-    if err != nil {
-        log.Printf("CAAM not available, using defaults")
-    }
-
-    // 3. Get memory context
-    memCtx, err := cm.GetContext(task)
-    if err != nil {
-        log.Printf("Memory not available, continuing without")
-    }
-
-    // 4. Configure agents
-    agentCount := min(len(accounts.Claude), 2)
-    config := SessionConfig{
-        Name:     generateSessionName(task),
-        Agents:   generateAgentConfig(env, accounts, agentCount),
-        Memory:   memCtx,
-        Task:     task,
-    }
-
-    // 5. Spawn session
-    session, err := spawnSession(config)
-    if err != nil {
-        return err
-    }
-
-    // 6. Start dashboard
-    fmt.Printf("Dashboard: http://localhost:8080\n")
-    fmt.Printf("Session: %s\n", session.Name)
-
-    return nil
-}
-```
-
----
-
-## Notifications System
-
-### Multi-Channel Notifications
-
-```toml
-[notifications]
-# Desktop notifications (native OS)
-desktop_enabled = true
-desktop_events = ["slb_approval_needed", "agent_error", "task_complete"]
-
-# Slack webhook
-slack_enabled = true
-slack_webhook = "https://hooks.slack.com/..."
-slack_events = ["slb_approval_needed", "session_complete"]
-
-# Discord webhook
-discord_enabled = true
-discord_webhook = "https://discord.com/api/webhooks/..."
-discord_events = ["agent_error"]
-
-# Sound cues
-sound_enabled = true
-sound_slb_approval = "alert"
-sound_task_complete = "chime"
-```
-
-### Event Types
-
-| Event | Urgency | Channels |
-|-------|---------|----------|
-| `slb_approval_needed` | High | Desktop, Slack, Discord |
-| `agent_error` | High | Desktop, Discord |
-| `rate_limit_hit` | Normal | Desktop |
-| `account_switched` | Low | Dashboard only |
-| `task_complete` | Normal | Desktop, Slack |
-| `memory_rule_learned` | Low | Dashboard only |
-
----
-
-## Session Templates
-
-### Built-in Templates with Integration Awareness
-
-```yaml
-# templates/code-review.yaml
-name: code-review
-description: "Two reviewers + summarizer with memory context"
-
-settings:
-  slb_enabled: true           # Require approval for file deletions
-  memory_injection: true      # Inject relevant rules
-  account_strategy: smart     # Use CAAM smart selection
-
-agents:
-  - name: reviewer-1
-    type: claude
-    model: opus
-    account: auto             # CAAM selects
-    system_prompt: |
-      You are a senior code reviewer.
-      {{ .memory_context }}   # Injected from cm
-
-  - name: reviewer-2
-    type: claude
-    model: opus
-    account: auto
-    system_prompt: |
-      You are a senior code reviewer focusing on security.
-      {{ .memory_context }}
-
-  - name: summarizer
-    type: claude
-    model: sonnet
-    depends_on: [reviewer-1, reviewer-2]
-    system_prompt: |
-      Summarize findings from reviewers.
+┌─────────────────────────────────────────────────────────────────────────┐
+│                           NTM Web Dashboard                               │
+├─────────────────────────────────────────────────────────────────────────┤
+│                                                                         │
+│  ┌────────────────────────────────────────────────────────────────┐     │
+│  │                      Session Overview                           │     │
+│  │  ┌─────────┐ ┌─────────┐ ┌─────────┐ ┌─────────┐               │     │
+│  │  │ Agent 1 │ │ Agent 2 │ │ Agent 3 │ │ Agent 4 │               │     │
+│  │  │ claude  │ │ claude  │ │ codex   │ │ gemini  │               │     │
+│  │  │ Track A │ │ Track B │ │ Track C │ │ Track D │ ← bv Tracks   │     │
+│  │  │ 🟢 alice│ │ 🟡 bob  │ │ 🟢 work │ │ 🟢 main │ ← CAAM        │     │
+│  │  │ Working │ │ Idle    │ │ Working │ │ Waiting │               │     │
+│  │  └─────────┘ └─────────┘ └─────────┘ └─────────┘               │     │
+│  └────────────────────────────────────────────────────────────────┘     │
+│                                                                         │
+│  ┌──────────────────────┐  ┌──────────────────────┐  ┌──────────────┐  │
+│  │   UBS Status (NEW)   │  │  Historical Context  │  │ Graph Metrics│  │
+│  │   2 critical bugs    │  │  5 relevant sessions │  │ (bv insights)│  │
+│  │   7 warnings         │  │  from CASS           │  │              │  │
+│  │   [View All]         │  │  [Search More]       │  │ PageRank: #3 │  │
+│  └──────────────────────┘  └──────────────────────┘  │ InDegree: 5  │  │
+│                                                       └──────────────┘  │
+│  ┌──────────────────────┐  ┌──────────────────────────────────────┐    │
+│  │   SLB Pending (2)    │  │   Memory Context (CM)                │    │
+│  │   ┌────────────────┐ │  │   247 rules in playbook              │    │
+│  │   │ DANGEROUS      │ │  │   45 proven, 89 established          │    │
+│  │   │ rm -rf ./build │ │  │                                      │    │
+│  │   │[Approve][Reject]│ │  │   Active rules (this session):      │    │
+│  │   └────────────────┘ │  │   - JWT validation first             │    │
+│  └──────────────────────┘  │   - Use httptest for auth            │    │
+│                            └──────────────────────────────────────┘    │
+│                                                                         │
+│  ┌──────────────────────────────────────────────────────────────────┐   │
+│  │                    Agent Output Stream                            │   │
+│  │  [Agent 1] Working on Track A (3 items remaining)                │   │
+│  │  [Agent 1] // [cass: helpful b-8f3a2c] - JWT check helped        │   │
+│  │  [UBS] ⚠️ Found 2 issues in auth.go (notified Agent 1)           │   │
+│  │  [Agent 3] Tests passing: 47/50                                  │   │
+│  │  [CASS] Injected 3 relevant historical snippets for Agent 2      │   │
+│  └──────────────────────────────────────────────────────────────────┘   │
+│                                                                         │
+└─────────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
 ## Implementation Roadmap
 
-### Phase 1: Core Integrations (High Priority)
+### Phase 1: Underexplored Integrations (Highest ROI)
 
-**CAAM Integration**
+**bv Robot Modes** (Week 1)
+- [ ] Track-based agent assignment
+- [ ] Graph-based prioritization (PageRank, betweenness)
+- [ ] Label-based work distribution
+- [ ] Robot mode: `--robot-tracks`, `--robot-insights`
+
+**CASS Historical Context** (Week 2)
+- [ ] Pre-task context enrichment
+- [ ] Project-specific history search
+- [ ] Error resolution history
+- [ ] Robot mode: `--robot-history`
+
+**UBS Enhancements** (Week 3)
+- [ ] Dashboard bug widget
+- [ ] Agent bug notifications
+- [ ] Session quality metrics
+- [ ] Robot mode: `--robot-bugs`, `--robot-quality`
+
+**s2p Context Preparation** (Week 4)
+- [ ] Token-budgeted context prep
+- [ ] Automatic file discovery
+- [ ] Pipeline stage context
+- [ ] Robot mode: `--robot-context`
+
+### Phase 2: Planned Integrations
+
+**CAAM Integration** (Month 2)
 - [ ] Account assignment on spawn
 - [ ] Rate limit detection and failover
 - [ ] Health status in robot mode
 - [ ] Account status in dashboard
 
-**CM Integration**
+**CM Integration** (Month 2)
 - [ ] Pre-task context injection
 - [ ] Post-session reflection trigger
 - [ ] Memory status in robot mode
 - [ ] Rule tracking in dashboard
 
-**SLB Integration**
+**SLB Integration** (Month 2)
 - [ ] SLB-wrapped command execution
 - [ ] Approval dispatch to reviewers
 - [ ] Pending requests in dashboard
 - [ ] Emergency override via NTM
 
-### Phase 2: Unified Experience
+### Phase 3: Unified Experience
 
 - [ ] NTM daemon for background coordination
 - [ ] Unified configuration system
 - [ ] `ntm go` zero-config command
 - [ ] Multi-channel notifications
 
-### Phase 3: Web Dashboard
+### Phase 4: Web Dashboard
 
 - [ ] Real-time agent output streaming
-- [ ] Account health visualization
+- [ ] All integration widgets
 - [ ] SLB approval UI
-- [ ] Memory context display
+- [ ] Historical context browser
 
-### Phase 4: IDE Integration
+### Phase 5: IDE Integration
 
-- [ ] VSCode extension with integration awareness
+- [ ] VSCode extension
 - [ ] Neovim plugin
 - [ ] API documentation
-
-### Phase 5: Polish & Advanced Features
-
-- [ ] Session templates with integration settings
-- [ ] Interactive tutorial
-- [ ] Session sharing
-- [ ] Advanced pipeline orchestration
 
 ---
 
 ## Success Metrics
 
 ### Integration Health
-- CAAM failover success rate > 95%
-- Memory rule hit rate > 60%
-- SLB approval latency < 2 minutes (for agents)
-- Zero unreviewed CRITICAL commands
+
+| Metric | Target | Measurement |
+|--------|--------|-------------|
+| bv track assignment usage | >80% of assignments | `--robot-assign` output |
+| CASS context injection rate | >90% of spawns | Daemon logs |
+| UBS notification delivery | >95% of findings | Agent Mail logs |
+| s2p context budget compliance | <5% truncations | s2p output |
+| CAAM failover success | >95% | Cooldown logs |
+| CM rule hit rate | >60% | Agent feedback |
+| SLB approval latency | <2 minutes | SLB logs |
 
 ### User Experience
-- Time to first working session < 3 minutes
-- Zero-config success rate > 80%
-- Dashboard adoption > 50% of users
+
+| Metric | Target | Measurement |
+|--------|--------|-------------|
+| Time to first working session | <3 minutes | User testing |
+| Zero-config success rate | >80% | Error logs |
+| Dashboard adoption | >50% of users | Web server logs |
 
 ### Ecosystem Adoption
-- ACFS installation success rate > 90%
-- All 8 stack tools working together
-- Cross-agent learning measurable (rules from Claude used by Codex)
+
+| Metric | Target | Measurement |
+|--------|--------|-------------|
+| All 8 stack tools integrated | 100% | Feature checklist |
+| Cross-tool data flow | Verified | Integration tests |
+| Cross-agent learning | Measurable | CM rule sources |
 
 ---
 
 ## Conclusion
 
-NTM's position as the **cockpit** of the Agentic Coding Flywheel means it must integrate deeply with all stack tools. This plan provides concrete integration patterns for:
+NTM's position as the **cockpit** of the Agentic Coding Flywheel means it must integrate deeply with all ecosystem tools. This plan identifies **four major underexplored integration opportunities**:
 
-1. **CAAM**: Seamless account management with automatic failover
-2. **CM**: Persistent memory that compounds across sessions
-3. **SLB**: Safety gates that prevent disasters
-4. **Agent Mail**: Coordination backbone for multi-agent workflows
+1. **bv Robot Modes**: 12+ modes for graph analysis, track planning, and smart assignment
+2. **CASS Historical Context**: Inject relevant past solutions before agents start work
+3. **s2p Context Preparation**: Token-budgeted context to prevent overflow
+4. **UBS Notifications**: Alert agents to bugs in files they're modifying
 
-The result is a closed-loop system where:
-- Agents learn from every session (CM)
-- Rate limits are handled transparently (CAAM)
-- Dangerous operations require review (SLB)
-- All coordination is auditable (Agent Mail)
+These integrations, combined with the **previously planned** CAAM, CM, and SLB integrations, will transform NTM from a session manager into an **intelligent orchestrator** that:
 
-NTM becomes not just a session manager, but the **intelligent orchestrator** that makes the entire flywheel spin.
+- Assigns work optimally (bv graph analysis)
+- Provides historical context (CASS search)
+- Prevents context overflow (s2p budgeting)
+- Alerts to quality issues (UBS notifications)
+- Manages rate limits transparently (CAAM)
+- Learns from every session (CM)
+- Gates dangerous operations (SLB)
+- Coordinates all agents (Agent Mail)
+
+The result is a closed-loop system where each cycle compounds, making the entire development flywheel spin faster and more reliably.
+
+---
+
+*Document generated: 2025-01-03*
+*NTM Version: v1.3.0*
+*Ecosystem: Dicklesworthstone Stack v1.0*
