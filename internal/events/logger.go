@@ -331,3 +331,141 @@ func EmitError(session, errorType, message string) {
 		Message:   message,
 	})
 }
+
+// Replay reads events from the log file and sends them to a channel.
+// Events are filtered to only include those after the 'since' timestamp.
+// The channel is closed when all events have been sent.
+func (l *Logger) Replay(since time.Time) (<-chan *Event, error) {
+	ch := make(chan *Event, 100)
+
+	go func() {
+		defer close(ch)
+
+		if !l.enabled {
+			return
+		}
+
+		f, err := os.Open(l.path)
+		if err != nil {
+			if os.IsNotExist(err) {
+				return // No log file yet, nothing to replay
+			}
+			return
+		}
+		defer f.Close()
+
+		scanner := bufio.NewScanner(f)
+		for scanner.Scan() {
+			line := scanner.Bytes()
+			if len(line) == 0 {
+				continue
+			}
+
+			var event Event
+			if err := json.Unmarshal(line, &event); err != nil {
+				continue // Skip malformed entries
+			}
+
+			if event.Timestamp.After(since) {
+				ch <- &event
+			}
+		}
+	}()
+
+	return ch, nil
+}
+
+// Since returns all events after a specific timestamp.
+// This is a convenience method that collects all events from Replay into a slice.
+func (l *Logger) Since(ts time.Time) ([]*Event, error) {
+	ch, err := l.Replay(ts)
+	if err != nil {
+		return nil, err
+	}
+
+	var events []*Event
+	for e := range ch {
+		events = append(events, e)
+	}
+	return events, nil
+}
+
+// ReplaySession returns events for a specific session after a timestamp.
+func (l *Logger) ReplaySession(session string, since time.Time) (<-chan *Event, error) {
+	ch := make(chan *Event, 100)
+
+	go func() {
+		defer close(ch)
+
+		allEvents, err := l.Replay(since)
+		if err != nil {
+			return
+		}
+
+		for event := range allEvents {
+			if event.Session == session {
+				ch <- event
+			}
+		}
+	}()
+
+	return ch, nil
+}
+
+// SinceByType returns events of a specific type after a timestamp.
+func (l *Logger) SinceByType(eventType EventType, since time.Time) ([]*Event, error) {
+	allEvents, err := l.Since(since)
+	if err != nil {
+		return nil, err
+	}
+
+	var filtered []*Event
+	for _, e := range allEvents {
+		if e.Type == eventType {
+			filtered = append(filtered, e)
+		}
+	}
+	return filtered, nil
+}
+
+// EventCount returns the count of events after a timestamp.
+func (l *Logger) EventCount(since time.Time) (int, error) {
+	events, err := l.Since(since)
+	if err != nil {
+		return 0, err
+	}
+	return len(events), nil
+}
+
+// LastEvent returns the most recent event, or nil if no events exist.
+func (l *Logger) LastEvent() (*Event, error) {
+	if !l.enabled {
+		return nil, nil
+	}
+
+	f, err := os.Open(l.path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	defer f.Close()
+
+	var lastEvent *Event
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		line := scanner.Bytes()
+		if len(line) == 0 {
+			continue
+		}
+
+		var event Event
+		if err := json.Unmarshal(line, &event); err != nil {
+			continue
+		}
+		lastEvent = &event
+	}
+
+	return lastEvent, nil
+}
