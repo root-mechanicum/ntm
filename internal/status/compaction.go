@@ -113,7 +113,8 @@ func compilePatterns(patterns []string) []*regexp.Regexp {
 func DetectCompaction(output string, agentType string) *CompactionEvent {
 	initPatterns()
 
-	// Check agent-specific patterns first
+	// Check agent-specific patterns and generic patterns (cp.Agent == "*")
+	// The condition includes patterns where cp.Agent matches agentType OR is "*"
 	for _, cp := range compactionPatterns {
 		if cp.Agent != "*" && cp.Agent != agentType {
 			continue
@@ -141,27 +142,6 @@ func DetectCompaction(output string, agentType string) *CompactionEvent {
 					}
 				}
 
-				return &CompactionEvent{
-					AgentType:   agentType,
-					DetectedAt:  time.Now(),
-					MatchedText: match,
-					Pattern:     patternStr,
-				}
-			}
-		}
-	}
-
-	// Then check generic patterns for any agent type
-	for _, cp := range compactionPatterns {
-		if cp.Agent != "*" {
-			continue
-		}
-		for i, pattern := range cp.Patterns {
-			if match := pattern.FindString(output); match != "" {
-				var patternStr string
-				if i < len(genericPatterns) {
-					patternStr = genericPatterns[i]
-				}
 				return &CompactionEvent{
 					AgentType:   agentType,
 					DetectedAt:  time.Now(),

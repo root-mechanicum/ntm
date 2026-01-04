@@ -94,18 +94,14 @@ func (t *Template) Execute(ctx ExecutionContext) (string, error) {
 }
 
 // substituteVariables replaces {{variable}} placeholders with values.
+// Note: The regex only matches simple variables like {{foo}}, not conditional
+// markers like {{#var}} or {{/var}} (which don't start with [a-zA-Z_]).
 func substituteVariables(body string, vars map[string]string) string {
-	// Match {{variable}} but not {{#var}} or {{/var}}
 	re := regexp.MustCompile(`\{\{([a-zA-Z_][a-zA-Z0-9_]*)\}\}`)
 
 	return re.ReplaceAllStringFunc(body, func(match string) string {
 		// Extract variable name
 		name := match[2 : len(match)-2]
-
-		// Check if it's a conditional marker (starts with # or /)
-		if strings.HasPrefix(name, "#") || strings.HasPrefix(name, "/") {
-			return match // Leave conditional markers alone
-		}
 
 		if val, ok := vars[name]; ok {
 			return val
