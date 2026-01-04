@@ -3,12 +3,14 @@ package cli
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"time"
 
 	"github.com/charmbracelet/lipgloss"
@@ -46,14 +48,14 @@ This command helps diagnose issues before spawning sessions.`,
 
 // DoctorReport contains the full health check report
 type DoctorReport struct {
-	Timestamp     time.Time       `json:"timestamp"`
-	Overall       string          `json:"overall"` // "healthy", "warning", "unhealthy"
-	Tools         []ToolCheck     `json:"tools"`
-	Dependencies  []DepCheck      `json:"dependencies"`
-	Daemons       []DaemonCheck   `json:"daemons"`
-	Configuration []ConfigCheck   `json:"configuration"`
-	Warnings      int             `json:"warnings"`
-	Errors        int             `json:"errors"`
+	Timestamp     time.Time     `json:"timestamp"`
+	Overall       string        `json:"overall"` // "healthy", "warning", "unhealthy"
+	Tools         []ToolCheck   `json:"tools"`
+	Dependencies  []DepCheck    `json:"dependencies"`
+	Daemons       []DaemonCheck `json:"daemons"`
+	Configuration []ConfigCheck `json:"configuration"`
+	Warnings      int           `json:"warnings"`
+	Errors        int           `json:"errors"`
 }
 
 // ToolCheck represents a tool health check result
@@ -175,8 +177,8 @@ func checkTools(ctx context.Context) []ToolCheck {
 
 	// Required tools
 	requiredTools := map[tools.ToolName]bool{
-		tools.ToolBV: true,  // Required for priority/insights
-		tools.ToolBD: true,  // Required for beads tracking
+		tools.ToolBV: true, // Required for priority/insights
+		tools.ToolBD: true, // Required for beads tracking
 	}
 
 	// Optional tools
@@ -271,7 +273,7 @@ func checkDependencies(ctx context.Context) []DepCheck {
 		tmuxCheck.Installed = true
 		cmd := exec.CommandContext(ctx, path, "-V")
 		if out, err := cmd.Output(); err == nil {
-			tmuxCheck.Version = string(out)
+			tmuxCheck.Version = strings.TrimSpace(string(out))
 		}
 		tmuxCheck.Status = "ok"
 	} else {
@@ -501,11 +503,12 @@ func renderDoctorTUI(report *DoctorReport) error {
 	fmt.Println(boxStyle.Render(statusStyle.Render(statusMsg)))
 	fmt.Println()
 
-	// Exit code reflects overall health
+	// Return error to indicate non-healthy status (Cobra will set appropriate exit code)
 	if report.Overall == "unhealthy" {
-		os.Exit(2)
+		return errors.New("ecosystem is unhealthy")
 	} else if report.Overall == "warning" {
-		os.Exit(1)
+		// Warnings are informational, don't fail
+		return nil
 	}
 
 	return nil
