@@ -3,6 +3,7 @@
 package robot
 
 import (
+	"context"
 	"fmt"
 	"os/exec"
 	"runtime"
@@ -1065,13 +1066,14 @@ func (ht *HealthTracker) GetHealth(paneID string) (*AgentHealthMetrics, bool) {
 	}
 
 	// Return a copy to avoid race conditions
-	copy := *metrics
-	copy.Transitions = append([]HealthStateTransition(nil), metrics.Transitions...)
+	metricsCopy := *metrics
+	metricsCopy.Transitions = append([]HealthStateTransition(nil), metrics.Transitions...)
+	metricsCopy.RestartTimestamps = append([]time.Time(nil), metrics.RestartTimestamps...)
 	if metrics.LastError != nil {
 		errCopy := *metrics.LastError
-		copy.LastError = &errCopy
+		metricsCopy.LastError = &errCopy
 	}
-	return &copy, true
+	return &metricsCopy, true
 }
 
 // GetAllHealth returns health metrics for all tracked agents
@@ -1081,13 +1083,14 @@ func (ht *HealthTracker) GetAllHealth() map[string]*AgentHealthMetrics {
 
 	result := make(map[string]*AgentHealthMetrics, len(ht.agents))
 	for k, v := range ht.agents {
-		copy := *v
-		copy.Transitions = append([]HealthStateTransition(nil), v.Transitions...)
+		metricsCopy := *v
+		metricsCopy.Transitions = append([]HealthStateTransition(nil), v.Transitions...)
+		metricsCopy.RestartTimestamps = append([]time.Time(nil), v.RestartTimestamps...)
 		if v.LastError != nil {
 			errCopy := *v.LastError
-			copy.LastError = &errCopy
+			metricsCopy.LastError = &errCopy
 		}
-		result[k] = &copy
+		result[k] = &metricsCopy
 	}
 	return result
 }
@@ -1502,4 +1505,503 @@ func ClearHealthTracker(session string) {
 	healthTrackerRegistryMu.Lock()
 	defer healthTrackerRegistryMu.Unlock()
 	delete(healthTrackerRegistry, session)
+}
+
+// =============================================================================
+// Automatic Restart Manager (ntm-ebvm)
+// =============================================================================
+//
+// Implements automatic restart for unhealthy agents with:
+// - Soft restart: Ctrl+C interrupt, wait for idle prompt
+// - Hard restart: Aggressive restart with agent re-launch
+// - Exponential backoff between restarts
+// - Max restart limit per hour
+// - Context loss notification
+
+// RestartConfig configures the restart behavior
+type RestartConfig struct {
+	Enabled            bool          `toml:"enabled"`
+	MaxRestartsPerHour int           `toml:"max_restarts"`        // Max restarts per hour (default: 3)
+	BackoffBase        time.Duration `toml:"backoff_base"`        // Base backoff (default: 30s)
+	BackoffMax         time.Duration `toml:"backoff_max"`         // Max backoff (default: 5m)
+	SoftRestartTimeout time.Duration `toml:"soft_restart_timeout"` // Timeout for soft restart (default: 10s)
+	NotifyContextLoss  bool          `toml:"notify_on_context_loss"`
+}
+
+// DefaultRestartConfig returns sensible defaults
+func DefaultRestartConfig() RestartConfig {
+	return RestartConfig{
+		Enabled:            true,
+		MaxRestartsPerHour: 3,
+		BackoffBase:        30 * time.Second,
+		BackoffMax:         5 * time.Minute,
+		SoftRestartTimeout: 10 * time.Second,
+		NotifyContextLoss:  true,
+	}
+}
+
+// RestartType indicates the type of restart performed
+type RestartType string
+
+const (
+	RestartSoft RestartType = "soft"
+	RestartHard RestartType = "hard"
+	RestartNone RestartType = "none"
+)
+
+// RestartResult contains the result of a restart attempt
+type RestartResult struct {
+	Success      bool        `json:"success"`
+	Type         RestartType `json:"type"`
+	PaneID       string      `json:"pane_id"`
+	AgentType    string      `json:"agent_type"`
+	BackoffApplied time.Duration `json:"backoff_applied"`
+	ContextLost  bool        `json:"context_lost"`
+	Reason       string      `json:"reason"`
+	AttemptedAt  time.Time   `json:"attempted_at"`
+}
+
+// RestartManager manages automatic restarts for agents
+type RestartManager struct {
+	mu           sync.Mutex
+	session      string
+	config       RestartConfig
+	restartTimes map[string][]time.Time // pane ID -> restart timestamps
+	alerter      AlerterInterface       // For sending alerts
+}
+
+// AlerterInterface defines the alerting capability needed by RestartManager
+type AlerterInterface interface {
+	Send(ctx context.Context, alert *Alert) error
+}
+
+// NewRestartManager creates a new restart manager
+func NewRestartManager(session string, config *RestartConfig, alerter AlerterInterface) *RestartManager {
+	cfg := DefaultRestartConfig()
+	if config != nil {
+		if config.MaxRestartsPerHour > 0 {
+			cfg.MaxRestartsPerHour = config.MaxRestartsPerHour
+		}
+		if config.BackoffBase > 0 {
+			cfg.BackoffBase = config.BackoffBase
+		}
+		if config.BackoffMax > 0 {
+			cfg.BackoffMax = config.BackoffMax
+		}
+		if config.SoftRestartTimeout > 0 {
+			cfg.SoftRestartTimeout = config.SoftRestartTimeout
+		}
+		cfg.Enabled = config.Enabled
+		cfg.NotifyContextLoss = config.NotifyContextLoss
+	}
+
+	return &RestartManager{
+		session:      session,
+		config:       cfg,
+		restartTimes: make(map[string][]time.Time),
+		alerter:      alerter,
+	}
+}
+
+// getRestartsInLastHour returns the number of restarts in the last hour
+func (rm *RestartManager) getRestartsInLastHour(paneID string) int {
+	rm.mu.Lock()
+	defer rm.mu.Unlock()
+
+	cutoff := time.Now().Add(-time.Hour)
+	timestamps, ok := rm.restartTimes[paneID]
+	if !ok {
+		return 0
+	}
+
+	// Filter to last hour
+	var recent []time.Time
+	for _, ts := range timestamps {
+		if ts.After(cutoff) {
+			recent = append(recent, ts)
+		}
+	}
+	rm.restartTimes[paneID] = recent
+	return len(recent)
+}
+
+// recordRestart records a restart attempt
+func (rm *RestartManager) recordRestart(paneID string) {
+	rm.mu.Lock()
+	defer rm.mu.Unlock()
+
+	rm.restartTimes[paneID] = append(rm.restartTimes[paneID], time.Now())
+}
+
+// calculateBackoff calculates the backoff duration based on recent restarts
+func (rm *RestartManager) calculateBackoff(restartCount int) time.Duration {
+	if restartCount == 0 {
+		return 0
+	}
+
+	// Exponential backoff: base * 2^(restarts-1)
+	backoff := rm.config.BackoffBase
+	for i := 1; i < restartCount; i++ {
+		backoff *= 2
+		if backoff > rm.config.BackoffMax {
+			return rm.config.BackoffMax
+		}
+	}
+	return backoff
+}
+
+// TryRestart attempts to restart an unhealthy agent
+// Returns the result of the restart attempt
+func (rm *RestartManager) TryRestart(ctx context.Context, paneID, agentType string, healthState HealthState) *RestartResult {
+	result := &RestartResult{
+		PaneID:      paneID,
+		AgentType:   agentType,
+		AttemptedAt: time.Now(),
+	}
+
+	// Check if restarts are enabled
+	if !rm.config.Enabled {
+		result.Type = RestartNone
+		result.Reason = "restarts disabled"
+		return result
+	}
+
+	// Check max restarts limit
+	restartsInHour := rm.getRestartsInLastHour(paneID)
+	if restartsInHour >= rm.config.MaxRestartsPerHour {
+		result.Type = RestartNone
+		result.Reason = fmt.Sprintf("max restarts exceeded (%d/%d per hour)", restartsInHour, rm.config.MaxRestartsPerHour)
+
+		// Send alert about max restarts
+		if rm.alerter != nil {
+			rm.alerter.Send(ctx, &Alert{
+				Type:      AlertMaxRestarts,
+				Session:   rm.session,
+				PaneID:    paneID,
+				AgentType: agentType,
+				Message:   fmt.Sprintf("Max restarts exceeded for agent %s (%d restarts in last hour)", agentType, restartsInHour),
+				Timestamp: time.Now(),
+			})
+		}
+		return result
+	}
+
+	// Calculate and apply backoff
+	backoff := rm.calculateBackoff(restartsInHour)
+	result.BackoffApplied = backoff
+	if backoff > 0 {
+		select {
+		case <-ctx.Done():
+			result.Type = RestartNone
+			result.Reason = "context cancelled during backoff"
+			return result
+		case <-time.After(backoff):
+			// Backoff complete
+		}
+	}
+
+	// Try soft restart first
+	softResult := rm.trySoftRestart(ctx, paneID, agentType)
+	if softResult.Success {
+		rm.recordRestart(paneID)
+		return softResult
+	}
+
+	// Fall back to hard restart
+	hardResult := rm.tryHardRestart(ctx, paneID, agentType)
+	if hardResult.Success {
+		rm.recordRestart(paneID)
+
+		// Notify about context loss
+		if rm.config.NotifyContextLoss && rm.alerter != nil {
+			rm.alerter.Send(ctx, &Alert{
+				Type:        AlertRestart,
+				Session:     rm.session,
+				PaneID:      paneID,
+				AgentType:   agentType,
+				Message:     fmt.Sprintf("Agent %s restarted (hard), context lost", agentType),
+				ContextLoss: true,
+				Timestamp:   time.Now(),
+			})
+		}
+
+		// Also record in health tracker
+		tracker := GetHealthTracker(rm.session)
+		tracker.RecordRestart(paneID)
+
+		return hardResult
+	}
+
+	// Both failed
+	result.Type = RestartNone
+	result.Reason = "both soft and hard restart failed"
+
+	// Alert about failed restart
+	if rm.alerter != nil {
+		rm.alerter.Send(ctx, &Alert{
+			Type:      AlertRestartFailed,
+			Session:   rm.session,
+			PaneID:    paneID,
+			AgentType: agentType,
+			Message:   fmt.Sprintf("Failed to restart agent %s after soft and hard restart attempts", agentType),
+			Timestamp: time.Now(),
+		})
+	}
+
+	return result
+}
+
+// trySoftRestart attempts a soft restart (Ctrl+C interrupt)
+func (rm *RestartManager) trySoftRestart(ctx context.Context, paneID, agentType string) *RestartResult {
+	result := &RestartResult{
+		PaneID:      paneID,
+		AgentType:   agentType,
+		Type:        RestartSoft,
+		AttemptedAt: time.Now(),
+	}
+
+	// Send Ctrl+C (target format: session:pane)
+	target := fmt.Sprintf("%s:%s", rm.session, paneID)
+	if err := tmux.SendKeys(target, "C-c", false); err != nil {
+		result.Reason = fmt.Sprintf("failed to send Ctrl+C: %v", err)
+		return result
+	}
+
+	// Wait for idle prompt with timeout
+	timeoutCtx, cancel := context.WithTimeout(ctx, rm.config.SoftRestartTimeout)
+	defer cancel()
+
+	// Poll for idle state
+	ticker := time.NewTicker(500 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-timeoutCtx.Done():
+			result.Reason = "timeout waiting for idle prompt"
+			return result
+		case <-ticker.C:
+			// Check if agent is now idle
+			output, err := tmux.CapturePaneOutput(target, 5)
+			if err != nil {
+				continue
+			}
+
+			if isAgentIdlePrompt(output, agentType) {
+				result.Success = true
+				result.Reason = "soft restart successful"
+				return result
+			}
+		}
+	}
+}
+
+// tryHardRestart attempts a hard restart (aggressive restart with re-launch)
+func (rm *RestartManager) tryHardRestart(ctx context.Context, paneID, agentType string) *RestartResult {
+	result := &RestartResult{
+		PaneID:      paneID,
+		AgentType:   agentType,
+		Type:        RestartHard,
+		ContextLost: true,
+		AttemptedAt: time.Now(),
+	}
+
+	// Send Ctrl+C multiple times with delay
+	target := fmt.Sprintf("%s:%s", rm.session, paneID)
+	for i := 0; i < 3; i++ {
+		if err := tmux.SendKeys(target, "C-c", false); err != nil {
+			continue
+		}
+		time.Sleep(time.Second)
+	}
+
+	// Check if we got a shell prompt
+	time.Sleep(500 * time.Millisecond)
+	output, _ := tmux.CapturePaneOutput(target, 5)
+
+	// If still not at prompt, try Ctrl+D
+	if !isShellPrompt(output) {
+		tmux.SendKeys(target, "C-d", false)
+		time.Sleep(time.Second)
+	}
+
+	// Re-launch the agent
+	agentCmd := getAgentCommand(agentType)
+	if agentCmd == "" {
+		result.Reason = fmt.Sprintf("unknown agent type: %s", agentType)
+		return result
+	}
+
+	// Send the agent command
+	if err := tmux.SendKeys(target, agentCmd, true); err != nil {
+		result.Reason = fmt.Sprintf("failed to launch agent: %v", err)
+		return result
+	}
+
+	// Wait for agent to start
+	time.Sleep(2 * time.Second)
+
+	// Verify agent started
+	output, captureErr := tmux.CapturePaneOutput(target, 10)
+	if captureErr != nil {
+		result.Reason = fmt.Sprintf("failed to capture output: %v", captureErr)
+		return result
+	}
+
+	if isAgentRunning(output, agentType) {
+		result.Success = true
+		result.Reason = "hard restart successful"
+		return result
+	}
+
+	result.Reason = "agent did not start after relaunch"
+	return result
+}
+
+// isAgentIdlePrompt checks if the output indicates an idle agent prompt
+func isAgentIdlePrompt(output, agentType string) bool {
+	output = strings.TrimSpace(output)
+	lines := splitLines(output)
+	if len(lines) == 0 {
+		return false
+	}
+	lastLine := strings.TrimSpace(lines[len(lines)-1])
+
+	// Agent-specific idle patterns
+	switch agentType {
+	case "claude", "cc":
+		// Claude Code shows ">" prompt when idle
+		return strings.HasSuffix(lastLine, ">") || strings.Contains(output, "What would you like to do?")
+	case "codex", "cod":
+		// Codex shows ">" or "$" when idle
+		return strings.HasSuffix(lastLine, ">") || strings.HasSuffix(lastLine, "$")
+	case "gemini", "gmi":
+		// Gemini shows ">" when idle
+		return strings.HasSuffix(lastLine, ">")
+	default:
+		// Generic check for common prompt patterns
+		return strings.HasSuffix(lastLine, ">") || strings.HasSuffix(lastLine, "$") || strings.HasSuffix(lastLine, "%")
+	}
+}
+
+// isShellPrompt checks if the output shows a shell prompt
+func isShellPrompt(output string) bool {
+	output = strings.TrimSpace(output)
+	lines := splitLines(output)
+	if len(lines) == 0 {
+		return false
+	}
+	lastLine := strings.TrimSpace(lines[len(lines)-1])
+
+	// Short line ending with shell prompt characters
+	return len(lastLine) < 100 && (strings.HasSuffix(lastLine, "$") ||
+		strings.HasSuffix(lastLine, "%") ||
+		strings.HasSuffix(lastLine, "#"))
+}
+
+// isAgentRunning checks if the agent appears to be running
+func isAgentRunning(output, agentType string) bool {
+	outputLower := strings.ToLower(output)
+
+	// Check for startup indicators
+	switch agentType {
+	case "claude", "cc":
+		return strings.Contains(outputLower, "claude") ||
+			strings.Contains(output, ">") ||
+			strings.Contains(outputLower, "what would you like")
+	case "codex", "cod":
+		return strings.Contains(outputLower, "codex") ||
+			strings.Contains(output, ">")
+	case "gemini", "gmi":
+		return strings.Contains(outputLower, "gemini") ||
+			strings.Contains(output, ">")
+	default:
+		return strings.Contains(output, ">")
+	}
+}
+
+// getAgentCommand returns the command to launch an agent
+func getAgentCommand(agentType string) string {
+	switch agentType {
+	case "claude", "cc":
+		return "claude"
+	case "codex", "cod":
+		return "codex"
+	case "gemini", "gmi":
+		return "gemini"
+	default:
+		return ""
+	}
+}
+
+
+// =============================================================================
+// Global Restart Manager Registry
+// =============================================================================
+
+var (
+	restartManagerRegistry   = make(map[string]*RestartManager)
+	restartManagerRegistryMu sync.RWMutex
+)
+
+// GetRestartManager returns the restart manager for a session
+func GetRestartManager(session string, alerter AlerterInterface) *RestartManager {
+	restartManagerRegistryMu.RLock()
+	manager, ok := restartManagerRegistry[session]
+	restartManagerRegistryMu.RUnlock()
+
+	if ok {
+		return manager
+	}
+
+	restartManagerRegistryMu.Lock()
+	defer restartManagerRegistryMu.Unlock()
+
+	// Double-check
+	if manager, ok = restartManagerRegistry[session]; ok {
+		return manager
+	}
+
+	manager = NewRestartManager(session, nil, alerter)
+	restartManagerRegistry[session] = manager
+	return manager
+}
+
+// ClearRestartManager removes the restart manager for a session
+func ClearRestartManager(session string) {
+	restartManagerRegistryMu.Lock()
+	defer restartManagerRegistryMu.Unlock()
+	delete(restartManagerRegistry, session)
+}
+
+// =============================================================================
+// Integration: Auto-Restart Unhealthy Agents
+// =============================================================================
+
+// AutoRestartUnhealthyAgent checks agent health and restarts if needed
+func AutoRestartUnhealthyAgent(ctx context.Context, session, paneID, agentType string, alerter AlerterInterface) *RestartResult {
+	// Check current health (paneID can be just the pane or full session:pane target)
+	check, err := CheckAgentHealthWithActivity(paneID, agentType)
+	if err != nil {
+		return &RestartResult{
+			PaneID:    paneID,
+			AgentType: agentType,
+			Type:      RestartNone,
+			Reason:    fmt.Sprintf("health check failed: %v", err),
+		}
+	}
+
+	// Only restart if unhealthy
+	if check.HealthState != HealthUnhealthy && check.HealthState != HealthRateLimited {
+		return &RestartResult{
+			PaneID:    paneID,
+			AgentType: agentType,
+			Type:      RestartNone,
+			Reason:    fmt.Sprintf("agent is %s, no restart needed", check.HealthState),
+		}
+	}
+
+	// Get restart manager and attempt restart
+	manager := GetRestartManager(session, alerter)
+	return manager.TryRestart(ctx, paneID, agentType, check.HealthState)
 }
