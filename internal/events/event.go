@@ -50,6 +50,12 @@ type Event struct {
 	// Session name (if applicable)
 	Session string `json:"session,omitempty"`
 
+	// AgentName identifies which agent emitted this event (if applicable)
+	AgentName string `json:"agent_name,omitempty"`
+
+	// CorrelationID enables tracing related events across operations
+	CorrelationID string `json:"correlation_id,omitempty"`
+
 	// Additional data specific to the event type
 	Data map[string]interface{} `json:"data,omitempty"`
 }
@@ -61,6 +67,18 @@ func NewEvent(eventType EventType, session string, data map[string]interface{}) 
 		Type:      eventType,
 		Session:   session,
 		Data:      data,
+	}
+}
+
+// NewEventWithCorrelation creates a new event with a correlation ID for tracing.
+func NewEventWithCorrelation(eventType EventType, session, agentName, correlationID string, data map[string]interface{}) *Event {
+	return &Event{
+		Timestamp:     time.Now().UTC(),
+		Type:          eventType,
+		Session:       session,
+		AgentName:     agentName,
+		CorrelationID: correlationID,
+		Data:          data,
 	}
 }
 

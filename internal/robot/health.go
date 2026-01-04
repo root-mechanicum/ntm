@@ -8,6 +8,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/Dicklesworthstone/ntm/internal/bv"
@@ -841,4 +842,405 @@ func detectAgentTypeFromPane(pane tmux.Pane) string {
 	default:
 		return "unknown"
 	}
+}
+
+// =============================================================================
+// Health State Tracking (ntm-v5if)
+// =============================================================================
+//
+// HealthTracker maintains health state history for agents over time.
+// It tracks state transitions, restarts, errors, and rate limits in memory.
+
+// HealthStateTransition records a state change
+type HealthStateTransition struct {
+	From      HealthState `json:"from"`
+	To        HealthState `json:"to"`
+	Reason    string      `json:"reason"`
+	Timestamp time.Time   `json:"timestamp"`
+}
+
+// AgentErrorInfo captures details about an error
+type AgentErrorInfo struct {
+	Type      string    `json:"type"`    // e.g., "rate_limit", "crash", "auth_error"
+	Message   string    `json:"message"`
+	Timestamp time.Time `json:"timestamp"`
+}
+
+// AgentHealthMetrics holds all tracked metrics for a single agent
+type AgentHealthMetrics struct {
+	PaneID    string      `json:"pane_id"`
+	AgentType string      `json:"agent_type"`
+	SessionID string      `json:"session_id"`
+
+	// Current state
+	CurrentState HealthState `json:"current_state"`
+	StateReason  string      `json:"state_reason"`
+
+	// State transition history (most recent first)
+	Transitions []HealthStateTransition `json:"transitions"`
+
+	// Uptime tracking
+	StartTime       time.Time `json:"start_time"`        // When agent was first tracked
+	LastRestartTime time.Time `json:"last_restart_time"` // Time of last restart
+	TotalRestarts   int       `json:"total_restarts"`    // Total restarts ever
+
+	// Restart tracking per window
+	RestartTimestamps []time.Time `json:"-"` // Internal: for counting restarts in windows
+
+	// Error tracking
+	LastError       *AgentErrorInfo `json:"last_error,omitempty"`
+	TotalErrors     int             `json:"total_errors"`
+
+	// Rate limit tracking
+	RateLimitCount      int       `json:"rate_limit_count"`       // Total rate limits hit
+	RateLimitWindowHits int       `json:"rate_limit_window_hits"` // Hits in current window
+	RateLimitWindowEnd  time.Time `json:"rate_limit_window_end"`  // When window expires
+
+	// Consecutive failure tracking
+	ConsecutiveFailures int `json:"consecutive_failures"`
+
+	// Last check time
+	LastCheckTime time.Time `json:"last_check_time"`
+}
+
+// HealthTracker manages health state for all agents in a session
+type HealthTracker struct {
+	mu      sync.RWMutex
+	agents  map[string]*AgentHealthMetrics // keyed by pane ID
+	session string
+
+	// Configuration
+	maxTransitions int           // Max state transitions to keep in history
+	restartWindow  time.Duration // Window for counting restarts (e.g., 1 hour)
+	rateLimitWindow time.Duration // Window for counting rate limits
+}
+
+// HealthTrackerConfig holds configuration for HealthTracker
+type HealthTrackerConfig struct {
+	MaxTransitions  int           // Default: 50
+	RestartWindow   time.Duration // Default: 1 hour
+	RateLimitWindow time.Duration // Default: 1 hour
+}
+
+// DefaultHealthTrackerConfig returns sensible defaults
+func DefaultHealthTrackerConfig() HealthTrackerConfig {
+	return HealthTrackerConfig{
+		MaxTransitions:  50,
+		RestartWindow:   time.Hour,
+		RateLimitWindow: time.Hour,
+	}
+}
+
+// NewHealthTracker creates a new health tracker for a session
+func NewHealthTracker(session string, config *HealthTrackerConfig) *HealthTracker {
+	cfg := DefaultHealthTrackerConfig()
+	if config != nil {
+		if config.MaxTransitions > 0 {
+			cfg.MaxTransitions = config.MaxTransitions
+		}
+		if config.RestartWindow > 0 {
+			cfg.RestartWindow = config.RestartWindow
+		}
+		if config.RateLimitWindow > 0 {
+			cfg.RateLimitWindow = config.RateLimitWindow
+		}
+	}
+
+	return &HealthTracker{
+		agents:          make(map[string]*AgentHealthMetrics),
+		session:         session,
+		maxTransitions:  cfg.MaxTransitions,
+		restartWindow:   cfg.RestartWindow,
+		rateLimitWindow: cfg.RateLimitWindow,
+	}
+}
+
+// RecordState records a health state for an agent
+func (ht *HealthTracker) RecordState(paneID string, agentType string, state HealthState, reason string) {
+	ht.mu.Lock()
+	defer ht.mu.Unlock()
+
+	now := time.Now()
+	metrics := ht.getOrCreateMetrics(paneID, agentType)
+
+	// Record state transition if changed
+	if metrics.CurrentState != state {
+		transition := HealthStateTransition{
+			From:      metrics.CurrentState,
+			To:        state,
+			Reason:    reason,
+			Timestamp: now,
+		}
+
+		// Prepend to transitions (most recent first)
+		metrics.Transitions = append([]HealthStateTransition{transition}, metrics.Transitions...)
+
+		// Trim to max size
+		if len(metrics.Transitions) > ht.maxTransitions {
+			metrics.Transitions = metrics.Transitions[:ht.maxTransitions]
+		}
+
+		// Reset consecutive failures on healthy transition
+		if state == HealthHealthy {
+			metrics.ConsecutiveFailures = 0
+		}
+	}
+
+	// Update current state
+	metrics.CurrentState = state
+	metrics.StateReason = reason
+	metrics.LastCheckTime = now
+
+	// Track failures
+	if state == HealthUnhealthy || state == HealthRateLimited {
+		metrics.ConsecutiveFailures++
+	}
+
+	// Track rate limits specifically
+	if state == HealthRateLimited {
+		ht.recordRateLimitInternal(metrics, now)
+	}
+}
+
+// RecordError records an error for an agent
+func (ht *HealthTracker) RecordError(paneID string, errType string, message string) {
+	ht.mu.Lock()
+	defer ht.mu.Unlock()
+
+	metrics, ok := ht.agents[paneID]
+	if !ok {
+		return // Agent not yet tracked
+	}
+
+	metrics.LastError = &AgentErrorInfo{
+		Type:      errType,
+		Message:   message,
+		Timestamp: time.Now(),
+	}
+	metrics.TotalErrors++
+}
+
+// RecordRestart records a restart for an agent
+func (ht *HealthTracker) RecordRestart(paneID string) {
+	ht.mu.Lock()
+	defer ht.mu.Unlock()
+
+	now := time.Now()
+	metrics, ok := ht.agents[paneID]
+	if !ok {
+		return // Agent not yet tracked
+	}
+
+	metrics.TotalRestarts++
+	metrics.LastRestartTime = now
+	metrics.RestartTimestamps = append(metrics.RestartTimestamps, now)
+
+	// Clean old timestamps outside the window
+	metrics.RestartTimestamps = ht.filterTimestampsInWindow(metrics.RestartTimestamps, ht.restartWindow)
+}
+
+// recordRateLimitInternal records a rate limit hit (must hold lock)
+func (ht *HealthTracker) recordRateLimitInternal(metrics *AgentHealthMetrics, now time.Time) {
+	metrics.RateLimitCount++
+
+	// Check if we're in a tracking window
+	if now.After(metrics.RateLimitWindowEnd) {
+		// Start new window
+		metrics.RateLimitWindowHits = 1
+		metrics.RateLimitWindowEnd = now.Add(ht.rateLimitWindow)
+	} else {
+		// Increment in current window
+		metrics.RateLimitWindowHits++
+	}
+}
+
+// GetHealth returns current health metrics for an agent
+func (ht *HealthTracker) GetHealth(paneID string) (*AgentHealthMetrics, bool) {
+	ht.mu.RLock()
+	defer ht.mu.RUnlock()
+
+	metrics, ok := ht.agents[paneID]
+	if !ok {
+		return nil, false
+	}
+
+	// Return a copy to avoid race conditions
+	copy := *metrics
+	copy.Transitions = append([]HealthStateTransition(nil), metrics.Transitions...)
+	if metrics.LastError != nil {
+		errCopy := *metrics.LastError
+		copy.LastError = &errCopy
+	}
+	return &copy, true
+}
+
+// GetAllHealth returns health metrics for all tracked agents
+func (ht *HealthTracker) GetAllHealth() map[string]*AgentHealthMetrics {
+	ht.mu.RLock()
+	defer ht.mu.RUnlock()
+
+	result := make(map[string]*AgentHealthMetrics, len(ht.agents))
+	for k, v := range ht.agents {
+		copy := *v
+		copy.Transitions = append([]HealthStateTransition(nil), v.Transitions...)
+		if v.LastError != nil {
+			errCopy := *v.LastError
+			copy.LastError = &errCopy
+		}
+		result[k] = &copy
+	}
+	return result
+}
+
+// GetUptime returns the uptime since last restart for an agent
+func (ht *HealthTracker) GetUptime(paneID string) time.Duration {
+	ht.mu.RLock()
+	defer ht.mu.RUnlock()
+
+	metrics, ok := ht.agents[paneID]
+	if !ok {
+		return 0
+	}
+
+	// If never restarted, uptime is since start
+	if metrics.LastRestartTime.IsZero() {
+		return time.Since(metrics.StartTime)
+	}
+	return time.Since(metrics.LastRestartTime)
+}
+
+// GetRestartsInWindow returns the number of restarts in the configured window
+func (ht *HealthTracker) GetRestartsInWindow(paneID string) int {
+	ht.mu.RLock()
+	defer ht.mu.RUnlock()
+
+	metrics, ok := ht.agents[paneID]
+	if !ok {
+		return 0
+	}
+
+	// Filter to timestamps in window
+	filtered := ht.filterTimestampsInWindow(metrics.RestartTimestamps, ht.restartWindow)
+	return len(filtered)
+}
+
+// GetRateLimitsInWindow returns rate limit hits in current window
+func (ht *HealthTracker) GetRateLimitsInWindow(paneID string) int {
+	ht.mu.RLock()
+	defer ht.mu.RUnlock()
+
+	metrics, ok := ht.agents[paneID]
+	if !ok {
+		return 0
+	}
+
+	// Check if window has expired
+	if time.Now().After(metrics.RateLimitWindowEnd) {
+		return 0
+	}
+	return metrics.RateLimitWindowHits
+}
+
+// GetTransitionHistory returns state transition history for an agent
+func (ht *HealthTracker) GetTransitionHistory(paneID string, limit int) []HealthStateTransition {
+	ht.mu.RLock()
+	defer ht.mu.RUnlock()
+
+	metrics, ok := ht.agents[paneID]
+	if !ok {
+		return nil
+	}
+
+	if limit <= 0 || limit > len(metrics.Transitions) {
+		limit = len(metrics.Transitions)
+	}
+
+	result := make([]HealthStateTransition, limit)
+	copy(result, metrics.Transitions[:limit])
+	return result
+}
+
+// ClearAgent removes tracking for an agent (e.g., when pane is destroyed)
+func (ht *HealthTracker) ClearAgent(paneID string) {
+	ht.mu.Lock()
+	defer ht.mu.Unlock()
+	delete(ht.agents, paneID)
+}
+
+// Reset clears all tracked state
+func (ht *HealthTracker) Reset() {
+	ht.mu.Lock()
+	defer ht.mu.Unlock()
+	ht.agents = make(map[string]*AgentHealthMetrics)
+}
+
+// getOrCreateMetrics gets or creates metrics for an agent (must hold lock)
+func (ht *HealthTracker) getOrCreateMetrics(paneID string, agentType string) *AgentHealthMetrics {
+	metrics, ok := ht.agents[paneID]
+	if !ok {
+		now := time.Now()
+		metrics = &AgentHealthMetrics{
+			PaneID:       paneID,
+			AgentType:    agentType,
+			SessionID:    ht.session,
+			CurrentState: HealthHealthy,
+			StartTime:    now,
+			Transitions:  []HealthStateTransition{},
+		}
+		ht.agents[paneID] = metrics
+	}
+	return metrics
+}
+
+// filterTimestampsInWindow filters timestamps to those within the window
+func (ht *HealthTracker) filterTimestampsInWindow(timestamps []time.Time, window time.Duration) []time.Time {
+	cutoff := time.Now().Add(-window)
+	result := make([]time.Time, 0, len(timestamps))
+	for _, ts := range timestamps {
+		if ts.After(cutoff) {
+			result = append(result, ts)
+		}
+	}
+	return result
+}
+
+// =============================================================================
+// Global Health Tracker Registry
+// =============================================================================
+//
+// For convenience, we maintain a registry of trackers per session
+
+var (
+	healthTrackerRegistry   = make(map[string]*HealthTracker)
+	healthTrackerRegistryMu sync.RWMutex
+)
+
+// GetHealthTracker returns the health tracker for a session, creating if needed
+func GetHealthTracker(session string) *HealthTracker {
+	healthTrackerRegistryMu.RLock()
+	tracker, ok := healthTrackerRegistry[session]
+	healthTrackerRegistryMu.RUnlock()
+
+	if ok {
+		return tracker
+	}
+
+	healthTrackerRegistryMu.Lock()
+	defer healthTrackerRegistryMu.Unlock()
+
+	// Double-check after acquiring write lock
+	if tracker, ok = healthTrackerRegistry[session]; ok {
+		return tracker
+	}
+
+	tracker = NewHealthTracker(session, nil)
+	healthTrackerRegistry[session] = tracker
+	return tracker
+}
+
+// ClearHealthTracker removes the tracker for a session
+func ClearHealthTracker(session string) {
+	healthTrackerRegistryMu.Lock()
+	defer healthTrackerRegistryMu.Unlock()
+	delete(healthTrackerRegistry, session)
 }
