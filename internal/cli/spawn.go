@@ -112,6 +112,9 @@ type SpawnOptions struct {
 	// Hooks
 	NoHooks bool
 
+	// Safety mode: fail if session already exists
+	Safety bool
+
 	// Stagger configuration for thundering herd prevention
 	Stagger        time.Duration // Delay between agent prompt delivery
 	StaggerEnabled bool          // True if --stagger flag was provided
@@ -133,6 +136,7 @@ func newSpawnCmd() *cobra.Command {
 	var profileSetFlag string
 	var staggerDuration time.Duration
 	var staggerEnabled bool
+	var safety bool
 
 	// Pre-load plugins to avoid double loading in RunE
 	configDir := filepath.Dir(config.DefaultPath())
@@ -349,6 +353,7 @@ Examples:
 				NoCassContext:    noCassContext,
 				Prompt:           prompt,
 				NoHooks:          noHooks,
+				Safety:           safety,
 				Stagger:          staggerDuration,
 				StaggerEnabled:   staggerEnabled,
 				ProfileList:      profileList,
@@ -379,6 +384,7 @@ Examples:
 	cmd.Flags().IntVar(&contextDays, "cass-context-days", 0, "Look back N days")
 	cmd.Flags().StringVar(&prompt, "prompt", "", "Prompt to initialize agents with")
 	cmd.Flags().BoolVar(&noHooks, "no-hooks", false, "Disable command hooks")
+	cmd.Flags().BoolVar(&safety, "safety", false, "Fail if session already exists (prevents accidental reuse)")
 
 	// Profile flags for mapping personas to agents
 	cmd.Flags().StringVar(&profilesFlag, "profiles", "", "Comma-separated list of profile/persona names to map to agents in order")
@@ -415,6 +421,11 @@ func spawnSessionLogic(opts SpawnOptions) error {
 
 	if err := tmux.ValidateSessionName(opts.Session); err != nil {
 		return outputError(err)
+	}
+
+	// Safety check: fail if session already exists (when --safety is enabled)
+	if opts.Safety && tmux.SessionExists(opts.Session) {
+		return outputError(fmt.Errorf("session '%s' already exists (--safety mode prevents reuse; use 'ntm kill %s' first)", opts.Session, opts.Session))
 	}
 
 	// Calculate total agents - either from Agents slice or explicit counts (legacy path)

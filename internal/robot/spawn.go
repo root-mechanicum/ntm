@@ -22,6 +22,7 @@ type SpawnOptions struct {
 	WaitReady    bool   // Wait for agents to be ready
 	ReadyTimeout int    // Timeout in seconds for ready detection
 	DryRun       bool   // Preview mode: show what would happen without executing
+	Safety       bool   // Fail if session already exists
 }
 
 // SpawnOutput is the structured output for --robot-spawn.
@@ -70,6 +71,12 @@ func PrintSpawn(opts SpawnOptions, cfg *config.Config) error {
 	// Check tmux availability
 	if !tmux.IsInstalled() {
 		output.Error = "tmux is not installed"
+		return encodeJSON(output)
+	}
+
+	// Safety check: fail if session already exists (when --spawn-safety is enabled)
+	if opts.Safety && tmux.SessionExists(opts.Session) {
+		output.Error = fmt.Sprintf("session '%s' already exists (--spawn-safety mode prevents reuse)", opts.Session)
 		return encodeJSON(output)
 	}
 

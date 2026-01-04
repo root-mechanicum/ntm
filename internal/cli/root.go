@@ -513,6 +513,7 @@ Shell Integration:
 				WaitReady:    robotSpawnWait,
 				ReadyTimeout: int(spawnTimeout.Seconds()),
 				DryRun:       robotRestoreDry,
+				Safety:       robotSpawnSafety,
 			}
 			if err := robot.PrintSpawn(opts, cfg); err != nil {
 				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
@@ -690,6 +691,7 @@ var (
 	robotSpawnNoUser  bool   // don't create user pane
 	robotSpawnWait    bool   // wait for agents to be ready
 	robotSpawnTimeout string // timeout for ready detection (e.g., "30s", "1m")
+	robotSpawnSafety  bool   // fail if session already exists
 
 	// Robot-interrupt flags for priority course correction
 	robotInterrupt        string // session name for interrupt
@@ -840,6 +842,7 @@ func init() {
 	rootCmd.Flags().BoolVar(&robotSpawnNoUser, "spawn-no-user", false, "Skip user pane creation. Optional with --robot-spawn. For headless/automation")
 	rootCmd.Flags().BoolVar(&robotSpawnWait, "spawn-wait", false, "Wait for agents to show ready state before returning. Recommended for automation")
 	rootCmd.Flags().StringVar(&robotSpawnTimeout, "spawn-timeout", "30s", "Max wait for agent ready state (e.g., 30s, 1m). Use with --spawn-wait")
+	rootCmd.Flags().BoolVar(&robotSpawnSafety, "spawn-safety", false, "Fail if session already exists. Prevents accidental reuse of existing sessions")
 
 	// Robot-interrupt flags for priority course correction
 	rootCmd.Flags().StringVar(&robotInterrupt, "robot-interrupt", "", "Send Ctrl+C to stop agents, optionally send new task. Required: SESSION. Example: ntm --robot-interrupt=proj --interrupt-msg='Stop and fix bug'")

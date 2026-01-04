@@ -415,7 +415,7 @@ codex = "bash"
 	// Test robot-spawn with Claude agents
 	logger.LogSection("robot-spawn")
 	out := testutil.AssertCommandSuccess(t, logger, "ntm", "--config", configPath,
-		"--robot-spawn", session, "--spawn-cc=2", "--spawn-wait")
+		"--robot-spawn", session, "--spawn-cc=2", "--spawn-wait", "--spawn-safety")
 	logger.Log("robot-spawn output: %s", string(out))
 
 	var payload struct {
