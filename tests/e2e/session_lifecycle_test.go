@@ -112,9 +112,10 @@ scrollback = 500
 	logger.Log("PASS: Status JSON validated - found %d Claude agents", statusResponse.AgentCounts.Claude)
 
 	// Step 4: Send a prompt and verify delivery
+	// Note: The prompt must come before type-selection flags due to flag parsing behavior
 	logger.LogSection("Step 4: Send prompt and verify delivery")
 	marker := fmt.Sprintf("LIFECYCLE_MARKER_%d", time.Now().UnixNano())
-	out, _ = logger.Exec("ntm", "--config", configPath, "send", sessionName, "--cc", fmt.Sprintf("echo %s", marker))
+	out, _ = logger.Exec("ntm", "--config", configPath, "send", sessionName, fmt.Sprintf("echo %s", marker), "--cc")
 	logger.Log("Send output: %s", string(out))
 
 	// Wait for command to execute

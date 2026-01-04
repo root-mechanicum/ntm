@@ -73,9 +73,9 @@ scrollback = 500
 	testutil.AssertPaneCountAtLeast(t, logger, sessionName, 4)
 
 	// Step 3: Send command to Claude agents
-	// Note: The prompt is a single argument after the flags
+	// Note: The prompt must come before type-selection flags due to flag parsing behavior
 	logger.LogSection("Step 3: Send command to Claude agents")
-	out, _ = logger.Exec("ntm", "--config", configPath, "send", sessionName, "--cc", "echo CLAUDE_TEST_MARKER_12345")
+	out, _ = logger.Exec("ntm", "--config", configPath, "send", sessionName, "echo CLAUDE_TEST_MARKER_12345", "--cc")
 	logger.Log("Send to Claude output: %s", string(out))
 
 	// Give time for command to execute
@@ -83,7 +83,7 @@ scrollback = 500
 
 	// Step 4: Send command to Codex agent
 	logger.LogSection("Step 4: Send command to Codex agent")
-	out, _ = logger.Exec("ntm", "--config", configPath, "send", sessionName, "--cod", "echo CODEX_TEST_MARKER_67890")
+	out, _ = logger.Exec("ntm", "--config", configPath, "send", sessionName, "echo CODEX_TEST_MARKER_67890", "--cod")
 	logger.Log("Send to Codex output: %s", string(out))
 
 	time.Sleep(300 * time.Millisecond)
@@ -230,7 +230,7 @@ codex = "bash"
 
 	// Send to all panes
 	logger.LogSection("Send to all panes")
-	testutil.AssertCommandSuccess(t, logger, "ntm", "--config", configPath, "send", sessionName, "--all", "echo BROADCAST_MARKER_ABCDEF")
+	testutil.AssertCommandSuccess(t, logger, "ntm", "--config", configPath, "send", sessionName, "echo BROADCAST_MARKER_ABCDEF", "--all")
 	time.Sleep(300 * time.Millisecond)
 
 	// Verify marker in multiple panes
