@@ -265,14 +265,6 @@ func looksLikeFilePath(s string) bool {
 	return strings.Contains(s, "/") || strings.Contains(s, "\\")
 }
 
-// countLines counts the number of newlines in a string.
-func countLines(s string) int {
-	if s == "" {
-		return 0
-	}
-	return strings.Count(s, "\n")
-}
-
 // ExtractFromText is a convenience function to extract code blocks from text.
 func ExtractFromText(text string) []CodeBlock {
 	return NewParser().Parse(text)

@@ -284,9 +284,3 @@ func checkDepWithPath(dep depCheck) (status string, version string, path string)
 
 	return "found", "", path
 }
-
-// checkDep is a compatibility wrapper (deprecated, use checkDepWithPath)
-func checkDep(dep depCheck) (status string, version string) {
-	s, v, _ := checkDepWithPath(dep)
-	return s, v
-}

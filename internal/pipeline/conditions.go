@@ -4,7 +4,6 @@ package pipeline
 
 import (
 	"fmt"
-	"regexp"
 	"strconv"
 	"strings"
 )
@@ -368,15 +367,6 @@ func EvaluateCondition(condition string, sub *Substitutor) (skip bool, err error
 
 	return result.Skip, nil
 }
-
-// ConditionPatterns for validation
-var (
-	// validOperators lists all supported operators
-	validOperators = []string{"==", "!=", ">=", "<=", ">", "<", " contains ", " AND ", " OR ", "NOT "}
-
-	// conditionPatternRe matches valid condition syntax
-	conditionPatternRe = regexp.MustCompile(`^[\w\s\.\$\{\}\|\"\'\(\)\!\-\>\<\=]+$`)
-)
 
 // ValidateCondition checks if a condition expression has valid syntax.
 // Returns a list of issues found (empty if valid).

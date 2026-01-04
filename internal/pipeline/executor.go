@@ -50,10 +50,6 @@ type Executor struct {
 	router   *robot.Router
 	scorer   *robot.AgentScorer
 
-	// Round-robin state
-	rrMu      sync.Mutex
-	rrCounter int
-
 	// Runtime state (reset per execution)
 	state    *ExecutionState
 	stateMu  sync.RWMutex // Protects state.Steps for concurrent access
