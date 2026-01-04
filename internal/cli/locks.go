@@ -144,8 +144,11 @@ func fetchActiveReservations(ctx context.Context, client *agentmail.Client, proj
 }
 
 func printLocksResult(result LocksResult, allAgents bool) error {
-	if !result.Success && result.Error != "" {
-		return fmt.Errorf("%s", result.Error)
+	if !result.Success {
+		if result.Error != "" {
+			return fmt.Errorf("%s", result.Error)
+		}
+		return fmt.Errorf("failed to list reservations")
 	}
 
 	scope := "session"
@@ -344,6 +347,10 @@ func runForceRelease(session string, reservationID int, note string, notify, ski
 		result.PathPattern = releaseResult.PathPattern
 		result.ReleasedAt = releaseResult.ReleasedAt
 		result.Notified = releaseResult.Notified
+		// Server may return success=false if reservation is not stale enough
+		if !releaseResult.Success {
+			result.Error = "force-release denied: reservation may not be stale or agent may still be active"
+		}
 	}
 
 	if IsJSONOutput() {
@@ -366,7 +373,10 @@ func runForceRelease(session string, reservationID int, note string, notify, ski
 		return nil
 	}
 
-	return fmt.Errorf("%s", result.Error)
+	if result.Error != "" {
+		return fmt.Errorf("%s", result.Error)
+	}
+	return fmt.Errorf("force-release failed")
 }
 
 func newLocksRenewCmd() *cobra.Command {
@@ -474,5 +484,8 @@ func runRenewLocks(session string, extendMinutes int) error {
 		return nil
 	}
 
-	return fmt.Errorf("%s", result.Error)
+	if result.Error != "" {
+		return fmt.Errorf("%s", result.Error)
+	}
+	return fmt.Errorf("renewal failed")
 }
