@@ -257,10 +257,10 @@ func TestExecutorEnvironment(t *testing.T) {
 		if len(results) != 1 {
 			t.Fatal("expected 1 result")
 		}
-		// Message should be truncated to 1000 + "..."
-		// The echo ${#NTM_MESSAGE} should output 1003
-		if !strings.Contains(results[0].Stdout, "1003") {
-			t.Errorf("message should be truncated to 1003 chars, got stdout: %s", results[0].Stdout)
+		// Message should be truncated to fit within 1000 bytes total (997 content + "...")
+		// The echo ${#NTM_MESSAGE} should output 1000
+		if !strings.Contains(results[0].Stdout, "1000") {
+			t.Errorf("message should be truncated to 1000 chars, got stdout: %s", results[0].Stdout)
 		}
 	})
 
