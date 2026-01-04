@@ -762,6 +762,45 @@ func TestNormalizeAgentType(t *testing.T) {
 	}
 }
 
+func TestIsValidAgentType(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		input    string
+		expected bool
+	}{
+		// Valid types (lowercase)
+		{"claude", true},
+		{"cc", true},
+		{"claude-code", true},
+		{"codex", true},
+		{"cod", true},
+		{"openai", true},
+		{"gemini", true},
+		{"gmi", true},
+		{"google", true},
+		// Case-insensitive handling
+		{"Claude", true},
+		{"CLAUDE", true},
+		{"CC", true},
+		{"Codex", true},
+		{"Gemini", true},
+		// Invalid types
+		{"unknown", false},
+		{"invalid", false},
+		{"", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			got := IsValidAgentType(tt.input)
+			if got != tt.expected {
+				t.Errorf("IsValidAgentType(%q) = %v, want %v", tt.input, got, tt.expected)
+			}
+		})
+	}
+}
+
 func TestParseError_Error(t *testing.T) {
 	t.Parallel()
 
