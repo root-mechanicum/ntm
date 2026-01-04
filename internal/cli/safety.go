@@ -368,10 +368,12 @@ func runSafetyInstall(force bool) error {
 
 	// Create default policy file if it doesn't exist
 	policyPath := filepath.Join(ntmDir, "policy.yaml")
+	policyCreated := false
 	if !fileExists(policyPath) || force {
 		if err := writeDefaultPolicy(policyPath); err != nil {
 			return err
 		}
+		policyCreated = true
 	}
 
 	if !IsJSONOutput() {
@@ -382,7 +384,11 @@ func runSafetyInstall(force bool) error {
 		fmt.Printf("  %s Installed git wrapper: %s\n", okStyle.Render("✓"), gitWrapper)
 		fmt.Printf("  %s Installed rm wrapper: %s\n", okStyle.Render("✓"), rmWrapper)
 		fmt.Printf("  %s Installed Claude Code hook: %s\n", okStyle.Render("✓"), hookPath)
-		fmt.Printf("  %s Created policy file: %s\n", okStyle.Render("✓"), policyPath)
+		if policyCreated {
+			fmt.Printf("  %s Created policy file: %s\n", okStyle.Render("✓"), policyPath)
+		} else {
+			fmt.Printf("  %s Using existing policy: %s\n", okStyle.Render("✓"), policyPath)
+		}
 		fmt.Println()
 		fmt.Printf("  %s\n", mutedStyle.Render("Add to your shell profile:"))
 		fmt.Printf("    %s\n", "export PATH=\"$HOME/.ntm/bin:$PATH\"")
@@ -556,9 +562,17 @@ if [ $exit_code -eq 1 ]; then
     echo "  Reason: $reason" >&2
     echo "  Command: git $*" >&2
 
-    # Log the blocked command
+    # Log the blocked command (use jq for proper JSON escaping)
     mkdir -p "$HOME/.ntm/logs"
-    echo "{\"timestamp\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\",\"command\":\"git $*\",\"reason\":\"$reason\",\"action\":\"block\"}" >> "$HOME/.ntm/logs/blocked.jsonl"
+    if command -v jq >/dev/null 2>&1; then
+        jq -n --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+              --arg cmd "git $*" \
+              --arg reason "${reason:-Policy violation}" \
+              '{timestamp: $ts, command: $cmd, reason: $reason, action: "block"}' >> "$HOME/.ntm/logs/blocked.jsonl"
+    else
+        # Fallback without proper escaping (best effort)
+        echo "{\"timestamp\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\",\"action\":\"block\"}" >> "$HOME/.ntm/logs/blocked.jsonl"
+    fi
 
     exit 1
 fi
@@ -588,9 +602,17 @@ if [ $exit_code -eq 1 ]; then
     echo "  Reason: $reason" >&2
     echo "  Command: rm $*" >&2
 
-    # Log the blocked command
+    # Log the blocked command (use jq for proper JSON escaping)
     mkdir -p "$HOME/.ntm/logs"
-    echo "{\"timestamp\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\",\"command\":\"rm $*\",\"reason\":\"$reason\",\"action\":\"block\"}" >> "$HOME/.ntm/logs/blocked.jsonl"
+    if command -v jq >/dev/null 2>&1; then
+        jq -n --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+              --arg cmd "rm $*" \
+              --arg reason "${reason:-Policy violation}" \
+              '{timestamp: $ts, command: $cmd, reason: $reason, action: "block"}' >> "$HOME/.ntm/logs/blocked.jsonl"
+    else
+        # Fallback without proper escaping (best effort)
+        echo "{\"timestamp\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\",\"action\":\"block\"}" >> "$HOME/.ntm/logs/blocked.jsonl"
+    fi
 
     exit 1
 fi
@@ -624,11 +646,21 @@ if [ $exit_code -eq 1 ]; then
     # Command was blocked
     reason=$(echo "$check_result" | jq -r '.reason // "Policy violation"' 2>/dev/null)
 
-    # Log the blocked command
+    # Log the blocked command (use jq for proper JSON escaping)
     mkdir -p "$HOME/.ntm/logs"
     session="${NTM_SESSION:-unknown}"
     agent="${CLAUDE_AGENT_TYPE:-claude}"
-    echo "{\"timestamp\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\",\"session\":\"$session\",\"agent\":\"$agent\",\"command\":\"$COMMAND\",\"reason\":\"$reason\",\"action\":\"block\"}" >> "$HOME/.ntm/logs/blocked.jsonl"
+    if command -v jq >/dev/null 2>&1; then
+        jq -n --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+              --arg session "$session" \
+              --arg agent "$agent" \
+              --arg cmd "$COMMAND" \
+              --arg reason "${reason:-Policy violation}" \
+              '{timestamp: $ts, session: $session, agent: $agent, command: $cmd, reason: $reason, action: "block"}' >> "$HOME/.ntm/logs/blocked.jsonl"
+    else
+        # Fallback without proper escaping (best effort)
+        echo "{\"timestamp\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\",\"action\":\"block\"}" >> "$HOME/.ntm/logs/blocked.jsonl"
+    fi
 
     # Return error to Claude Code
     echo "BLOCKED: $reason"
