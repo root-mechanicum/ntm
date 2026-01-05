@@ -812,3 +812,218 @@ func TestRobotCassStatusHandlerDispatch(t *testing.T) {
 	// CassAvailable indicates whether CASS is available
 	// The specific value may vary based on environment
 }
+
+// =============================================================================
+// --robot-files tests (ntm-zei3: E2E test with session filter and time window)
+// =============================================================================
+
+func TestRobotFilesFlagParsing(t *testing.T) {
+	testutil.RequireNTMBinary(t)
+
+	logger := testutil.NewTestLoggerStdout(t)
+	// Test with a session name (doesn't need to exist - returns empty changes)
+	out := testutil.AssertCommandSuccess(t, logger, "ntm", "--robot-files=test-session")
+
+	var payload struct {
+		Success    bool   `json:"success"`
+		Session    string `json:"session"`
+		TimeWindow string `json:"time_window"`
+		Count      int    `json:"count"`
+		Changes    []struct {
+			Timestamp string   `json:"timestamp"`
+			Path      string   `json:"path"`
+			Operation string   `json:"operation"`
+			Agents    []string `json:"agents"`
+			Session   string   `json:"session"`
+		} `json:"changes"`
+		Summary struct {
+			TotalChanges    int            `json:"total_changes"`
+			UniqueFiles     int            `json:"unique_files"`
+			ByAgent         map[string]int `json:"by_agent"`
+			ByOperation     map[string]int `json:"by_operation"`
+			MostActiveAgent string         `json:"most_active_agent,omitempty"`
+		} `json:"summary"`
+	}
+
+	if err := json.Unmarshal(out, &payload); err != nil {
+		t.Fatalf("invalid JSON: %v\nOutput: %s", err, string(out))
+	}
+
+	if payload.Session != "test-session" {
+		t.Errorf("expected session='test-session', got %q", payload.Session)
+	}
+	if payload.TimeWindow == "" {
+		t.Errorf("expected time_window field to be set")
+	}
+	// Changes array should exist (even if empty)
+	if payload.Changes == nil {
+		t.Errorf("changes should be an array, not nil")
+	}
+}
+
+func TestRobotFilesTimeWindowFlag(t *testing.T) {
+	testutil.RequireNTMBinary(t)
+
+	testCases := []struct {
+		name           string
+		args           []string
+		expectedWindow string
+	}{
+		{
+			name:           "default window",
+			args:           []string{"--robot-files=test"},
+			expectedWindow: "15m",
+		},
+		{
+			name:           "5m window",
+			args:           []string{"--robot-files=test", "--files-window=5m"},
+			expectedWindow: "5m",
+		},
+		{
+			name:           "1h window",
+			args:           []string{"--robot-files=test", "--files-window=1h"},
+			expectedWindow: "1h",
+		},
+		{
+			name:           "all window",
+			args:           []string{"--robot-files=test", "--files-window=all"},
+			expectedWindow: "all",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			logger := testutil.NewTestLoggerStdout(t)
+			out := testutil.AssertCommandSuccess(t, logger, "ntm", tc.args...)
+
+			var payload struct {
+				TimeWindow string `json:"time_window"`
+			}
+
+			if err := json.Unmarshal(out, &payload); err != nil {
+				t.Fatalf("invalid JSON: %v", err)
+			}
+
+			if payload.TimeWindow != tc.expectedWindow {
+				t.Errorf("expected time_window=%q, got %q", tc.expectedWindow, payload.TimeWindow)
+			}
+		})
+	}
+}
+
+func TestRobotFilesLimitFlag(t *testing.T) {
+	testutil.RequireNTMBinary(t)
+
+	logger := testutil.NewTestLoggerStdout(t)
+	// Test with explicit limit (verifies flag is parsed)
+	out := testutil.AssertCommandSuccess(t, logger, "ntm", "--robot-files=test", "--files-limit=50")
+
+	var payload struct {
+		Success bool `json:"success"`
+		Count   int  `json:"count"`
+	}
+
+	if err := json.Unmarshal(out, &payload); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+
+	// Count should be <= limit (can't verify exact limit without actual file changes)
+	if payload.Count > 50 {
+		t.Errorf("count (%d) exceeded limit (50)", payload.Count)
+	}
+}
+
+func TestRobotFilesEmptySession(t *testing.T) {
+	testutil.RequireNTMBinary(t)
+
+	logger := testutil.NewTestLoggerStdout(t)
+	// Non-existent session should still return valid JSON with empty changes
+	out := testutil.AssertCommandSuccess(t, logger, "ntm", "--robot-files=nonexistent-session-xyz")
+
+	var payload struct {
+		Success bool   `json:"success"`
+		Session string `json:"session"`
+		Count   int    `json:"count"`
+		Changes []struct {
+			Path string `json:"path"`
+		} `json:"changes"`
+		Summary struct {
+			TotalChanges int `json:"total_changes"`
+		} `json:"summary"`
+	}
+
+	if err := json.Unmarshal(out, &payload); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+
+	// Non-existent session should have no changes
+	if payload.Count != 0 {
+		t.Errorf("expected count=0 for non-existent session, got %d", payload.Count)
+	}
+	if len(payload.Changes) != 0 {
+		t.Errorf("expected empty changes for non-existent session, got %d", len(payload.Changes))
+	}
+	if payload.Summary.TotalChanges != 0 {
+		t.Errorf("expected summary.total_changes=0, got %d", payload.Summary.TotalChanges)
+	}
+}
+
+func TestRobotFilesSummaryStructure(t *testing.T) {
+	testutil.RequireNTMBinary(t)
+
+	logger := testutil.NewTestLoggerStdout(t)
+	out := testutil.AssertCommandSuccess(t, logger, "ntm", "--robot-files=test")
+
+	var payload struct {
+		Summary struct {
+			TotalChanges    int            `json:"total_changes"`
+			UniqueFiles     int            `json:"unique_files"`
+			ByAgent         map[string]int `json:"by_agent"`
+			ByOperation     map[string]int `json:"by_operation"`
+			MostActiveAgent string         `json:"most_active_agent,omitempty"`
+			Conflicts       []struct {
+				Path     string   `json:"path"`
+				Agents   []string `json:"agents"`
+				Severity string   `json:"severity"`
+			} `json:"conflicts,omitempty"`
+		} `json:"summary"`
+	}
+
+	if err := json.Unmarshal(out, &payload); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+
+	// ByAgent and ByOperation should always be maps (may be empty)
+	if payload.Summary.ByAgent == nil {
+		t.Errorf("summary.by_agent should be a map, not nil")
+	}
+	if payload.Summary.ByOperation == nil {
+		t.Errorf("summary.by_operation should be a map, not nil")
+	}
+}
+
+func TestRobotFilesAgentHints(t *testing.T) {
+	testutil.RequireNTMBinary(t)
+
+	logger := testutil.NewTestLoggerStdout(t)
+	out := testutil.AssertCommandSuccess(t, logger, "ntm", "--robot-files=test")
+
+	var payload struct {
+		AgentHints *struct {
+			Summary string   `json:"summary"`
+			Notes   []string `json:"notes"`
+		} `json:"_agent_hints,omitempty"`
+	}
+
+	if err := json.Unmarshal(out, &payload); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+
+	// AgentHints may be present when file tracking not initialized
+	// If present, should have summary field
+	if payload.AgentHints != nil {
+		if payload.AgentHints.Summary == "" {
+			t.Errorf("_agent_hints.summary should not be empty when hints present")
+		}
+	}
+}
