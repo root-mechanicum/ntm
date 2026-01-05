@@ -975,7 +975,7 @@ func TestUpgradeErrorFormat(t *testing.T) {
 		"internal/cli/upgrade.go",               // Troubleshooting hint
 		"TestUpgradeAssetNaming",                // Test command
 		"https://github.com/Dicklesworthstone/", // Links
-		"closest match",                         // Asset annotation
+		"same OS, specific arch",                // Close match reason (now shows detailed reason)
 	}
 
 	for _, check := range checks {

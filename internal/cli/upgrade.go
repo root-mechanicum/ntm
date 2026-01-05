@@ -110,7 +110,11 @@ func (e *upgradeError) Error() string {
 			suffix = warnStyle.Render(" ← platform match, name mismatch (check version?)")
 		case "close":
 			marker = warnStyle.Render("≈")
-			suffix = warnStyle.Render(" ← closest match")
+			if asset.Reason != "" {
+				suffix = warnStyle.Render(fmt.Sprintf(" ← %s", asset.Reason))
+			} else {
+				suffix = warnStyle.Render(" ← closest match")
+			}
 		default:
 			marker = dimStyle.Render("✗")
 		}
