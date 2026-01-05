@@ -233,7 +233,7 @@ func PrintFiles(opts FilesOptions) error {
 	if output.Count == 0 {
 		output.AgentHints = &AgentHints{
 			Summary: fmt.Sprintf("No file changes in the last %s", opts.TimeWindow),
-			Notes:   []string{"Use --time-window=all to see all tracked changes"},
+			Notes:   []string{"Use --files-window=all to see all tracked changes"},
 		}
 	} else {
 		output.AgentHints = &AgentHints{
@@ -558,8 +558,12 @@ func PrintMetrics(opts MetricsOptions) error {
 		output.SessionStats.FilesChanged = len(uniqueFiles)
 	}
 
+	sessionDesc := opts.Session
+	if sessionDesc == "" {
+		sessionDesc = "all sessions"
+	}
 	output.AgentHints = &AgentHints{
-		Summary: fmt.Sprintf("Metrics for %s over %s", opts.Session, opts.Period),
+		Summary: fmt.Sprintf("Metrics for %s over %s", sessionDesc, opts.Period),
 		Notes:   []string{"Token usage requires integration with provider APIs for accurate data"},
 	}
 
@@ -766,9 +770,9 @@ func PrintPalette(cfg *config.Config, opts PaletteOptions) error {
 }
 
 // =============================================================================
-// Alerts Management (--robot-alerts-tui, --robot-dismiss-alert)
+// Alerts Management (--robot-dismiss-alert)
 // =============================================================================
-// Provides alert listing and dismissal capabilities, complementing PrintAlertsDetailed.
+// Provides alert dismissal capabilities, complementing PrintAlertsDetailed in robot.go.
 
 // TUIAlertsOutput represents active alerts with TUI-parity fields
 type TUIAlertsOutput struct {

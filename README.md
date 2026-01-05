@@ -579,6 +579,10 @@ ntm --robot-status              # Sessions, panes, agent states
 ntm --robot-context=SESSION     # Context window usage per agent
 ntm --robot-snapshot            # Unified state: sessions + beads + alerts + mail
 ntm --robot-tail=SESSION        # Recent pane output (--lines=50 --panes=1,2)
+ntm --robot-inspect-pane=SESS   # Detailed pane inspection (--inspect-index=N)
+ntm --robot-files=SESSION       # File changes with agent attribution (--files-window=15m)
+ntm --robot-metrics=SESSION     # Session metrics export (--metrics-period=24h)
+ntm --robot-palette             # Query command palette (--palette-category=NAME)
 ntm --robot-plan                # bv execution plan with parallelizable tracks
 ntm --robot-graph               # Dependency graph insights
 ntm --robot-dashboard           # Dashboard summary (markdown or --json)
@@ -597,6 +601,8 @@ ntm --robot-ack=SESSION --ack-timeout=30s                # Watch for responses
 ntm --robot-spawn=SESSION --spawn-cc=2 --spawn-wait      # Create session
 ntm --robot-interrupt=SESSION --interrupt-msg="Stop"     # Send Ctrl+C
 ntm --robot-assign=SESSION --assign-beads=bd-1,bd-2      # Assign work to agents
+ntm --robot-replay=SESSION --replay-id=ID                # Replay command from history
+ntm --robot-dismiss-alert=ALERT_ID                       # Dismiss an alert
 ```
 
 **CASS Integration (Cross-Agent Search):**
@@ -627,11 +633,28 @@ ntm --robot-tokens --tokens-group-by=model               # Token usage analytics
 | `--since=TIMESTAMP` | snapshot | RFC3339 timestamp for delta |
 | `--track` | send | Combined send+ack mode |
 | `--json` | dashboard, markdown | Force JSON output |
+| `--inspect-index=N` | inspect-pane | Pane index to inspect (default 0) |
+| `--inspect-lines=N` | inspect-pane | Output lines to capture (default 100) |
+| `--inspect-code` | inspect-pane | Parse and extract code blocks |
+| `--files-window=T` | files | Time window: 5m, 15m, 1h, all (default 15m) |
+| `--files-limit=N` | files | Max changes to return (default 100) |
+| `--metrics-period=T` | metrics | Period: 1h, 24h, 7d, all (default 24h) |
+| `--palette-category` | palette | Filter commands by category |
+| `--palette-search` | palette | Search commands by text |
+| `--replay-id=ID` | replay | History entry ID to replay |
+| `--replay-dry-run` | replay | Preview without executing |
+| `--dismiss-all` | dismiss-alert | Dismiss all matching alerts |
 
 This enables AI agents to:
 - Discover existing sessions and their agent configurations
 - Plan multi-agent workflows programmatically
 - Monitor context window usage across agents
+- Inspect individual panes with detailed state detection
+- Track file changes with agent attribution and conflict detection
+- Export session metrics for analysis
+- Query the command palette programmatically
+- Replay commands from history
+- Manage alerts programmatically
 - Search past agent conversations via CASS
 - Assign beads/tasks to specific agents
 - Save and restore session state
@@ -702,6 +725,47 @@ This enables AI agents to:
     "low_usage_agents": ["myproject__cc_1"],
     "high_usage_agents": ["myproject__cod_1"],
     "suggestions": ["1 agent(s) have high context usage", "1 agent(s) have room for additional work"]
+  }
+}
+```
+
+**Example JSON output (`--robot-files`):**
+
+```json
+{
+  "success": true,
+  "timestamp": "2025-01-15T10:35:00Z",
+  "session": "myproject",
+  "time_window": "15m",
+  "count": 3,
+  "changes": [
+    {
+      "timestamp": "2025-01-15T10:33:00Z",
+      "path": "internal/api/handler.go",
+      "operation": "modify",
+      "agents": ["claude"],
+      "session": "myproject"
+    }
+  ],
+  "summary": {
+    "total_changes": 3,
+    "unique_files": 2,
+    "by_agent": {"claude": 2, "codex": 1},
+    "by_operation": {"modify": 3},
+    "most_active_agent": "claude",
+    "conflicts": [
+      {
+        "path": "internal/api/handler.go",
+        "agents": ["claude", "codex"],
+        "severity": "warning",
+        "first_edit": "2025-01-15T10:30:00Z",
+        "last_edit": "2025-01-15T10:33:00Z"
+      }
+    ]
+  },
+  "_agent_hints": {
+    "summary": "3 changes to 2 files in the last 15m",
+    "warnings": ["1 file(s) modified by multiple agents - potential conflicts"]
   }
 }
 ```
