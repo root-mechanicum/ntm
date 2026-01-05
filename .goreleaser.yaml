@@ -55,6 +55,11 @@ universal_binaries:
     replace: true
     name_template: ntm
 
+# IMPORTANT: The archive name_template is part of the upgrade naming contract.
+# If you change this, you MUST also update:
+#   - internal/cli/upgrade.go (getAssetName/getArchiveAssetName)
+#   - internal/cli/cli_test.go (TestUpgradeAssetNamingContract)
+# See CONTRIBUTING.md "Release Infrastructure" section for full documentation.
 archives:
   - id: default
     formats:

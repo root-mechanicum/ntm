@@ -655,6 +655,9 @@ func TestFormatSize(t *testing.T) {
 //   - Binaries: ntm_OS_ARCH
 //   - macOS: uses "all" for universal binary (replaces amd64/arm64)
 //   - Linux ARM: uses "armv7" suffix
+//
+// See CONTRIBUTING.md "Release Infrastructure" section for full documentation
+// on the upgrade naming contract and how to safely make changes.
 func TestUpgradeAssetNamingContract(t *testing.T) {
 	// These test cases represent the expected GoReleaser output based on
 	// .goreleaser.yaml configuration. If these tests fail, either:
