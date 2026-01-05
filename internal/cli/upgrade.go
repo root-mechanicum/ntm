@@ -5,6 +5,8 @@ import (
 	"archive/zip"
 	"bufio"
 	"compress/gzip"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -420,6 +422,35 @@ func runUpgrade(checkOnly, force, yes bool) error {
 	}
 	fmt.Println(successStyle.Render("✓"))
 
+	// Verify checksum if available
+	fmt.Print("  Verifying checksum... ")
+	checksums, checksumErr := fetchChecksums(release)
+	if checksumErr != nil {
+		// checksums.txt not available (old releases or missing)
+		fmt.Println(warnStyle.Render("⚠ (not available)"))
+		fmt.Println(dimStyle.Render("    checksums.txt not found - skipping verification"))
+	} else {
+		expectedHash, ok := checksums[asset.Name]
+		if !ok {
+			// Asset not in checksums file - warn but continue
+			fmt.Println(warnStyle.Render("⚠ (not in checksums.txt)"))
+			fmt.Println(dimStyle.Render("    asset not listed in checksums.txt - skipping verification"))
+		} else {
+			// Verify the checksum
+			if err := verifyChecksum(downloadPath, expectedHash); err != nil {
+				fmt.Println(errorStyle.Render("✗"))
+				fmt.Println()
+				fmt.Printf("  %s\n", errorStyle.Render("Checksum verification failed!"))
+				fmt.Printf("  %s\n", dimStyle.Render("The download may be corrupted."))
+				fmt.Println()
+				fmt.Println(dimStyle.Render("  Try again, or download manually from:"))
+				fmt.Println(dimStyle.Render("  " + release.HTMLURL))
+				return fmt.Errorf("checksum verification failed: %w", err)
+			}
+			fmt.Println(successStyle.Render("✓"))
+		}
+	}
+
 	// Extract if it's an archive
 	var binaryPath string
 	if strings.HasSuffix(asset.Name, ".tar.gz") {
@@ -616,6 +647,92 @@ func downloadFile(destPath string, url string) error {
 
 	_, err = io.Copy(out, resp.Body)
 	return err
+}
+
+// fetchChecksums downloads and parses the checksums.txt file from a GitHub release.
+// GoReleaser generates this file with SHA256 hashes for all release assets.
+// Format: "<sha256hash>  <filename>" (note: two spaces between hash and filename)
+// Returns a map[filename]hash, or error if checksums.txt is not found.
+func fetchChecksums(release *GitHubRelease) (map[string]string, error) {
+	// Find the checksums.txt asset
+	var checksumAsset *GitHubAsset
+	for i := range release.Assets {
+		if release.Assets[i].Name == "checksums.txt" {
+			checksumAsset = &release.Assets[i]
+			break
+		}
+	}
+
+	if checksumAsset == nil {
+		return nil, fmt.Errorf("checksums.txt not found in release")
+	}
+
+	// Download checksums.txt
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Get(checksumAsset.BrowserDownloadURL)
+	if err != nil {
+		return nil, fmt.Errorf("failed to download checksums: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("checksums download failed with status %d", resp.StatusCode)
+	}
+
+	// Parse checksums.txt
+	// Format: "<sha256hash>  <filename>" (BSD-style: two spaces)
+	// or:     "<sha256hash> <filename>"  (GNU-style: one space)
+	checksums := make(map[string]string)
+	scanner := bufio.NewScanner(resp.Body)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue // Skip empty lines and comments
+		}
+
+		// Split on whitespace - handles both "hash  filename" and "hash filename"
+		parts := strings.Fields(line)
+		if len(parts) >= 2 {
+			hash := parts[0]
+			filename := parts[len(parts)-1] // Take last part in case of path
+			checksums[filename] = hash
+		}
+	}
+
+	if err := scanner.Err(); err != nil {
+		return nil, fmt.Errorf("failed to read checksums: %w", err)
+	}
+
+	if len(checksums) == 0 {
+		return nil, fmt.Errorf("no checksums found in checksums.txt")
+	}
+
+	return checksums, nil
+}
+
+// verifyChecksum computes the SHA256 hash of a file and compares it to the expected hash.
+// Returns nil if the checksum matches, or an error describing the mismatch.
+func verifyChecksum(filePath string, expectedHash string) error {
+	f, err := os.Open(filePath)
+	if err != nil {
+		return fmt.Errorf("failed to open file for checksum: %w", err)
+	}
+	defer f.Close()
+
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return fmt.Errorf("failed to compute checksum: %w", err)
+	}
+
+	actualHash := hex.EncodeToString(h.Sum(nil))
+	expectedHash = strings.ToLower(strings.TrimSpace(expectedHash))
+	actualHash = strings.ToLower(actualHash)
+
+	if actualHash != expectedHash {
+		return fmt.Errorf("checksum mismatch: expected %s, got %s", expectedHash, actualHash)
+	}
+
+	return nil
 }
 
 // extractTarGz extracts a tar.gz file and returns the path to the ntm binary
