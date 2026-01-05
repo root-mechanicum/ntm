@@ -3,6 +3,7 @@ package plugins
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -271,11 +272,11 @@ echo "TEST_VAR: $TEST_VAR" >> ` + outFile + `
 		t.Fatal("output file is empty")
 	}
 	// Check args were passed
-	if !contains(output, "arg1 arg2") {
+	if !strings.Contains(output, "arg1 arg2") {
 		t.Errorf("expected args in output, got: %s", output)
 	}
 	// Check env was passed
-	if !contains(output, "hello-world") {
+	if !strings.Contains(output, "hello-world") {
 		t.Errorf("expected TEST_VAR in output, got: %s", output)
 	}
 }
@@ -576,18 +577,4 @@ func TestPluginNameRegex(t *testing.T) {
 			t.Errorf("expected %q to be invalid", name)
 		}
 	}
-}
-
-// Helper function
-func contains(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || len(s) > 0 && containsHelper(s, substr))
-}
-
-func containsHelper(s, substr string) bool {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
-	}
-	return false
 }
