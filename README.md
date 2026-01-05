@@ -1506,6 +1506,147 @@ Environment variables are also set for simpler scripts:
 
 ---
 
+## Alerting Architecture
+
+NTM includes a sophisticated alerting system that monitors agent health and triggers notifications on state changes.
+
+### Alert Types
+
+| Alert Type | Trigger | Severity |
+|------------|---------|----------|
+| `unhealthy` | Agent enters unhealthy state | High |
+| `degraded` | Agent performance degrades | Medium |
+| `rate_limited` | API rate limit detected | Medium |
+| `restart` | Agent automatically restarted | Info |
+| `restart_failed` | Restart attempt failed | High |
+| `max_restarts` | Restart limit exceeded | Critical |
+| `recovered` | Agent returns to healthy state | Info |
+
+### Health State Machine
+
+```
+                     ┌─────────────┐
+    ┌───────────────▶│   HEALTHY   │◀───────────────┐
+    │                └──────┬──────┘                │
+    │                       │                       │
+    │              slow response                    │
+    │                       │                       │
+    │                       ▼                       │
+    │                ┌─────────────┐                │
+    │   ┌───────────▶│  DEGRADED   │────────────┐   │
+    │   │            └──────┬──────┘            │   │
+    │   │                   │                   │   │
+    │   │            rate limit hit             │   │
+    │   │                   │                   │   │
+    │   │                   ▼                   │   │
+    │   │           ┌──────────────┐            │   │
+    │   └───────────│ RATE LIMITED │────────────┤   │
+    │               └──────┬───────┘            │   │
+    │                      │                    │   │
+    │               no response                 │   │
+    │                      │                    │   │
+    │                      ▼                    │   │
+    │              ┌─────────────┐              │   │
+    └──────────────│  UNHEALTHY  │──────────────┘   │
+                   └──────┬──────┘                  │
+                          │                         │
+                   restart succeeds                 │
+                          │                         │
+                          └─────────────────────────┘
+```
+
+### Debouncing
+
+To prevent alert storms, NTM debounces alerts:
+
+- **Per-Pane Tracking**: Each pane + alert type combination is tracked independently
+- **Default Interval**: 60 seconds between same alerts for the same pane
+- **Clear on Restart**: Debounce state resets when an agent is restarted
+
+Configure debouncing:
+
+```toml
+[alerting]
+enabled = true
+debounce_interval_sec = 60
+
+# Which alert types to fire
+alert_on = ["unhealthy", "rate_limited", "restart", "restart_failed", "max_restarts"]
+```
+
+### Alert Channels
+
+Alerts are delivered through multiple channels simultaneously:
+
+**Desktop Notifications**:
+- Uses `osascript` on macOS
+- Uses `notify-send` on Linux
+- Configurable urgency: `low`, `normal`, `critical`
+
+**Webhook Delivery**:
+- HTTP POST with JSON payload
+- Exponential backoff on failure (1s, 2s, 4s...)
+- Configurable retry count and timeout
+- Filter webhooks by alert type
+
+**Log Channel**:
+- JSON-formatted alerts to stderr
+- Enables integration with log aggregators
+
+### Robot Mode
+
+Query and manage alerts programmatically:
+
+```bash
+# Get all active alerts
+ntm --robot-alerts
+
+# Include resolved alerts
+ntm --robot-alerts --include-resolved
+
+# Dismiss a specific alert
+ntm --robot-dismiss-alert=ALERT_ID
+
+# Dismiss all alerts
+ntm --robot-dismiss-alert --dismiss-all
+```
+
+### Alert Payload
+
+```json
+{
+  "timestamp": "2025-01-15T10:30:00Z",
+  "type": "unhealthy",
+  "session": "myproject",
+  "pane_id": "myproject__cc_1",
+  "agent_type": "claude",
+  "prev_state": "degraded",
+  "new_state": "unhealthy",
+  "message": "Agent claude in myproject: degraded -> unhealthy",
+  "suggestion": "Check agent logs. May need restart or intervention.",
+  "context_loss": false,
+  "metadata": {
+    "reason": "no output for 5 minutes"
+  }
+}
+```
+
+### Suggestions by Alert Type
+
+Each alert includes context-aware suggestions:
+
+| Alert | Suggestion |
+|-------|------------|
+| `unhealthy` | "Check agent logs. May need restart or intervention." |
+| `degraded` | "Agent is slow but working. Monitor for improvement." |
+| `rate_limited` | "Agent hit API rate limits. Will auto-backoff." |
+| `restart` | "Agent was restarted automatically." |
+| `restart_failed` | "Automatic restart failed. Manual intervention needed." |
+| `max_restarts` | "Too many restarts. Check for underlying issues." |
+| `recovered` | "Agent is healthy again." |
+
+---
+
 ## Themes & Icons
 
 ### Color Themes
@@ -2254,6 +2395,110 @@ The file watcher automatically ignores common directories like `.git`, `node_mod
 
 ---
 
+## State Detection Algorithms
+
+NTM uses sophisticated pattern matching to detect agent states in real-time without requiring agent cooperation or instrumentation.
+
+### How Detection Works
+
+Agent state is inferred by analyzing terminal output:
+
+1. **Output Capture**: NTM captures the last N lines from each pane's scrollback buffer
+2. **ANSI Stripping**: Control sequences are removed to get clean text
+3. **Pattern Matching**: Lines are checked against agent-specific patterns
+4. **Recency Weighting**: Recent lines are weighted more heavily than older output
+
+### Detection Patterns by Agent
+
+Each AI agent has distinct prompt and output patterns:
+
+| Agent | Idle Patterns | Active Patterns | Error Patterns |
+|-------|---------------|-----------------|----------------|
+| **Claude** | `claude>`, `Claude >` | Tool use indicators, streaming output | `Error:`, rate limit messages |
+| **Codex** | `codex>`, `Codex>` | Code generation markers | `Failed`, API errors |
+| **Gemini** | `gemini>`, `Gemini>` | Response streaming | Quota exceeded, errors |
+| **Generic** | `$ `, `% `, `❯ `, `> ` | Active character generation | Exit codes, stack traces |
+
+### State Transitions
+
+```
+                    ┌─────────┐
+    ┌──────────────▶│  IDLE   │◀──────────────┐
+    │               └────┬────┘               │
+    │                    │                    │
+    │           prompt received               │
+    │                    │                    │
+    │                    ▼                    │
+    │               ┌─────────┐               │
+    │   ┌──────────▶│THINKING │───────────┐   │
+    │   │           └────┬────┘           │   │
+    │   │                │                │   │
+    │   │        output starts            │   │
+    │   │                │                │   │
+    │   │                ▼                │   │
+    │   │          ┌──────────┐           │   │
+    │   └──────────│GENERATING│───────────┼───┘
+    │              └────┬─────┘           │
+    │                   │                 │
+    │           error detected            │
+    │                   │                 │
+    │                   ▼                 │
+    │              ┌─────────┐            │
+    └──────────────│  ERROR  │────────────┘
+                   └─────────┘
+```
+
+### Velocity Estimation
+
+NTM estimates output velocity (tokens per minute) by:
+
+1. **Sampling**: Capturing output at regular intervals
+2. **Delta Calculation**: Computing character differences between samples
+3. **Token Estimation**: Applying agent-specific character-to-token ratios
+4. **Smoothing**: Using exponential moving averages to reduce noise
+
+Default character-to-token ratios:
+- Claude: ~4 characters per token
+- Codex: ~3.5 characters per token
+- Gemini: ~4 characters per token
+
+### Configuration
+
+Fine-tune detection in `~/.config/ntm/config.toml`:
+
+```toml
+[detection]
+# Lines to capture for state detection
+capture_lines = 20
+
+# Polling interval for activity checks
+poll_interval_ms = 500
+
+# Time before marking agent as stalled (no output)
+stall_threshold_sec = 300
+
+# Custom patterns for agent detection
+[detection.patterns.claude]
+idle = ["claude>", "Claude >", "❯"]
+error = ["Error:", "rate_limit", "context_length_exceeded"]
+
+[detection.patterns.codex]
+idle = ["codex>", "$ "]
+error = ["Failed", "API Error"]
+```
+
+### Robot Mode Access
+
+```bash
+# Get detailed state information
+ntm --robot-inspect-pane=myproject --inspect-index=1 --inspect-lines=100
+
+# Get activity states for all agents
+ntm activity myproject --json
+```
+
+---
+
 ## Output Analysis
 
 NTM includes tools for analyzing, searching, and extracting content from agent output.
@@ -2650,6 +2895,135 @@ ntm work next --json                  # Machine-readable
 ```
 
 This returns the highest-impact, unblocked item with a ready-to-run `bd update` command to claim it.
+
+---
+
+## Intelligent Work Assignment
+
+NTM includes a sophisticated work assignment system that matches tasks to agents based on agent capabilities, task characteristics, and configurable strategies.
+
+### Agent Capability Matrix
+
+Different AI agents excel at different types of work. NTM maintains a capability matrix that influences assignment recommendations:
+
+| Agent | Best At | Strength Score |
+|-------|---------|----------------|
+| **Claude** | Analysis, refactoring, documentation, architecture | Analysis: 0.9, Refactor: 0.9, Docs: 0.8 |
+| **Codex** | Feature implementation, bug fixes, quick tasks | Feature: 0.9, Bug: 0.8, Task: 0.8 |
+| **Gemini** | Documentation, analysis, features | Docs: 0.9, Analysis: 0.8, Feature: 0.8 |
+
+### Task Type Inference
+
+NTM automatically infers task types from bead titles using keyword analysis:
+
+| Task Type | Keywords |
+|-----------|----------|
+| Bug | `bug`, `fix`, `broken`, `error`, `crash` |
+| Testing | `test`, `spec`, `coverage` |
+| Documentation | `doc`, `readme`, `comment`, `documentation` |
+| Refactor | `refactor`, `cleanup`, `improve`, `consolidate` |
+| Analysis | `analyze`, `investigate`, `research`, `design` |
+| Feature | `feature`, `implement`, `add`, `new` |
+
+### Assignment Strategies
+
+Choose a strategy based on your priorities:
+
+```bash
+# Balanced (default): Distribute work evenly across agents
+ntm --robot-assign=myproject --assign-strategy=balanced
+
+# Speed: Assign any available work to any idle agent quickly
+ntm --robot-assign=myproject --assign-strategy=speed
+
+# Quality: Optimize agent-task match for best results
+ntm --robot-assign=myproject --assign-strategy=quality
+
+# Dependency: Prioritize items that unblock the most downstream work
+ntm --robot-assign=myproject --assign-strategy=dependency
+```
+
+### Strategy Behavior
+
+**Balanced** (default):
+- Considers agent strengths for task types
+- Distributes work fairly across idle agents
+- Good general-purpose choice
+
+**Speed**:
+- Maximizes throughput
+- Assigns any idle agent to any ready task
+- Best when time is critical
+
+**Quality**:
+- Strictly matches agent capabilities to task types
+- May leave agents idle if no suitable tasks
+- Best for complex, high-stakes work
+
+**Dependency**:
+- Prioritizes high-priority items (P0, P1)
+- Focuses on unblocking downstream work
+- Best for projects with deep dependency graphs
+
+### Assignment Output
+
+```bash
+ntm --robot-assign=myproject
+```
+
+Returns recommendations with confidence scores:
+
+```json
+{
+  "success": true,
+  "session": "myproject",
+  "strategy": "balanced",
+  "recommendations": [
+    {
+      "agent": "1",
+      "agent_type": "claude",
+      "model": "sonnet",
+      "assign_bead": "bd-42",
+      "bead_title": "Refactor authentication module",
+      "priority": "P1",
+      "confidence": 0.9,
+      "reasoning": "claude excels at refactor tasks; high priority"
+    }
+  ],
+  "idle_agents": ["1", "2", "4"],
+  "summary": {
+    "total_agents": 5,
+    "idle_agents": 3,
+    "ready_beads": 8,
+    "recommendations": 3
+  },
+  "_agent_hints": {
+    "summary": "3 assignments recommended for 3 idle agents",
+    "suggested_commands": [
+      "bd update bd-42 --assignee=pane1",
+      "bd update bd-45 --assignee=pane2"
+    ]
+  }
+}
+```
+
+### Filtering Assignments
+
+```bash
+# Assign specific beads only
+ntm --robot-assign=myproject --assign-beads=bd-42,bd-45
+
+# Combine with strategy
+ntm --robot-assign=myproject --assign-strategy=quality --assign-beads=bd-42
+```
+
+### Integration with Agent Mail
+
+When using Agent Mail for multi-agent coordination, file reservations are automatically considered:
+
+1. Beads that require files already reserved by another agent are marked as conflicts
+2. Assignment recommendations include warnings about potential conflicts
+3. Agents can be configured to auto-claim file reservations when assigned work
 
 ---
 
