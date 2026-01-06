@@ -183,7 +183,7 @@ func (c *SessionCoordinator) formatAssignmentMessage(assignment *WorkAssignment,
 		sb.WriteString("## Impact\n\n")
 		sb.WriteString(fmt.Sprintf("Completing this will unblock %d other tasks:\n", len(rec.UnblocksIDs)))
 		for _, id := range rec.UnblocksIDs {
-			if len(sb.String()) > 1500 {
+			if sb.Len() > 1500 {
 				sb.WriteString("- ...\n")
 				break
 			}
@@ -207,7 +207,10 @@ func (c *SessionCoordinator) formatAssignmentMessage(assignment *WorkAssignment,
 
 // removeRecommendation removes a recommendation by ID from the list.
 func removeRecommendation(recs []bv.TriageRecommendation, id string) []bv.TriageRecommendation {
-	result := make([]bv.TriageRecommendation, 0, len(recs)-1)
+	if len(recs) == 0 {
+		return nil
+	}
+	result := make([]bv.TriageRecommendation, 0, len(recs))
 	for _, r := range recs {
 		if r.ID != id {
 			result = append(result, r)

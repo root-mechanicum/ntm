@@ -75,6 +75,17 @@ func TestRemoveRecommendation(t *testing.T) {
 	if len(result2) != 3 {
 		t.Errorf("expected 3 recommendations when removing non-existent, got %d", len(result2))
 	}
+
+	// Test empty slice (should not panic)
+	result3 := removeRecommendation(nil, "ntm-001")
+	if result3 != nil {
+		t.Errorf("expected nil for empty input, got %v", result3)
+	}
+
+	result4 := removeRecommendation([]bv.TriageRecommendation{}, "ntm-001")
+	if result4 != nil {
+		t.Errorf("expected nil for empty slice, got %v", result4)
+	}
 }
 
 func TestFindBestMatch(t *testing.T) {
