@@ -19,6 +19,7 @@ import (
 	"github.com/Dicklesworthstone/ntm/internal/robot"
 	"github.com/Dicklesworthstone/ntm/internal/status"
 	"github.com/Dicklesworthstone/ntm/internal/tmux"
+	"github.com/Dicklesworthstone/ntm/internal/util"
 )
 
 // ExecutorConfig configures the executor behavior
@@ -613,7 +614,7 @@ func (e *Executor) executeStepOnce(ctx context.Context, step *Step, workflow *Wo
 		return result
 	}
 
-	result.Output = extractNewOutput(beforeOutput, afterOutput)
+	result.Output = util.ExtractNewOutput(beforeOutput, afterOutput)
 
 	// Parse output if configured
 	if step.OutputVar != "" && step.OutputParse.Type != "" && step.OutputParse.Type != "none" {
@@ -967,7 +968,7 @@ func (e *Executor) executeParallelStep(ctx context.Context, step *Step, workflow
 		return result
 	}
 
-	result.Output = extractNewOutput(beforeOutput, afterOutput)
+	result.Output = util.ExtractNewOutput(beforeOutput, afterOutput)
 	result.Status = StatusCompleted
 	result.FinishedAt = time.Now()
 

@@ -10,6 +10,7 @@ import (
 
 	"github.com/Dicklesworthstone/ntm/internal/status"
 	"github.com/Dicklesworthstone/ntm/internal/tmux"
+	"github.com/Dicklesworthstone/ntm/internal/util"
 )
 
 func TestTruncate(t *testing.T) {
@@ -33,9 +34,9 @@ func TestTruncate(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		got := truncate(tt.input, tt.n)
+		got := util.Truncate(tt.input, tt.n)
 		if got != tt.want {
-			t.Errorf("truncate(%q, %d) = %q, want %q", tt.input, tt.n, got, tt.want)
+			t.Errorf("util.Truncate(%q, %d) = %q, want %q", tt.input, tt.n, got, tt.want)
 		}
 	}
 }
@@ -44,21 +45,21 @@ func TestTruncate_EdgeCases(t *testing.T) {
 	t.Parallel()
 	// Test truncation at boundary conditions
 	t.Run("n equals string length", func(t *testing.T) {
-		result := truncate("test", 4)
+		result := util.Truncate("test", 4)
 		if result != "test" {
 			t.Errorf("expected 'test', got %q", result)
 		}
 	})
 
 	t.Run("n slightly larger than string", func(t *testing.T) {
-		result := truncate("test", 100)
+		result := util.Truncate("test", 100)
 		if result != "test" {
 			t.Errorf("expected 'test', got %q", result)
 		}
 	})
 
 	t.Run("empty string with positive n", func(t *testing.T) {
-		result := truncate("", 10)
+		result := util.Truncate("", 10)
 		if result != "" {
 			t.Errorf("expected empty string, got %q", result)
 		}

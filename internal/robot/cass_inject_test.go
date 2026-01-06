@@ -1013,3 +1013,89 @@ func findSubstring(s, substr string) bool {
 	}
 	return false
 }
+
+// =============================================================================
+// Robot API Integration Tests
+// =============================================================================
+
+func TestNewCASSInjectionInfo(t *testing.T) {
+	result := InjectionResult{
+		Success: true,
+		Metadata: InjectionMetadata{
+			Enabled:       true,
+			ItemsFound:    5,
+			ItemsInjected: 2,
+			TokensAdded:   200,
+			SkippedReason: "",
+		},
+	}
+
+	hits := []ScoredHit{
+		{
+			CASSHit:       CASSHit{SourcePath: "/path/2025/01/04/session1.jsonl"},
+			ComputedScore: 0.95,
+		},
+		{
+			CASSHit:       CASSHit{SourcePath: "/path/2025/01/03/session2.jsonl"},
+			ComputedScore: 0.85,
+		},
+	}
+
+	info := NewCASSInjectionInfo(result, "test query", hits)
+
+	if !info.Enabled {
+		t.Error("Enabled should be true")
+	}
+	if info.Query != "test query" {
+		t.Errorf("Query = %q, want 'test query'", info.Query)
+	}
+	if info.ItemsFound != 5 {
+		t.Errorf("ItemsFound = %d, want 5", info.ItemsFound)
+	}
+	if info.ItemsInjected != 2 {
+		t.Errorf("ItemsInjected = %d, want 2", info.ItemsInjected)
+	}
+	if info.TokensAdded != 200 {
+		t.Errorf("TokensAdded = %d, want 200", info.TokensAdded)
+	}
+	if len(info.Sources) != 2 {
+		t.Fatalf("len(Sources) = %d, want 2", len(info.Sources))
+	}
+
+	// Check first source
+	if info.Sources[0].Session != "session1" {
+		t.Errorf("Sources[0].Session = %q, want 'session1'", info.Sources[0].Session)
+	}
+	if info.Sources[0].Relevance != 95 {
+		t.Errorf("Sources[0].Relevance = %d, want 95", info.Sources[0].Relevance)
+	}
+
+	// Check second source
+	if info.Sources[1].Session != "session2" {
+		t.Errorf("Sources[1].Session = %q, want 'session2'", info.Sources[1].Session)
+	}
+	if info.Sources[1].Relevance != 85 {
+		t.Errorf("Sources[1].Relevance = %d, want 85", info.Sources[1].Relevance)
+	}
+}
+
+func TestNewCASSInjectionInfo_EmptyHits(t *testing.T) {
+	result := InjectionResult{
+		Success: true,
+		Metadata: InjectionMetadata{
+			Enabled:       true,
+			ItemsFound:    0,
+			ItemsInjected: 0,
+			SkippedReason: "no relevant context found",
+		},
+	}
+
+	info := NewCASSInjectionInfo(result, "", []ScoredHit{})
+
+	if len(info.Sources) != 0 {
+		t.Errorf("len(Sources) = %d, want 0", len(info.Sources))
+	}
+	if info.SkippedReason != "no relevant context found" {
+		t.Errorf("SkippedReason = %q, want 'no relevant context found'", info.SkippedReason)
+	}
+}

@@ -2062,16 +2062,75 @@ func agentTypeString(t tmux.AgentType) string {
 
 // SendOutput is the structured output for --robot-send
 type SendOutput struct {
-	RobotResponse                  // Embed standard response fields (success, timestamp, error)
-	Session        string          `json:"session"`
-	SentAt         time.Time       `json:"sent_at"`
-	Targets        []string        `json:"targets"`
-	Successful     []string        `json:"successful"`
-	Failed         []SendError     `json:"failed"`
-	MessagePreview string          `json:"message_preview"`
-	DryRun         bool            `json:"dry_run,omitempty"`
-	WouldSendTo    []string        `json:"would_send_to,omitempty"`
-	AgentHints     *SendAgentHints `json:"_agent_hints,omitempty"`
+	RobotResponse                       // Embed standard response fields (success, timestamp, error)
+	Session        string               `json:"session"`
+	SentAt         time.Time            `json:"sent_at"`
+	Targets        []string             `json:"targets"`
+	Successful     []string             `json:"successful"`
+	Failed         []SendError          `json:"failed"`
+	MessagePreview string               `json:"message_preview"`
+	DryRun         bool                 `json:"dry_run,omitempty"`
+	WouldSendTo    []string             `json:"would_send_to,omitempty"`
+	CASSInjection  *CASSInjectionInfo   `json:"cass_injection,omitempty"`
+	AgentHints     *SendAgentHints      `json:"_agent_hints,omitempty"`
+}
+
+// CASSInjectionInfo reports CASS context injection details in robot responses.
+type CASSInjectionInfo struct {
+	// Enabled indicates whether CASS injection was enabled.
+	Enabled bool `json:"enabled"`
+	// Query is the search query that was executed.
+	Query string `json:"query,omitempty"`
+	// ItemsFound is how many CASS hits were found.
+	ItemsFound int `json:"items_found"`
+	// ItemsInjected is how many items were actually injected.
+	ItemsInjected int `json:"items_injected"`
+	// TokensAdded is the estimated token count of injected content.
+	TokensAdded int `json:"tokens_added"`
+	// Sources lists the sessions that provided context.
+	Sources []CASSSource `json:"sources,omitempty"`
+	// SkippedReason explains why injection was skipped, if applicable.
+	SkippedReason string `json:"skipped_reason,omitempty"`
+}
+
+// CASSSource represents a session that provided CASS context.
+type CASSSource struct {
+	// Session is the session name or path.
+	Session string `json:"session"`
+	// Relevance is the relevance score (0-100).
+	Relevance int `json:"relevance"`
+	// AgeDays is how many days old the session is.
+	AgeDays int `json:"age_days"`
+}
+
+// NewCASSInjectionInfo creates CASSInjectionInfo from an InjectionResult.
+func NewCASSInjectionInfo(result InjectionResult, query string, hits []ScoredHit) *CASSInjectionInfo {
+	info := &CASSInjectionInfo{
+		Enabled:       result.Metadata.Enabled,
+		Query:         query,
+		ItemsFound:    result.Metadata.ItemsFound,
+		ItemsInjected: result.Metadata.ItemsInjected,
+		TokensAdded:   result.Metadata.TokensAdded,
+		SkippedReason: result.Metadata.SkippedReason,
+		Sources:       make([]CASSSource, 0, len(hits)),
+	}
+
+	now := time.Now()
+	for _, hit := range hits {
+		sessionDate := extractSessionDate(hit.SourcePath)
+		ageDays := 0
+		if !sessionDate.IsZero() {
+			ageDays = int(now.Sub(sessionDate).Hours() / 24)
+		}
+
+		info.Sources = append(info.Sources, CASSSource{
+			Session:   extractSessionName(hit.SourcePath),
+			Relevance: int(hit.ComputedScore * 100),
+			AgeDays:   ageDays,
+		})
+	}
+
+	return info
 }
 
 // SendAgentHints provides agent guidance specific to send output
@@ -2096,6 +2155,12 @@ type SendOptions struct {
 	Exclude    []string // Panes to exclude
 	DelayMs    int      // Delay between sends in milliseconds
 	DryRun     bool     // If true, show what would be sent without actually sending
+
+	// CASS injection options
+	WithCASS      bool          // Enable CASS context injection
+	CASSConfig    *CASSConfig   // CASS query configuration (optional)
+	FilterConfig  *FilterConfig // CASS filter configuration (optional)
+	InjectConfig  *InjectConfig // CASS injection configuration (optional)
 }
 
 // PrintSend sends a message to multiple panes atomically and returns structured results
@@ -2211,6 +2276,48 @@ func PrintSend(opts SendOptions) error {
 		output.Targets = append(output.Targets, paneKey)
 	}
 
+	// Perform CASS injection if enabled
+	messageToSend := opts.Message
+	if opts.WithCASS {
+		// Use provided configs or defaults
+		queryConfig := DefaultCASSConfig()
+		if opts.CASSConfig != nil {
+			queryConfig = *opts.CASSConfig
+		}
+
+		filterConfig := DefaultFilterConfig()
+		if opts.FilterConfig != nil {
+			filterConfig = *opts.FilterConfig
+		}
+
+		injectConfig := DefaultInjectConfig()
+		if opts.InjectConfig != nil {
+			injectConfig = *opts.InjectConfig
+		}
+
+		// If there are target panes, try to determine agent type for formatting
+		if len(targetPanes) > 0 {
+			agentType := detectAgentType(targetPanes[0].Title)
+			injectConfig.Format = FormatForAgent(agentType)
+		}
+
+		// Perform CASS query and injection
+		injectResult, queryResult, filterResult := InjectContextFromQuery(
+			opts.Message,
+			queryConfig,
+			filterConfig,
+			injectConfig,
+		)
+
+		// Record injection metadata
+		output.CASSInjection = NewCASSInjectionInfo(injectResult, queryResult.Query, filterResult.Hits)
+
+		// Use modified message if injection succeeded
+		if injectResult.Success && injectResult.ModifiedPrompt != "" {
+			messageToSend = injectResult.ModifiedPrompt
+		}
+	}
+
 	// Send to all targets
 	for i, pane := range targetPanes {
 		paneKey := fmt.Sprintf("%d", pane.Index)
@@ -2220,7 +2327,7 @@ func PrintSend(opts SendOptions) error {
 			time.Sleep(time.Duration(opts.DelayMs) * time.Millisecond)
 		}
 
-		err := tmux.SendKeys(pane.ID, opts.Message, true)
+		err := tmux.SendKeys(pane.ID, messageToSend, true)
 		if err != nil {
 			output.Failed = append(output.Failed, SendError{
 				Pane:  paneKey,
