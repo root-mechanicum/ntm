@@ -152,8 +152,8 @@ func (a *AutoCheckpointer) rotateAutoCheckpoints(sessionName string, maxCount in
 
 // isAutoCheckpoint checks if a checkpoint was auto-generated
 func isAutoCheckpoint(cp *Checkpoint) bool {
-	// Check by name prefix
-	if strings.HasPrefix(cp.Name, AutoCheckpointPrefix) {
+	// Check by name prefix (use "auto-" to avoid matching names like "automatic")
+	if strings.HasPrefix(cp.Name, AutoCheckpointPrefix+"-") {
 		return true
 	}
 	// Also check description as fallback
@@ -213,10 +213,11 @@ type BackgroundWorker struct {
 	config       AutoCheckpointConfig
 	sessionName  string
 
-	events chan AutoEvent
-	cancel context.CancelFunc
-	wg     sync.WaitGroup
-	mu     sync.Mutex
+	events  chan AutoEvent
+	cancel  context.CancelFunc
+	wg      sync.WaitGroup
+	mu      sync.Mutex
+	started bool // tracks if the worker goroutine was actually started
 
 	// Statistics
 	checkpointCount int
@@ -245,6 +246,9 @@ func (w *BackgroundWorker) Start(ctx context.Context) {
 	ctx, w.cancel = context.WithCancel(ctx)
 
 	w.wg.Add(1)
+	w.mu.Lock()
+	w.started = true
+	w.mu.Unlock()
 	go w.run(ctx)
 
 	log.Printf("Started auto-checkpoint worker for session %s (interval: %dm)",
@@ -254,13 +258,16 @@ func (w *BackgroundWorker) Start(ctx context.Context) {
 // Stop stops the background checkpoint worker gracefully.
 func (w *BackgroundWorker) Stop() {
 	w.mu.Lock()
+	wasStarted := w.started
 	if w.cancel != nil {
 		w.cancel()
 	}
 	w.mu.Unlock()
 
 	w.wg.Wait()
-	log.Printf("Stopped auto-checkpoint worker for session %s", w.sessionName)
+	if wasStarted {
+		log.Printf("Stopped auto-checkpoint worker for session %s", w.sessionName)
+	}
 }
 
 // SendEvent sends an event to the worker to potentially trigger a checkpoint.

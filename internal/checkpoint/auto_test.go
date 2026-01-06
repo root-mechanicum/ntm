@@ -54,6 +54,16 @@ func TestIsAutoCheckpoint(t *testing.T) {
 			checkpoint: &Checkpoint{},
 			want:       false,
 		},
+		{
+			name:       "automation name should not match",
+			checkpoint: &Checkpoint{Name: "automation-backup", Description: "User created"},
+			want:       false,
+		},
+		{
+			name:       "automatic name should not match",
+			checkpoint: &Checkpoint{Name: "automatic", Description: "User created"},
+			want:       false,
+		},
 	}
 
 	for _, tt := range tests {
