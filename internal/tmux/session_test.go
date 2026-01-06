@@ -849,3 +849,25 @@ func TestSplitWindowWithBadSession(t *testing.T) {
 		t.Error("SplitWindow should fail for non-existent session")
 	}
 }
+
+func TestAgentType_ProfileName(t *testing.T) {
+	tests := []struct {
+		agentType AgentType
+		expected  string
+	}{
+		{AgentClaude, "Claude"},
+		{AgentCodex, "Codex"},
+		{AgentGemini, "Gemini"},
+		{AgentUser, "User"},
+		{AgentType("unknown"), "unknown"},
+	}
+
+	for _, tt := range tests {
+		t.Run(string(tt.agentType), func(t *testing.T) {
+			result := tt.agentType.ProfileName()
+			if result != tt.expected {
+				t.Errorf("ProfileName() = %q, want %q", result, tt.expected)
+			}
+		})
+	}
+}

@@ -2255,10 +2255,10 @@ func (m Model) renderPaneGrid() string {
 		statusStyled := lipgloss.NewStyle().Foreground(statusColor).Bold(true).Render(statusIcon)
 
 		iconStyled := lipgloss.NewStyle().Foreground(iconColor).Bold(true).Render(agentIcon)
-		title := layout.TruncateRunes(p.Title, maxInt(cardWidth-10, 10), "…")
-
-		titleStyled := lipgloss.NewStyle().Foreground(t.Text).Bold(true).Render(title)
-		cardContent.WriteString(statusStyled + " " + iconStyled + " " + titleStyled + "\n")
+		// Show profile name as primary identifier
+		profileName := p.Type.ProfileName()
+		profileStyled := lipgloss.NewStyle().Foreground(t.Text).Bold(true).Render(profileName)
+		cardContent.WriteString(statusStyled + " " + iconStyled + " " + profileStyled + "\n")
 
 		// Index badge + compact badges
 		numBadge := lipgloss.NewStyle().
@@ -3172,7 +3172,7 @@ func (m Model) renderPaneDetail(width int) string {
 	ps := m.paneStatus[p.Index]
 	var lines []string
 
-	// Header with pane title
+	// Header with profile name as primary identifier
 	headerStyle := lipgloss.NewStyle().
 		Bold(true).
 		Foreground(t.Text).
@@ -3181,7 +3181,7 @@ func (m Model) renderPaneDetail(width int) string {
 		BorderForeground(t.Surface1).
 		Width(width-2).
 		Padding(0, 1)
-	lines = append(lines, headerStyle.Render(p.Title))
+	lines = append(lines, headerStyle.Render(p.Type.ProfileName()))
 	lines = append(lines, "")
 
 	// Info grid
@@ -3210,11 +3210,14 @@ func (m Model) renderPaneDetail(width int) string {
 		Foreground(t.Base).
 		Bold(true).
 		Padding(0, 1).
-		Render(typeIcon + " " + string(p.Type))
-	lines = append(lines, labelStyle.Render("Type:")+typeBadge)
+		Render(typeIcon + " " + p.Type.ProfileName())
+	lines = append(lines, labelStyle.Render("Profile:")+typeBadge)
 
 	// Index
 	lines = append(lines, labelStyle.Render("Index:")+valueStyle.Render(fmt.Sprintf("%d", p.Index)))
+
+	// Pane ID (secondary identifier)
+	lines = append(lines, labelStyle.Render("Pane ID:")+valueStyle.Render(p.Title))
 
 	// Dimensions
 	lines = append(lines, labelStyle.Render("Size:")+valueStyle.Render(fmt.Sprintf("%d × %d", p.Width, p.Height)))

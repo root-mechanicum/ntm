@@ -32,6 +32,23 @@ const (
 	AgentUser   AgentType = "user"
 )
 
+// ProfileName returns the friendly display name for the agent type.
+// This is used in the dashboard to show profile names prominently.
+func (a AgentType) ProfileName() string {
+	switch a {
+	case AgentClaude:
+		return "Claude"
+	case AgentCodex:
+		return "Codex"
+	case AgentGemini:
+		return "Gemini"
+	case AgentUser:
+		return "User"
+	default:
+		return string(a)
+	}
+}
+
 // Pane represents a tmux pane
 type Pane struct {
 	ID      string
