@@ -508,7 +508,7 @@ func New(session, projectDir string) Model {
 		spawnPanel:   panels.NewSpawnPanel(),
 
 		// Init() kicks off these fetches immediately; mark as fetching so the tick loop
-		// doesn’t pile on duplicates if the first round is still in flight.
+		// doesn't pile on duplicates if the first round is still in flight.
 		fetchingSession:     true,
 		fetchingContext:     true,
 		fetchingAlerts:      true,
@@ -518,6 +518,7 @@ func New(session, projectDir string) Model {
 		fetchingRouting:     true,
 		fetchingHistory:     true,
 		fetchingFileChanges: true,
+		fetchingCheckpoint:  true,
 	}
 
 	// Initialize last-fetch timestamps to start cadence after the initial fetches from Init.
@@ -528,6 +529,7 @@ func New(session, projectDir string) Model {
 	m.lastBeadsFetch = now
 	m.lastCassContextFetch = now
 	m.lastScanFetch = now
+	m.lastCheckpointFetch = now
 
 	applyDashboardEnvOverrides(&m)
 
@@ -582,6 +584,7 @@ func (m Model) Init() tea.Cmd {
 		m.fetchHistoryCmd(),
 		m.fetchFileChangesCmd(),
 		m.fetchCASSContextCmd(),
+		m.fetchCheckpointStatus(),
 		m.subscribeToConfig(),
 	)
 }
@@ -1671,6 +1674,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.lastCheckpointFetch = time.Now()
 		if msg.Err != nil {
 			m.checkpointError = msg.Err
+			// Clear stale data on error
+			m.checkpointCount = 0
+			m.checkpointStatus = "none"
+			m.latestCheckpoint = nil
 		} else {
 			m.checkpointCount = msg.Count
 			m.latestCheckpoint = msg.Latest
@@ -2284,10 +2291,9 @@ func (m Model) renderAgentMailBadge() string {
 func (m Model) renderCheckpointBadge() string {
 	t := m.theme
 
-	if m.checkpointStatus == "" || m.checkpointStatus == "none" {
-		if m.checkpointCount == 0 {
-			return "" // Don't show badge if no checkpoints exist
-		}
+	// Don't show badge if no checkpoints or status not set
+	if m.checkpointCount == 0 || m.checkpointStatus == "" || m.checkpointStatus == "none" {
+		return ""
 	}
 
 	var bgColor, fgColor lipgloss.Color
@@ -2309,8 +2315,6 @@ func (m Model) renderCheckpointBadge() string {
 		fgColor = t.Overlay
 		icon = "💾"
 		label = fmt.Sprintf("%d old", m.checkpointCount)
-	case "none":
-		return "" // No checkpoints
 	default:
 		return ""
 	}
