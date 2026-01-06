@@ -861,11 +861,24 @@ func (e *Executor) executeLoop(ctx context.Context, step *Step, workflow *Workfl
 
 // executeParallelStep executes a single step within a parallel group,
 // coordinating agent selection to avoid using the same agent for multiple parallel steps.
+// Note: Nested parallel steps and loops are not supported.
 func (e *Executor) executeParallelStep(ctx context.Context, step *Step, workflow *Workflow, usedPanes map[string]bool, panesMu *sync.Mutex) StepResult {
 	result := StepResult{
 		StepID:    step.ID,
 		Status:    StatusRunning,
 		StartedAt: time.Now(),
+	}
+
+	// Check for unsupported nested structures
+	if len(step.Parallel) > 0 || step.Loop != nil {
+		result.Status = StatusFailed
+		result.Error = &StepError{
+			Type:      "validation",
+			Message:   "nested parallel or loop steps are not supported within parallel groups",
+			Timestamp: time.Now(),
+		}
+		result.FinishedAt = time.Now()
+		return result
 	}
 
 	// Check context before starting
@@ -898,6 +911,7 @@ func (e *Executor) executeParallelStep(ctx context.Context, step *Step, workflow
 	}
 
 	// Select pane with coordination to avoid reusing agents
+	// We select once and reuse for retries to avoid "self-exclusion" issues
 	paneID, agentType, err := e.selectPaneExcluding(step, usedPanes, panesMu)
 	if err != nil {
 		result.Status = StatusFailed
@@ -918,87 +932,106 @@ func (e *Executor) executeParallelStep(ctx context.Context, step *Step, workflow
 	usedPanes[paneID] = true
 	panesMu.Unlock()
 
-	// Resolve and substitute prompt
-	prompt, err := e.resolvePrompt(step)
-	if err != nil {
-		result.Status = StatusFailed
-		result.Error = &StepError{
-			Type:      "prompt",
-			Message:   err.Error(),
-			Timestamp: time.Now(),
+	// Calculate retry parameters
+	maxAttempts := 1
+	if step.OnError == ErrorActionRetry {
+		maxAttempts = step.RetryCount + 1
+		if maxAttempts < 1 {
+			maxAttempts = 1
 		}
-		result.FinishedAt = time.Now()
-		return result
 	}
 
-	prompt = e.substituteVariables(prompt)
-
-	e.emitProgress("step_start", step.ID,
-		fmt.Sprintf("Sending to %s (parallel)", agentType),
-		e.calculateProgress())
-
-	// Dry run mode - don't actually execute
-	if e.config.DryRun {
-		result.Status = StatusCompleted
-		result.Output = "[DRY RUN] Would execute: " + truncatePrompt(prompt, 100)
-		result.FinishedAt = time.Now()
-		return result
+	retryDelay := step.RetryDelay.Duration
+	if retryDelay == 0 {
+		retryDelay = 5 * time.Second
 	}
 
-	// Capture state before sending
-	beforeOutput, _ := tmux.CapturePaneOutput(paneID, 2000)
+	// Execute with retries
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		result.Attempts = attempt
+		result.Status = StatusRunning // Reset status for retry
+		var afterOutput string        // Declare early to allow goto jumps
+		var beforeOutput string       // Declare early to allow goto jumps
 
-	// Send prompt
-	if err := tmux.PasteKeys(paneID, prompt, true); err != nil {
-		result.Status = StatusFailed
-		result.Error = &StepError{
-			Type:      "send",
-			Message:   fmt.Sprintf("failed to send prompt: %v", err),
-			Timestamp: time.Now(),
+		// Initialize wait parameters early to avoid goto jumps over declarations
+		waitCondition := step.Wait
+		if waitCondition == "" {
+			waitCondition = WaitCompletion
 		}
-		result.FinishedAt = time.Now()
-		return result
-	}
+		timeout := e.config.DefaultTimeout
+		if step.Timeout.Duration > 0 {
+			timeout = step.Timeout.Duration
+		}
 
-	// Handle wait condition
-	waitCondition := step.Wait
-	if waitCondition == "" {
-		waitCondition = WaitCompletion
-	}
+		e.emitProgress("step_start", step.ID,
+			fmt.Sprintf("Executing parallel step %s (attempt %d/%d) on %s", step.ID, attempt, maxAttempts, agentType),
+			e.calculateProgress())
 
-	// Calculate step timeout
-	timeout := e.config.DefaultTimeout
-	if step.Timeout.Duration > 0 {
-		timeout = step.Timeout.Duration
-	}
+		// --- Execution Logic (inlined from executeStepOnce) ---
 
-	switch waitCondition {
-	case WaitNone:
-		// Fire and forget
-		result.Status = StatusCompleted
-		result.FinishedAt = time.Now()
-		return result
+		// Resolve and substitute prompt
+		prompt, err := e.resolvePrompt(step)
+		if err != nil {
+			result.Status = StatusFailed
+			result.Error = &StepError{
+				Type:      "prompt",
+				Message:   err.Error(),
+				Timestamp: time.Now(),
+			}
+			// Prompt resolution failure is likely permanent, but we follow retry logic
+			goto HANDLE_RESULT
+		}
 
-	case WaitTime:
-		// Just wait for timeout
-		select {
-		case <-ctx.Done():
-			result.Status = StatusCancelled
-			result.SkipReason = "context cancelled during wait"
+		prompt = e.substituteVariables(prompt)
+
+		// Dry run mode
+		if e.config.DryRun {
+			result.Status = StatusCompleted
+			result.Output = "[DRY RUN] Would execute: " + truncatePrompt(prompt, 100)
 			result.FinishedAt = time.Now()
 			return result
-		case <-time.After(timeout):
-			result.Status = StatusCompleted
-			result.FinishedAt = time.Now()
 		}
 
-	case WaitCompletion, WaitIdle:
-		// Wait for agent to return to idle
-		if err := e.waitForIdle(ctx, paneID, timeout); err != nil {
-			if ctx.Err() != nil {
+		// Capture state before sending
+		beforeOutput, _ = tmux.CapturePaneOutput(paneID, 2000)
+
+		// Send prompt
+		if err := tmux.PasteKeys(paneID, prompt, true); err != nil {
+			result.Status = StatusFailed
+			result.Error = &StepError{
+				Type:      "send",
+				Message:   fmt.Sprintf("failed to send prompt: %v", err),
+				Timestamp: time.Now(),
+			}
+			goto HANDLE_RESULT
+		}
+
+		switch waitCondition {
+		case WaitNone:
+			result.Status = StatusCompleted
+			result.FinishedAt = time.Now()
+			// Success, proceed to capture/parse (though capture might be early)
+
+		case WaitTime:
+			select {
+			case <-ctx.Done():
 				result.Status = StatusCancelled
-				result.SkipReason = "context cancelled during execution"
-			} else {
+				result.SkipReason = "context cancelled during wait"
+				result.FinishedAt = time.Now()
+				return result
+			case <-time.After(timeout):
+				result.Status = StatusCompleted
+				result.FinishedAt = time.Now()
+			}
+
+		case WaitCompletion, WaitIdle:
+			if err := e.waitForIdle(ctx, paneID, timeout); err != nil {
+				if ctx.Err() != nil {
+					result.Status = StatusCancelled
+					result.SkipReason = "context cancelled during execution"
+					result.FinishedAt = time.Now()
+					return result
+				}
 				result.Status = StatusFailed
 				result.Error = &StepError{
 					Type:       "timeout",
@@ -1007,56 +1040,79 @@ func (e *Executor) executeParallelStep(ctx context.Context, step *Step, workflow
 					AgentState: e.detectAgentState(paneID),
 					Timestamp:  time.Now(),
 				}
+				goto HANDLE_RESULT
 			}
-			result.FinishedAt = time.Now()
+		}
+
+		// Capture output
+		{
+			var captureErr error
+			afterOutput, captureErr = tmux.CapturePaneOutput(paneID, 2000)
+			if captureErr != nil {
+				result.Status = StatusFailed
+				result.Error = &StepError{
+					Type:       "capture",
+					Message:    fmt.Sprintf("failed to capture output: %v", captureErr),
+					PaneOutput: e.captureErrorContext(paneID, 50),
+					AgentState: e.detectAgentState(paneID),
+					Timestamp:  time.Now(),
+				}
+				goto HANDLE_RESULT
+			}
+		}
+
+		result.Output = util.ExtractNewOutput(beforeOutput, afterOutput)
+		result.Status = StatusCompleted
+		result.FinishedAt = time.Now()
+
+		// Parse output if configured
+		if step.OutputParse.Type != "" && step.OutputParse.Type != "none" {
+			parsed, err := e.parseOutput(result.Output, step.OutputParse)
+			if err != nil {
+				e.emitProgress("step_warning", step.ID,
+					fmt.Sprintf("output parse warning: %v", err),
+					e.calculateProgress())
+			} else {
+				result.ParsedData = parsed
+			}
+		}
+
+	HANDLE_RESULT:
+		// Check success
+		if result.Status == StatusCompleted {
+			// Store output
+			e.varMu.Lock()
+			if step.OutputVar != "" {
+				e.state.Variables[step.OutputVar] = result.Output
+				if result.ParsedData != nil {
+					e.state.Variables[step.OutputVar+"_parsed"] = result.ParsedData
+				}
+			}
+			StoreStepOutput(e.state, step.ID, result.Output, result.ParsedData)
+			e.varMu.Unlock()
+
 			return result
 		}
-	}
 
-	// Capture output
-	afterOutput, err := tmux.CapturePaneOutput(paneID, 2000)
-	if err != nil {
-		result.Status = StatusFailed
-		result.Error = &StepError{
-			Type:       "capture",
-			Message:    fmt.Sprintf("failed to capture output: %v", err),
-			PaneOutput: e.captureErrorContext(paneID, 50),
-			AgentState: e.detectAgentState(paneID),
-			Timestamp:  time.Now(),
-		}
-		result.FinishedAt = time.Now()
-		return result
-	}
-
-	result.Output = util.ExtractNewOutput(beforeOutput, afterOutput)
-	result.Status = StatusCompleted
-	result.FinishedAt = time.Now()
-
-	// Parse output if configured
-	if step.OutputParse.Type != "" && step.OutputParse.Type != "none" {
-		parsed, err := e.parseOutput(result.Output, step.OutputParse)
-		if err != nil {
-			// Log parse error but don't fail the step
-			e.emitProgress("step_warning", step.ID,
-				fmt.Sprintf("output parse warning: %v", err),
+		// Handle retry
+		if attempt < maxAttempts {
+			delay := e.calculateRetryDelay(retryDelay, attempt, step.RetryBackoff)
+			e.emitProgress("step_retry", step.ID,
+				fmt.Sprintf("Parallel step %s failed, retrying in %s: %v", step.ID, delay, result.Error.Message),
 				e.calculateProgress())
-		} else {
-			result.ParsedData = parsed
+
+			select {
+			case <-ctx.Done():
+				result.Status = StatusCancelled
+				result.FinishedAt = time.Now()
+				return result
+			case <-time.After(delay):
+				// Continue loop
+			}
 		}
 	}
 
-	// Store output in variable if specified (protected by varMu for parallel execution)
-	e.varMu.Lock()
-	if step.OutputVar != "" {
-		e.state.Variables[step.OutputVar] = result.Output
-		if result.ParsedData != nil {
-			e.state.Variables[step.OutputVar+"_parsed"] = result.ParsedData
-		}
-	}
-	// Store step output for variable access
-	StoreStepOutput(e.state, step.ID, result.Output, result.ParsedData)
-	e.varMu.Unlock()
-
+	// Failed after all attempts
 	return result
 }
 
