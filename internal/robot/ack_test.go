@@ -165,18 +165,20 @@ func TestTruncateForMatch(t *testing.T) {
 }
 
 func TestIsIdlePrompt(t *testing.T) {
+	// isIdlePrompt uses empty agentType for generic detection.
+	// Agent-specific prompts (claude>, codex>) require proper agentType to match.
 	tests := []struct {
 		line     string
 		expected bool
 	}{
-		{"> ", true},
-		{"$ ", true},
-		{"% ", true},
-		{"# ", true},
-		{"claude>", true},
-		{"Claude>", true},
-		{"codex>", true},
-		{">>> ", true},
+		{"> ", true},                 // Generic > prompt
+		{"$ ", true},                 // Dollar prompt
+		{"% ", true},                 // Percent prompt
+		{"# ", false},                // Not a standard prompt pattern in status
+		{"claude>", false},           // Requires "cc" agentType
+		{"Claude>", false},           // Requires "cc" agentType
+		{"codex>", false},            // Requires "cod" agentType
+		{">>> ", false},              // Python prompt not in status patterns
 		{"some text", false},
 		{"", false},
 		{"working...", false},
@@ -193,15 +195,17 @@ func TestIsIdlePrompt(t *testing.T) {
 }
 
 func TestIsPromptLine(t *testing.T) {
+	// isPromptLine extracts agentType from pane title and delegates to status.IsPromptLine.
+	// Pane titles must be in proper format: "{session}__{type}_{index}".
 	tests := []struct {
 		line      string
 		paneTitle string
 		expected  bool
 	}{
-		{"user@host:~$ ", "", true},
-		{"claude> ", "cc_1", true},
-		{"> ", "", true},
-		{">>> ", "", true},
+		{"user@host:~$ ", "", true},                           // User prompt
+		{"claude> ", "myproject__cc_1", true},                 // Claude with proper title
+		{"> ", "", true},                                      // Generic > prompt
+		{">>> ", "", false},                                   // Python prompt not in status patterns
 		{"some output text", "", false},
 		{"error: something failed", "", false},
 	}

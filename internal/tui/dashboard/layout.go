@@ -381,6 +381,50 @@ func tokenVelocityFromStatus(st status.AgentStatus) float64 {
 	return float64(tokensOut) / minutes
 }
 
+func activityLabelAndColor(state string, t theme.Theme) (string, lipgloss.Color) {
+	switch strings.ToLower(state) {
+	case "working":
+		return "WORK", t.Green
+	case "idle":
+		return "IDLE", t.Yellow
+	case "error":
+		return "ERR", t.Red
+	case "compacted":
+		return "CMP", t.Peach
+	case "rate_limited":
+		return "RATE", t.Maroon
+	default:
+		return "UNK", t.Overlay
+	}
+}
+
+func activityBadge(state string, t theme.Theme) string {
+	label, color := activityLabelAndColor(state, t)
+	if label == "" {
+		return ""
+	}
+	return styles.TextBadge(label, color, t.Base, styles.BadgeOptions{
+		Style:    styles.BadgeStyleCompact,
+		Bold:     true,
+		ShowIcon: false,
+	})
+}
+
+func activityCountBadge(state string, count int, t theme.Theme) string {
+	if count <= 0 {
+		return ""
+	}
+	label, color := activityLabelAndColor(state, t)
+	if label == "" {
+		return ""
+	}
+	return styles.TextBadge(fmt.Sprintf("%s %d", label, count), color, t.Base, styles.BadgeOptions{
+		Style:    styles.BadgeStyleCompact,
+		Bold:     true,
+		ShowIcon: false,
+	})
+}
+
 // BuildPaneTableRow aggregates pane metadata into a single row structure.
 // Beads/FileChanges/TokenVelocity are best-effort enrichments and may be empty
 // when upstream data is unavailable.
@@ -573,6 +617,9 @@ func RenderPaneRow(row PaneTableRow, dims LayoutDimensions, t theme.Theme) strin
 		// Indent to align with title (approx 8 chars: sel(1)+space+idx(2)+icon(1)+status(1)+spaces)
 		indent := "        "
 
+		if badge := activityBadge(row.Status, t); badge != "" {
+			subParts = append(subParts, badge)
+		}
 		if row.CurrentBead != "" {
 			beadText := row.CurrentBead
 			if row.CurrentBeadTitle != "" {

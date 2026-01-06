@@ -302,8 +302,13 @@ func getAgentHealth(session string, pane tmux.Pane) AgentHealthInfo {
 	// Capture recent output to detect error states
 	captured, err := tmux.CapturePaneOutput(pane.ID, 20)
 	if err == nil {
-		lines := splitLines(stripANSI(captured))
-		state := detectState(lines, pane.Title)
+		// Get agent type from pane info
+		agentType := agentTypeString(pane.Type)
+		if agentType == "unknown" {
+			agentType = detectAgentType(pane.Title)
+		}
+		shortAgentType := translateAgentTypeForStatus(agentType)
+		state := determineState(captured, shortAgentType)
 
 		if state == "error" {
 			health.Responsive = false

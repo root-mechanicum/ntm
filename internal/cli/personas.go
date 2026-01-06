@@ -39,6 +39,7 @@ Examples:
 	cmd.AddCommand(
 		newPersonasListCmd(),
 		newPersonasShowCmd(),
+		newProfileSwitchCmd(),
 	)
 
 	return cmd
@@ -475,6 +476,7 @@ Examples:
 	cmd.AddCommand(
 		newPersonasListCmd(),
 		newPersonasShowCmd(),
+		newProfileSwitchCmd(),
 	)
 
 	return cmd

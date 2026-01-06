@@ -21,6 +21,7 @@ import (
 	"github.com/Dicklesworthstone/ntm/internal/cass"
 	"github.com/Dicklesworthstone/ntm/internal/config"
 	"github.com/Dicklesworthstone/ntm/internal/recipe"
+	"github.com/Dicklesworthstone/ntm/internal/status"
 	"github.com/Dicklesworthstone/ntm/internal/tmux"
 	"github.com/Dicklesworthstone/ntm/internal/tracker"
 )
@@ -1537,17 +1538,18 @@ func PrintTail(session string, lines int, paneFilter []string) error {
 		}
 
 		// Strip ANSI codes and split into lines
-		cleanOutput := stripANSI(captured)
+		cleanOutput := status.StripANSI(captured)
 		outputLines := splitLines(cleanOutput)
 
 		// Detect state from output
-		state := detectState(outputLines, pane.Title)
+		agentType := detectAgentType(pane.Title)
+		state := determineState(captured, agentType)
 
 		// Check if truncated (we captured exactly the requested lines)
 		truncated := len(outputLines) >= lines
 
 		output.Panes[paneKey] = PaneOutput{
-			Type:      detectAgentType(pane.Title),
+			Type:      agentType,
 			State:     state,
 			Lines:     outputLines,
 			Truncated: truncated,
@@ -1602,14 +1604,71 @@ func generateTailHints(panes map[string]PaneOutput) *TailAgentHints {
 	}
 }
 
-// ansiRegex matches common ANSI escape sequences:
-// 1. CSI sequences: \x1b[ ... [a-zA-Z]
-// 2. OSC sequences: \x1b] ... \a or \x1b\
-var ansiRegex = regexp.MustCompile(`\x1b\[[0-9;?]*[a-zA-Z]|\x1b\][^\a\x1b]*(\a|\x1b\\)`)
+// determineState analyzes output to determine if agent is active, idle, or in error state.
+// It delegates to the status package for consistent detection logic.
+func determineState(output, agentType string) string {
+	if status.DetectErrorInOutput(output) != status.ErrorNone {
+		return "error"
+	}
+	if status.DetectIdleFromOutput(output, agentType) {
+		return "idle"
+	}
+	// If output is empty and it's a user pane, treat as idle (prompt)
+	if strings.TrimSpace(output) == "" && (agentType == "" || agentType == "user") {
+		return "idle"
+	}
+	// Otherwise assume active/working
+	return "active"
+}
 
-// stripANSI removes ANSI escape sequences from text
+// stripANSI removes ANSI escape sequences from text.
+// This is a compatibility wrapper for status.StripANSI.
 func stripANSI(s string) string {
-	return ansiRegex.ReplaceAllString(s, "")
+	return status.StripANSI(s)
+}
+
+// detectState determines agent state from output lines and title.
+// This is a compatibility wrapper for determineState that maintains
+// the old function signature used by other files in this package.
+func detectState(lines []string, title string) string {
+	// Reconstruct the output from lines
+	output := strings.Join(lines, "\n")
+	agentType := detectAgentType(title)
+	// Translate to short form for status package patterns
+	agentType = translateAgentTypeForStatus(agentType)
+	return determineState(output, agentType)
+}
+
+// translateAgentTypeForStatus converts long agent type names to short forms
+// expected by the status package patterns.
+func translateAgentTypeForStatus(agentType string) string {
+	switch agentType {
+	case "claude":
+		return "cc"
+	case "codex":
+		return "cod"
+	case "gemini":
+		return "gmi"
+	case "unknown":
+		return ""
+	default:
+		return agentType
+	}
+}
+
+// isIdlePrompt checks if a line looks like an idle prompt.
+// This is a compatibility wrapper for status.IsPromptLine that uses an empty
+// agent type for generic prompt detection.
+func isIdlePrompt(line string) bool {
+	return status.IsPromptLine(line, "")
+}
+
+// isPromptLine checks if a line looks like an idle prompt for a specific pane.
+// This is a compatibility wrapper for status.IsPromptLine that extracts the
+// agent type from the pane title.
+func isPromptLine(line, paneTitle string) bool {
+	agentType := translateAgentTypeForStatus(detectAgentType(paneTitle))
+	return status.IsPromptLine(line, agentType)
 }
 
 // splitLines splits text into lines, preserving empty lines
@@ -1627,60 +1686,6 @@ func splitLines(s string) []string {
 		lines = lines[:len(lines)-1]
 	}
 	return lines
-}
-
-// detectState attempts to determine if agent is active, idle, or unknown
-func detectState(lines []string, title string) string {
-	if len(lines) == 0 {
-		return "unknown"
-	}
-
-	// Check the last few non-empty lines for prompt patterns
-	lastLine := ""
-	for i := len(lines) - 1; i >= 0 && i >= len(lines)-5; i-- {
-		line := strings.TrimSpace(lines[i])
-		if line != "" {
-			lastLine = line
-			break
-		}
-	}
-
-	if lastLine == "" {
-		return "unknown"
-	}
-
-	// Detect idle prompts
-	idlePatterns := []string{
-		"claude>", "Claude>", "claude >",
-		"codex>", "Codex>",
-		"gemini>", "Gemini>",
-		"$ ", "% ", "❯ ", "> ",
-		">>> ", "...", // Python prompts
-	}
-
-	for _, pattern := range idlePatterns {
-		if strings.HasSuffix(lastLine, pattern) || lastLine == strings.TrimSpace(pattern) {
-			return "idle"
-		}
-	}
-
-	// Detect error states
-	errorPatterns := []string{
-		"rate limit", "Rate limit", "429",
-		"error:", "Error:", "ERROR:",
-		"failed:", "Failed:",
-		"panic:", "PANIC:",
-		"fatal:", "Fatal:", "FATAL:",
-	}
-
-	for _, pattern := range errorPatterns {
-		if strings.Contains(lastLine, pattern) {
-			return "error"
-		}
-	}
-
-	// If we see recent output that doesn't match idle, assume active
-	return "active"
 }
 
 // buildSnapshotAgentMail assembles Agent Mail state for robot snapshot.
@@ -1956,9 +1961,9 @@ func PrintSnapshot(cfg *config.Config) error {
 
 			// Process captured output for state
 			if capturedErr == nil {
-				lines := splitLines(stripANSI(captured))
+				lines := splitLines(status.StripANSI(captured))
 				agent.OutputTailLines = len(lines)
-				agent.State = detectState(lines, pane.Title)
+				agent.State = determineState(captured, agent.Type)
 			}
 
 			snapSession.Agents = append(snapSession.Agents, agent)
@@ -3112,8 +3117,8 @@ func PrintTerse(cfg *config.Config) error {
 					// Capture output to detect state
 					captured, captureErr := tmux.CapturePaneOutput(pane.ID, 20)
 					if captureErr == nil {
-						lines := splitLines(stripANSI(captured))
-						paneState := detectState(lines, pane.Title)
+						_ = splitLines(status.StripANSI(captured)) // Just for consistency, unused here
+						paneState := determineState(captured, agentType)
 						switch paneState {
 						case "active":
 							state.WorkingAgents++

@@ -155,19 +155,16 @@ func PrintAssign(opts AssignOptions) error {
 
 		model := detectModel(agentType, pane.Title)
 
-		// Capture state (simplified - just check last few lines)
-		scrollback, _ := tmux.CapturePaneOutput(pane.ID, 10)
-		cleanText := stripANSI(scrollback)
-		lines := splitLines(cleanText)
-		state := detectState(lines, pane.Title)
-
-		agents = append(agents, assignAgentInfo{
-			paneIdx:   pane.Index,
-			agentType: agentType,
-			model:     model,
-			state:     state,
-		})
-
+		        // Capture state (simplified - just check last few lines)
+		        scrollback, _ := tmux.CapturePaneOutput(pane.ID, 10)
+		        state := determineState(scrollback, agentType)
+		
+		        agents = append(agents, assignAgentInfo{
+		            paneIdx:   pane.Index,
+		            agentType: agentType,
+		            model:     model,
+		            state:     state,
+		        })
 		if state == "idle" {
 			idleAgentPanes = append(idleAgentPanes, fmt.Sprintf("%d", pane.Index))
 		}

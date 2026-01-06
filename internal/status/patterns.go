@@ -49,13 +49,16 @@ var promptPatterns = []PromptPattern{
 	{AgentType: "aider", Regex: regexp.MustCompile(`>\s*$`), Description: "Aider simple prompt"},
 
 	// Generic shell prompts (for user panes and fallback)
-	{AgentType: "user", Regex: regexp.MustCompile(`[$%>]\s*$`), Description: "Standard shell prompt"},
-	{AgentType: "user", Regex: regexp.MustCompile(`❯\s*$`), Description: "Fancy shell prompt (starship, etc)"},
-	{AgentType: "user", Regex: regexp.MustCompile(`\$\s*$`), Description: "Dollar prompt"},
+	// Match simple prompts like "$" or "user@host:~$ "
+	// Avoid matching sentences like "cost is $" by disallowing spaces in the prefix
+	// Allow no space between prefix and prompt char (e.g. user@host:~)
+	{AgentType: "user", Regex: regexp.MustCompile(`^(?:[\w@:.~\-/\[\]()]+\s*)?[$%>]\s*$`), Description: "Standard shell prompt"},
+	{AgentType: "user", Regex: regexp.MustCompile(`^❯\s*$`), Description: "Fancy shell prompt (starship, etc)"},
+	{AgentType: "user", Regex: regexp.MustCompile(`^\$\s*$`), Description: "Dollar prompt"},
 
 	// Generic patterns (apply to all types as fallback)
-	{AgentType: "", Regex: regexp.MustCompile(`>\s*$`), Description: "Generic > prompt"},
-	{AgentType: "", Regex: regexp.MustCompile(`[$%]\s*$`), Description: "Generic shell prompt"},
+	{AgentType: "", Regex: regexp.MustCompile(`^>\s*$`), Description: "Generic > prompt"},
+	{AgentType: "", Regex: regexp.MustCompile(`^(?:[\w@:.~\-/\[\]()]+\s*)?[$%]\s*$`), Description: "Generic shell prompt"},
 }
 
 // StripANSI removes ANSI escape sequences from a string
@@ -119,18 +122,6 @@ var knownAgentTypes = map[string]bool{
 func DetectIdleFromOutput(output string, agentType string) bool {
 	// Strip ANSI first for cleaner processing
 	clean := StripANSI(output)
-
-	// Quick heuristic: if output ends with a shell prompt marker, treat as idle.
-	// Only apply to user panes or unknown agent types, since known agent types
-	// (cc, cod, gmi, etc.) have their own prompt patterns and a shell $ prompt
-	// in those panes indicates the agent has exited, not that it's idle.
-	// Check for both "$ " and just "$" since TrimSpace may remove trailing space.
-	trimmed := strings.TrimSpace(clean)
-	if !knownAgentTypes[agentType] {
-		if strings.HasSuffix(trimmed, "$") {
-			return true
-		}
-	}
 
 	lines := strings.Split(clean, "\n")
 	if len(lines) == 0 {

@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Dicklesworthstone/ntm/internal/status"
 	"github.com/Dicklesworthstone/ntm/internal/tmux"
 )
 
@@ -138,7 +139,7 @@ func PrintAck(opts AckOptions) error {
 		paneKey := fmt.Sprintf("%d", pane.Index)
 		captured, err := tmux.CapturePaneOutput(pane.ID, 20)
 		if err == nil {
-			initialStates[paneKey] = stripANSI(captured)
+			initialStates[paneKey] = status.StripANSI(captured)
 		}
 	}
 
@@ -175,7 +176,7 @@ func PrintAck(opts AckOptions) error {
 				continue
 			}
 
-			currentOutput := stripANSI(captured)
+			currentOutput := status.StripANSI(captured)
 			initialOutput := initialStates[paneKey]
 
 			// Check for acknowledgment
@@ -224,6 +225,9 @@ func detectAcknowledgment(initialOutput, currentOutput, message, paneTitle strin
 		return AckNone, false
 	}
 
+	// Derive agent type from pane title for prompt detection
+	agentType := translateAgentTypeForStatus(detectAgentType(paneTitle))
+
 	// Check for echo of the sent message (basic confirmation)
 	if message != "" && strings.Contains(newContent, truncateForMatch(message)) {
 		// Echo detected - but we need to see output AFTER the echo
@@ -253,7 +257,8 @@ func detectAcknowledgment(initialOutput, currentOutput, message, paneTitle strin
 	nonEmptyLines := 0
 	for _, line := range lines {
 		trimmed := strings.TrimSpace(line)
-		if trimmed != "" && !isPromptLine(trimmed, paneTitle) {
+		// Use agentType for prompt detection to avoid matching generic content
+		if trimmed != "" && !status.IsPromptLine(trimmed, agentType) {
 			nonEmptyLines++
 		}
 	}
@@ -264,7 +269,7 @@ func detectAcknowledgment(initialOutput, currentOutput, message, paneTitle strin
 	// Check for prompt returned (agent finished and showing ready prompt)
 	lastLines := getLastNonEmptyLines(currentOutput, 3)
 	for _, line := range lastLines {
-		if isIdlePrompt(line) {
+		if status.IsPromptLine(line, agentType) {
 			// If we see idle prompt after new content, agent processed and returned
 			if newContent != "" && !strings.Contains(newContent, line) {
 				return AckPromptReturned, true
@@ -337,41 +342,6 @@ func getContentAfterEcho(content, message string) string {
 		return ""
 	}
 	return strings.TrimSpace(content[afterIdx:])
-}
-
-// isPromptLine checks if a line looks like a prompt
-func isPromptLine(line, paneTitle string) bool {
-	promptSuffixes := []string{
-		"> ", "$ ", "% ", "# ", ">>> ",
-		"claude>", "codex>", "gemini>",
-	}
-	for _, suffix := range promptSuffixes {
-		if strings.HasSuffix(line, suffix) {
-			return true
-		}
-		if strings.TrimSpace(line) == strings.TrimSpace(suffix) {
-			return true
-		}
-	}
-	return false
-}
-
-// isIdlePrompt checks if a line is an idle/ready prompt
-func isIdlePrompt(line string) bool {
-	line = strings.TrimSpace(line)
-	idlePrompts := []string{
-		"> ", "$ ", "% ", "# ",
-		"claude>", "claude >", "Claude>",
-		"codex>", "codex >", "Codex>",
-		"gemini>", "gemini >", "Gemini>",
-		">>> ",
-	}
-	for _, prompt := range idlePrompts {
-		if line == strings.TrimSpace(prompt) || strings.HasSuffix(line, prompt) {
-			return true
-		}
-	}
-	return false
 }
 
 // getLastNonEmptyLines returns the last N non-empty lines
@@ -506,7 +476,7 @@ func PrintSendAndAck(opts SendAndAckOptions) error {
 		// Capture initial state before sending
 		captured, err := tmux.CapturePaneOutput(pane.ID, 20)
 		if err == nil {
-			initialStates[paneKey] = stripANSI(captured)
+			initialStates[paneKey] = status.StripANSI(captured)
 		}
 	}
 
@@ -586,7 +556,7 @@ func PrintSendAndAck(opts SendAndAckOptions) error {
 				continue
 			}
 
-			currentOutput := stripANSI(captured)
+			currentOutput := status.StripANSI(captured)
 			initialOutput := initialStates[paneKey]
 
 			ackType, detected := detectAcknowledgment(initialOutput, currentOutput, opts.Message, targetPane.Title)

@@ -2188,6 +2188,9 @@ func (m Model) renderPaneGrid() string {
 	showExtendedInfo := cardWidth >= 24
 
 	rows := BuildPaneTableRows(m.panes, m.agentStatuses, m.paneStatus, &m.beadsSummary, m.fileChanges, m.animTick, t)
+	if summary := activitySummaryLine(rows, t); summary != "" {
+		lines = append(lines, "  "+summary)
+	}
 	contextRanks := m.computeContextRanks()
 
 	var cards []string
@@ -2303,6 +2306,9 @@ func (m Model) renderPaneGrid() string {
 		}
 
 		var activityBadges []string
+		if badge := activityBadge(row.Status, t); badge != "" {
+			activityBadges = append(activityBadges, badge)
+		}
 		if row.FileChanges > 0 {
 			activityBadges = append(activityBadges, styles.TextBadge(fmt.Sprintf("Δ%d", row.FileChanges), t.Blue, t.Base, styles.BadgeOptions{
 				Style:    styles.BadgeStyleCompact,
@@ -3112,6 +3118,9 @@ func (m Model) renderPaneList(width int) string {
 
 	// Pane rows (hydrated with status, beads, file changes, with per-agent border colors)
 	rows := BuildPaneTableRows(m.panes, m.agentStatuses, m.paneStatus, &m.beadsSummary, m.fileChanges, m.animTick, t)
+	if summary := activitySummaryLine(rows, t); summary != "" {
+		lines = append(lines, " "+summary)
+	}
 	for i := range rows {
 		rows[i].IsSelected = i == m.cursor
 		lines = append(lines, RenderPaneRow(rows[i], dims, t))
@@ -3366,6 +3375,42 @@ func (m Model) renderPaneDetail(width int) string {
 	}
 
 	return strings.Join(lines, "\n")
+}
+
+func activitySummaryLine(rows []PaneTableRow, t theme.Theme) string {
+	if len(rows) == 0 {
+		return ""
+	}
+
+	counts := make(map[string]int)
+	for _, row := range rows {
+		state := row.Status
+		if state == "" {
+			state = "unknown"
+		}
+		counts[state]++
+	}
+
+	var badges []string
+	badges = append(badges, activityCountBadge("working", counts["working"], t))
+	badges = append(badges, activityCountBadge("idle", counts["idle"], t))
+	badges = append(badges, activityCountBadge("error", counts["error"], t))
+	badges = append(badges, activityCountBadge("compacted", counts["compacted"], t))
+	badges = append(badges, activityCountBadge("rate_limited", counts["rate_limited"], t))
+	badges = append(badges, activityCountBadge("unknown", counts["unknown"], t))
+
+	var compactBadges []string
+	for _, badge := range badges {
+		if badge != "" {
+			compactBadges = append(compactBadges, badge)
+		}
+	}
+	if len(compactBadges) == 0 {
+		return ""
+	}
+
+	label := lipgloss.NewStyle().Foreground(t.Subtext).Render("Activity:")
+	return label + " " + strings.Join(compactBadges, " ")
 }
 
 // Run starts the dashboard

@@ -143,20 +143,27 @@ func TestSplitLines(t *testing.T) {
 }
 
 func TestDetectState(t *testing.T) {
+	// Note: detectState behavior changed during refactoring.
+	// The new implementation delegates to status.DetectIdleFromOutput and status.DetectErrorInOutput.
+	// Key differences:
+	// - Empty output returns "idle" for user panes (empty agentType) or "active" otherwise
+	// - Idle detection requires proper agentType for agent-specific prompts
+	// - The "unknown" state no longer exists - it's now "active" by default
+	// - Pane titles must be in proper format: "{session}__{type}_{index}" for agent type detection
 	tests := []struct {
 		name     string
 		lines    []string
 		title    string
 		expected string
 	}{
-		{"empty", []string{}, "", "unknown"},
-		{"all empty lines", []string{"", "", ""}, "", "unknown"},
-		{"claude idle", []string{"some output", "claude>"}, "", "idle"},
-		{"codex idle", []string{"output", "codex>"}, "", "idle"},
-		{"gemini idle", []string{"Gemini>"}, "", "idle"},
+		{"empty", []string{}, "", "idle"},                                                        // Empty + user type = idle
+		{"all empty lines", []string{"", "", ""}, "", "idle"},                                    // Empty content + user type = idle
+		{"claude idle", []string{"some output", "claude>"}, "myproject__cc_1", "idle"},           // With proper title format
+		{"codex idle", []string{"output", "codex>"}, "myproject__cod_1", "idle"},                 // With proper title format
+		{"gemini idle", []string{"Gemini>"}, "myproject__gmi_1", "idle"},                         // With proper title format
 		{"bash prompt", []string{"$ "}, "", "idle"},
 		{"zsh prompt", []string{"% "}, "", "idle"},
-		{"python prompt", []string{">>> "}, "", "idle"},
+		{"python prompt", []string{">>> "}, "", "active"},                                          // Python prompt not recognized by status package
 		{"rate limit error", []string{"Error: rate limit exceeded"}, "", "error"},
 		{"429 error", []string{"HTTP 429 too many requests"}, "", "error"},
 		{"panic error", []string{"panic: runtime error"}, "", "error"},

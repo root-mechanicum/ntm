@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Dicklesworthstone/ntm/internal/status"
 	"github.com/Dicklesworthstone/ntm/internal/tmux"
 )
 
@@ -154,15 +155,17 @@ func PrintInterrupt(opts InterruptOptions) error {
 
 		cleanOutput := stripANSI(captured)
 		lines := splitLines(cleanOutput)
-		state := detectState(lines, pane.Title)
+		agentType := detectAgentType(pane.Title)
+		state := determineState(captured, agentType)
 
 		// Get last meaningful output (truncated)
-		lastOutput := getLastMeaningfulOutput(lines, 200)
+		shortAgentType := translateAgentTypeForStatus(agentType)
+		lastOutput := getLastMeaningfulOutput(lines, 200, shortAgentType)
 
 		output.PreviousStates[paneKey] = PaneState{
 			State:      state,
 			LastOutput: lastOutput,
-			AgentType:  detectAgentType(pane.Title),
+			AgentType:  agentType,
 		}
 	}
 
@@ -241,11 +244,10 @@ func PrintInterrupt(opts InterruptOptions) error {
 					continue
 				}
 
-				cleanOutput := stripANSI(captured)
-				lines := splitLines(cleanOutput)
-				state := detectState(lines, targetPane.Title)
+				agentType := translateAgentTypeForStatus(detectAgentType(targetPane.Title))
+				state := determineState(captured, agentType)
 
-				if state == "idle" || isReadyForInput(lines, targetPane.Title) {
+				if state == "idle" {
 					output.ReadyForInput = append(output.ReadyForInput, paneKey)
 					delete(pending, paneKey)
 				}
@@ -305,7 +307,7 @@ func PrintInterrupt(opts InterruptOptions) error {
 }
 
 // getLastMeaningfulOutput extracts the last meaningful output lines up to maxLen chars
-func getLastMeaningfulOutput(lines []string, maxLen int) string {
+func getLastMeaningfulOutput(lines []string, maxLen int, agentType string) string {
 	// Guard against invalid maxLen values that would cause slice panic
 	if maxLen < 4 {
 		if maxLen <= 0 {
@@ -316,7 +318,7 @@ func getLastMeaningfulOutput(lines []string, maxLen int) string {
 		totalLen := 0
 		for i := len(lines) - 1; i >= 0 && totalLen < maxLen; i-- {
 			line := strings.TrimSpace(lines[i])
-			if line == "" || isIdlePrompt(line) {
+			if line == "" || status.IsPromptLine(line, agentType) {
 				continue
 			}
 			meaningful = append([]string{line}, meaningful...)
@@ -340,7 +342,7 @@ func getLastMeaningfulOutput(lines []string, maxLen int) string {
 		}
 
 		// Skip pure prompt lines
-		if isIdlePrompt(line) {
+		if status.IsPromptLine(line, agentType) {
 			continue
 		}
 
@@ -353,54 +355,4 @@ func getLastMeaningfulOutput(lines []string, maxLen int) string {
 		return result[:maxLen-3] + "..."
 	}
 	return result
-}
-
-// isReadyForInput checks if the pane is showing a prompt ready for input
-func isReadyForInput(lines []string, paneTitle string) bool {
-	if len(lines) == 0 {
-		return false
-	}
-
-	// Check last few lines for prompt patterns
-	for i := len(lines) - 1; i >= 0 && i >= len(lines)-5; i-- {
-		line := strings.TrimSpace(lines[i])
-		if line == "" {
-			continue
-		}
-
-		// Check for various prompt patterns
-		promptPatterns := []string{
-			"> ", "$ ", "% ", "# ", "❯ ",
-			"claude>", "claude >", "Claude>", "Claude >",
-			"codex>", "codex >", "Codex>", "Codex >",
-			"gemini>", "gemini >", "Gemini>", "Gemini >",
-			">>> ", // Python REPL
-		}
-
-		for _, pattern := range promptPatterns {
-			if strings.HasSuffix(line, pattern) || line == strings.TrimSpace(pattern) {
-				return true
-			}
-		}
-
-		// Also check if the line contains common "waiting for input" indicators
-		waitingIndicators := []string{
-			"What would you like",
-			"How can I help",
-			"Enter your",
-			"Type your",
-		}
-
-		lineLower := strings.ToLower(line)
-		for _, indicator := range waitingIndicators {
-			if strings.Contains(lineLower, strings.ToLower(indicator)) {
-				return true
-			}
-		}
-
-		// Only check first non-empty line from the end
-		break
-	}
-
-	return false
 }
