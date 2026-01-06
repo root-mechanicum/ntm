@@ -44,11 +44,9 @@ Examples:
 
 func newBugsListCmd() *cobra.Command {
 	var (
-		severity   string
-		limit      int
-		showAll    bool
-		agentName  string
-		projectKey string
+		severity string
+		limit    int
+		showAll  bool
 	)
 
 	cmd := &cobra.Command{
@@ -59,10 +57,10 @@ func newBugsListCmd() *cobra.Command {
 If no cached scan results exist, runs a quick scan on the specified path.
 
 Examples:
-  ntm bugs list                  # List from cache or scan current dir
+  ntm bugs list                      # List from cache or scan current dir
   ntm bugs list --severity=critical  # Only critical issues
-  ntm bugs list --agent=GreenLake    # Findings for files held by agent
-  ntm bugs list src/             # Scan and list for specific path`,
+  ntm bugs list --all                # Include info-level findings
+  ntm bugs list src/                 # Scan and list for specific path`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			path := "."
@@ -189,8 +187,6 @@ Examples:
 	cmd.Flags().StringVar(&severity, "severity", "", "Filter by severity (critical, warning, info)")
 	cmd.Flags().IntVar(&limit, "limit", 20, "Maximum findings to show")
 	cmd.Flags().BoolVar(&showAll, "all", false, "Show all findings including info")
-	cmd.Flags().StringVar(&agentName, "agent", "", "Filter to files held by agent (via reservations)")
-	cmd.Flags().StringVar(&projectKey, "project", "", "Project key for agent filtering")
 
 	return cmd
 }

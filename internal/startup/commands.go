@@ -58,6 +58,7 @@ var CommandClassification = map[string]CommandRequirement{
 	"palette":         RequireFullStartup,
 	"kill":            RequireFullStartup,
 	"scan":            RequireFullStartup,
+	"bugs":            RequireFullStartup,
 	"hooks":           RequireFullStartup,
 	"health":          RequireFullStartup,
 	"history":         RequireFullStartup,
@@ -69,6 +70,7 @@ var CommandClassification = map[string]CommandRequirement{
 	"git":             RequireFullStartup,
 	"deps":            RequireFullStartup,
 	"tutorial":        RequireFullStartup,
+	"coordinator":     RequireFullStartup,
 	"rotate":          RequireFullStartup,
 	"plugins":         RequireFullStartup,
 }
