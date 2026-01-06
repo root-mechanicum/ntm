@@ -947,6 +947,12 @@ func TestCountInjectedItems(t *testing.T) {
 			want:    1,
 		},
 		{
+			name:    "minimal format multiple items",
+			context: "// Related context:\nfirst code\n\n// ---\nsecond code\n\n// ---\nthird code\n",
+			format:  FormatMinimal,
+			want:    3,
+		},
+		{
 			name:    "minimal format empty",
 			context: "// Related context:\n",
 			format:  FormatMinimal,
