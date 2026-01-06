@@ -787,6 +787,24 @@ Shell Integration:
 			return
 		}
 
+		// Robot-summary handler for session activity summary
+		if robotSummary != "" {
+			since, err := util.ParseDurationWithDefault(robotSummarySince, time.Minute, "summary-since")
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error: invalid --summary-since: %v\n", err)
+				os.Exit(1)
+			}
+			opts := robot.SummaryOptions{
+				Session: robotSummary,
+				Since:   since,
+			}
+			if err := robot.PrintSummary(opts); err != nil {
+				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				os.Exit(1)
+			}
+			return
+		}
+
 		// Show stunning help with gradients when run without subcommand
 		PrintStunningHelp(cmd.OutOrStdout())
 	},
@@ -1007,6 +1025,10 @@ var (
 	beadDependsOn   string // comma-separated dependency IDs
 	beadAssignee    string // assignee for claim
 	beadCloseReason string // reason for closing
+
+	// Robot-summary flags for session summary
+	robotSummary      string // session name for summary
+	robotSummarySince string // duration like "30m", "1h"
 )
 
 func init() {
@@ -1219,6 +1241,10 @@ func init() {
 	rootCmd.Flags().StringVar(&beadAssignee, "bead-assignee", "", "Assignee for claim. Optional with --robot-bead-claim")
 	rootCmd.Flags().StringVar(&beadCloseReason, "bead-close-reason", "", "Reason for closing. Optional with --robot-bead-close")
 
+	// Robot-summary flags for session activity summary
+	rootCmd.Flags().StringVar(&robotSummary, "robot-summary", "", "Get session activity summary with agent metrics. Required: SESSION. Example: ntm --robot-summary=myproject --summary-since=30m")
+	rootCmd.Flags().StringVar(&robotSummarySince, "summary-since", "30m", "Duration to look back (e.g., 30m, 1h). Optional with --robot-summary. Default: 30m")
+
 	// Sync version info with robot package
 	robot.Version = Version
 	robot.Commit = Commit
@@ -1262,6 +1288,7 @@ func init() {
 		newDiffCmd(),
 		newChangesCmd(),
 		newConflictsCmd(),
+		newSummaryCmd(),
 
 		// Session persistence
 		newCheckpointCmd(),
