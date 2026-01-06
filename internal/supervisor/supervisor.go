@@ -13,7 +13,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sync"
-	"syscall"
 	"time"
 )
 
@@ -190,8 +189,8 @@ func (s *Supervisor) Start(spec DaemonSpec) error {
 	}
 	cmd.Env = append(os.Environ(), spec.Env...)
 
-	// Set process group for clean shutdown
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	// Set process group for clean shutdown (platform-specific)
+	setSysProcAttr(cmd)
 
 	// Start the process
 	if err := cmd.Start(); err != nil {
@@ -336,12 +335,9 @@ func (s *Supervisor) stopDaemon(d *ManagedDaemon) error {
 		d.cancelFunc()
 	}
 
-	// Send SIGTERM first
+	// Gracefully terminate process (platform-specific)
 	if d.cmd != nil && d.cmd.Process != nil {
-		if err := d.cmd.Process.Signal(syscall.SIGTERM); err != nil {
-			// Try SIGKILL if SIGTERM fails
-			d.cmd.Process.Kill()
-		}
+		terminateProcess(d.cmd.Process)
 	}
 
 	// Clean up PID file
@@ -516,7 +512,7 @@ func (s *Supervisor) checkHealthCmd(cmdArgs []string) bool {
 
 	cmd := exec.CommandContext(ctx, cmdArgs[0], cmdArgs[1:]...)
 	cmd.Dir = s.projectDir // Execute in project dir context
-	
+
 	if err := cmd.Run(); err != nil {
 		return false
 	}
