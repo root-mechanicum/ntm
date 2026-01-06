@@ -126,6 +126,19 @@ type HealthUpdateMsg struct {
 	Err    error
 }
 
+// RoutingUpdateMsg is sent when routing scores are fetched
+type RoutingUpdateMsg struct {
+	Scores map[string]RoutingScore // keyed by pane ID
+	Err    error
+}
+
+// RoutingScore holds routing info for a single agent
+type RoutingScore struct {
+	Score         float64 // 0-100 composite routing score
+	IsRecommended bool    // True if this is the recommended agent
+	State         string  // Agent state (waiting, generating, etc.)
+}
+
 // PaneHealthInfo holds health check results for a single pane
 type PaneHealthInfo struct {
 	Status       string   // "ok", "warning", "error", "unknown"
@@ -204,6 +217,7 @@ type Model struct {
 	fetchingBeads       bool
 	fetchingCassContext bool
 	fetchingMetrics     bool
+	fetchingRouting     bool
 	fetchingHistory     bool
 	fetchingFileChanges bool
 	fetchingScan        bool
@@ -288,6 +302,7 @@ type Model struct {
 	cmdHistory    []history.HistoryEntry
 	fileChanges   []tracker.RecordedFileChange
 	cassContext   []cass.SearchHit
+	routingScores map[string]RoutingScore // keyed by pane ID
 
 	// Error tracking for data sources (displayed as badges)
 	beadsError       error
@@ -296,6 +311,7 @@ type Model struct {
 	historyError     error
 	fileChangesError error
 	cassError        error
+	routingError     error
 }
 
 // PaneStatus tracks the status of a pane including compaction state
@@ -463,6 +479,7 @@ func New(session, projectDir string) Model {
 		fetchingBeads:       true,
 		fetchingCassContext: true,
 		fetchingMetrics:     true,
+		fetchingRouting:     true,
 		fetchingHistory:     true,
 		fetchingFileChanges: true,
 	}
@@ -525,6 +542,7 @@ func (m Model) Init() tea.Cmd {
 		m.fetchBeadsCmd(),
 		m.fetchAlertsCmd(),
 		m.fetchMetricsCmd(),
+		m.fetchRoutingCmd(),
 		m.fetchHistoryCmd(),
 		m.fetchFileChangesCmd(),
 		m.fetchCASSContextCmd(),
@@ -1152,6 +1170,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case RoutingUpdateMsg:
+		m.fetchingRouting = false
+		m.routingError = msg.Err
+		if msg.Err == nil && msg.Scores != nil {
+			m.routingScores = msg.Scores
+			// Merge routing data into metrics data
+			m.metricsData = m.mergeRoutingIntoMetrics(m.metricsData, msg.Scores)
+			m.metricsPanel.SetData(m.metricsData, m.metricsError)
+		}
+		return m, nil
+
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
@@ -1198,6 +1227,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if !m.fetchingMetrics {
 					m.fetchingMetrics = true
 					cmds = append(cmds, m.fetchMetricsCmd())
+				}
+				if !m.fetchingRouting {
+					m.fetchingRouting = true
+					cmds = append(cmds, m.fetchRoutingCmd())
 				}
 				if !m.fetchingHistory {
 					m.fetchingHistory = true
@@ -3425,6 +3458,35 @@ func activitySummaryLine(rows []PaneTableRow, t theme.Theme) string {
 
 	label := lipgloss.NewStyle().Foreground(t.Subtext).Render("Activity:")
 	return label + " " + strings.Join(compactBadges, " ")
+}
+
+// mergeRoutingIntoMetrics updates metrics data with routing scores.
+// It matches agents by pane ID (mapped from pane title/name).
+func (m Model) mergeRoutingIntoMetrics(data panels.MetricsData, scores map[string]RoutingScore) panels.MetricsData {
+	// Build a lookup from pane name to pane ID
+	paneNameToID := make(map[string]string)
+	for _, p := range m.panes {
+		paneNameToID[p.Title] = p.ID
+	}
+
+	// Update each agent with routing info
+	for i := range data.Agents {
+		agent := &data.Agents[i]
+		// Look up pane ID by agent name
+		paneID, ok := paneNameToID[agent.Name]
+		if !ok {
+			continue
+		}
+
+		// Look up routing score by pane ID
+		if score, found := scores[paneID]; found {
+			agent.RoutingScore = score.Score
+			agent.IsRecommended = score.IsRecommended
+			agent.State = score.State
+		}
+	}
+
+	return data
 }
 
 // Run starts the dashboard

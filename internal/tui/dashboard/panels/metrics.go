@@ -14,13 +14,18 @@ import (
 	"github.com/Dicklesworthstone/ntm/internal/tui/theme"
 )
 
-// AgentMetric represents token usage for a single agent
+// AgentMetric represents token usage and routing info for a single agent
 type AgentMetric struct {
 	Name       string
 	Type       string // "cc", "cod", "gmi"
 	Tokens     int
 	Cost       float64
 	ContextPct float64
+
+	// Routing info (from robot-route API)
+	RoutingScore  float64 // 0-100 routing score (0 means not computed)
+	IsRecommended bool    // True if this is the recommended agent
+	State         string  // Agent state: waiting, generating, etc.
 }
 
 // MetricsData holds the data for the metrics panel
@@ -213,8 +218,32 @@ func (m *MetricsPanel) View() string {
 			typeColor = t.Green
 		}
 
-		name := lipgloss.NewStyle().Foreground(typeColor).Bold(true).Render(agent.Name)
-		info := fmt.Sprintf("%d tok ($%.2f)", agent.Tokens, agent.Cost)
+		// Build name with optional recommended indicator
+		nameStr := agent.Name
+		if agent.IsRecommended {
+			nameStr = "★ " + nameStr // Star indicates recommended agent
+		}
+		name := lipgloss.NewStyle().Foreground(typeColor).Bold(true).Render(nameStr)
+
+		// Build info line with routing score if available
+		var infoParts []string
+		if agent.RoutingScore > 0 {
+			// Show routing score as a badge
+			scoreStyle := lipgloss.NewStyle().Foreground(t.Green)
+			if agent.RoutingScore < 50 {
+				scoreStyle = scoreStyle.Foreground(t.Yellow)
+			}
+			if agent.RoutingScore < 25 {
+				scoreStyle = scoreStyle.Foreground(t.Red)
+			}
+			infoParts = append(infoParts, scoreStyle.Render(fmt.Sprintf("%.0f", agent.RoutingScore)))
+		}
+		infoParts = append(infoParts, fmt.Sprintf("%d tok", agent.Tokens))
+		if agent.State != "" {
+			stateStyle := lipgloss.NewStyle().Foreground(t.Overlay)
+			infoParts = append(infoParts, stateStyle.Render(agent.State))
+		}
+		info := strings.Join(infoParts, " • ")
 
 		// Space between name and info
 		gap := w - 6 - lipgloss.Width(name) - lipgloss.Width(info)
@@ -225,7 +254,7 @@ func (m *MetricsPanel) View() string {
 		line := name + strings.Repeat(" ", gap) + valStyle.Render(info)
 		content.WriteString(line + "\n")
 
-		// Mini bar
+		// Mini bar (context usage)
 		miniBar := styles.ProgressBar(agent.ContextPct/100.0, w-6, "━", "┄", string(typeColor))
 		content.WriteString(miniBar + "\n")
 	}

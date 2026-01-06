@@ -508,6 +508,117 @@ func TestHelpOverlayToggle(t *testing.T) {
 	})
 }
 
+func TestKeyboardNavigationCursorMovement(t *testing.T) {
+	t.Parallel()
+
+	m := newTestModel(120)
+	m.panes = []tmux.Pane{
+		{ID: "1", Index: 1, Title: "pane-1", Type: tmux.AgentCodex},
+		{ID: "2", Index: 2, Title: "pane-2", Type: tmux.AgentClaude},
+		{ID: "3", Index: 3, Title: "pane-3", Type: tmux.AgentGemini},
+	}
+	m.cursor = 0
+
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	m = updated.(Model)
+	if m.cursor != 1 {
+		t.Fatalf("expected cursor to move down to 1, got %d", m.cursor)
+	}
+
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	m = updated.(Model)
+	if m.cursor != 2 {
+		t.Fatalf("expected cursor to move down to 2, got %d", m.cursor)
+	}
+
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	m = updated.(Model)
+	if m.cursor != 2 {
+		t.Fatalf("expected cursor to stay at last index 2, got %d", m.cursor)
+	}
+
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyUp})
+	m = updated.(Model)
+	if m.cursor != 1 {
+		t.Fatalf("expected cursor to move up to 1, got %d", m.cursor)
+	}
+
+	m.cursor = 0
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyUp})
+	m = updated.(Model)
+	if m.cursor != 0 {
+		t.Fatalf("expected cursor to stay at 0 when moving up, got %d", m.cursor)
+	}
+}
+
+func TestKeyboardNavigationNumberSelect(t *testing.T) {
+	t.Parallel()
+
+	m := newTestModel(120)
+	m.panes = []tmux.Pane{
+		{ID: "1", Index: 1, Title: "pane-1", Type: tmux.AgentCodex},
+		{ID: "2", Index: 2, Title: "pane-2", Type: tmux.AgentClaude},
+		{ID: "3", Index: 3, Title: "pane-3", Type: tmux.AgentGemini},
+	}
+	m.cursor = 0
+
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'2'}})
+	m = updated.(Model)
+	if m.cursor != 1 {
+		t.Fatalf("expected cursor to jump to 1 after pressing '2', got %d", m.cursor)
+	}
+
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'9'}})
+	m = updated.(Model)
+	if m.cursor != 1 {
+		t.Fatalf("expected cursor to remain at 1 for out-of-range select, got %d", m.cursor)
+	}
+}
+
+func TestKeyboardNavigationPanelCycling(t *testing.T) {
+	t.Parallel()
+
+	t.Run("tab_cycles_split_panels", func(t *testing.T) {
+		t.Parallel()
+
+		m := newTestModel(layout.SplitViewThreshold)
+		if m.focusedPanel != PanelPaneList {
+			t.Fatalf("expected initial focused panel to be pane list, got %v", m.focusedPanel)
+		}
+
+		updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyTab})
+		m = updated.(Model)
+		if m.focusedPanel != PanelDetail {
+			t.Fatalf("expected focused panel to move to detail after tab, got %v", m.focusedPanel)
+		}
+
+		updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyShiftTab})
+		m = updated.(Model)
+		if m.focusedPanel != PanelPaneList {
+			t.Fatalf("expected focused panel to move back to pane list after shift+tab, got %v", m.focusedPanel)
+		}
+	})
+
+	t.Run("tab_cycles_mega_panels", func(t *testing.T) {
+		t.Parallel()
+
+		m := newTestModel(layout.MegaWideViewThreshold)
+		m.focusedPanel = PanelAlerts
+
+		updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyTab})
+		m = updated.(Model)
+		if m.focusedPanel != PanelSidebar {
+			t.Fatalf("expected focused panel to move from alerts to sidebar, got %v", m.focusedPanel)
+		}
+
+		updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyShiftTab})
+		m = updated.(Model)
+		if m.focusedPanel != PanelAlerts {
+			t.Fatalf("expected focused panel to move back to alerts after shift+tab, got %v", m.focusedPanel)
+		}
+	})
+}
+
 func TestHelpBarIncludesHelpHint(t *testing.T) {
 	t.Parallel()
 
@@ -1267,5 +1378,94 @@ func TestRenderTableHeaderHiddenIndicator(t *testing.T) {
 					tc.width, plain)
 			}
 		})
+	}
+}
+
+// TestMergeRoutingIntoMetrics verifies that routing data is correctly merged into metrics.
+func TestMergeRoutingIntoMetrics(t *testing.T) {
+	t.Parallel()
+
+	m := newTestModel(120)
+
+	// Set up panes with known IDs
+	m.panes = []tmux.Pane{
+		{ID: "%1", Title: "claude-1", Type: tmux.AgentClaude},
+		{ID: "%2", Title: "codex-1", Type: tmux.AgentCodex},
+	}
+
+	// Create metrics data without routing info
+	metricsData := panels.MetricsData{
+		TotalTokens: 200,
+		TotalCost:   0.02,
+		Agents: []panels.AgentMetric{
+			{Name: "claude-1", Type: "cc", Tokens: 100},
+			{Name: "codex-1", Type: "cod", Tokens: 100},
+		},
+	}
+
+	// Create routing scores
+	routingScores := map[string]RoutingScore{
+		"%1": {Score: 90.0, IsRecommended: true, State: "waiting"},
+		"%2": {Score: 70.0, IsRecommended: false, State: "generating"},
+	}
+
+	// Merge routing into metrics
+	result := m.mergeRoutingIntoMetrics(metricsData, routingScores)
+
+	// Verify first agent got routing info
+	if result.Agents[0].RoutingScore != 90.0 {
+		t.Errorf("expected agent[0].RoutingScore = 90, got %f", result.Agents[0].RoutingScore)
+	}
+	if !result.Agents[0].IsRecommended {
+		t.Error("expected agent[0].IsRecommended = true")
+	}
+	if result.Agents[0].State != "waiting" {
+		t.Errorf("expected agent[0].State = 'waiting', got %q", result.Agents[0].State)
+	}
+
+	// Verify second agent got routing info
+	if result.Agents[1].RoutingScore != 70.0 {
+		t.Errorf("expected agent[1].RoutingScore = 70, got %f", result.Agents[1].RoutingScore)
+	}
+	if result.Agents[1].IsRecommended {
+		t.Error("expected agent[1].IsRecommended = false")
+	}
+	if result.Agents[1].State != "generating" {
+		t.Errorf("expected agent[1].State = 'generating', got %q", result.Agents[1].State)
+	}
+}
+
+// TestRoutingUpdateMsgHandling verifies that RoutingUpdateMsg updates the model correctly.
+func TestRoutingUpdateMsgHandling(t *testing.T) {
+	t.Parallel()
+
+	m := newTestModel(120)
+	m.panes = []tmux.Pane{
+		{ID: "%1", Title: "claude-1", Type: tmux.AgentClaude},
+	}
+	m.metricsData = panels.MetricsData{
+		TotalTokens: 100,
+		Agents:      []panels.AgentMetric{{Name: "claude-1", Type: "cc", Tokens: 100}},
+	}
+	m.fetchingRouting = true
+
+	// Send RoutingUpdateMsg
+	msg := RoutingUpdateMsg{
+		Scores: map[string]RoutingScore{
+			"%1": {Score: 85.0, IsRecommended: true, State: "idle"},
+		},
+	}
+
+	updated, _ := m.Update(msg)
+	updatedModel := updated.(Model)
+
+	// Verify routing data was stored
+	if updatedModel.routingScores["%1"].Score != 85.0 {
+		t.Errorf("expected routingScores[%%1].Score = 85, got %f", updatedModel.routingScores["%1"].Score)
+	}
+
+	// Verify fetchingRouting was reset
+	if updatedModel.fetchingRouting {
+		t.Error("expected fetchingRouting = false after message")
 	}
 }

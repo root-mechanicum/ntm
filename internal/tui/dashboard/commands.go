@@ -11,6 +11,7 @@ import (
 	"github.com/Dicklesworthstone/ntm/internal/bv"
 	"github.com/Dicklesworthstone/ntm/internal/cass"
 	"github.com/Dicklesworthstone/ntm/internal/history"
+	"github.com/Dicklesworthstone/ntm/internal/robot"
 	"github.com/Dicklesworthstone/ntm/internal/tmux"
 	"github.com/Dicklesworthstone/ntm/internal/tokens"
 	"github.com/Dicklesworthstone/ntm/internal/tracker"
@@ -157,5 +158,48 @@ func (m Model) fetchCASSContextCmd() tea.Cmd {
 		}
 
 		return CASSContextMsg{Hits: resp.Hits}
+	}
+}
+
+// fetchRoutingCmd fetches routing scores for all agents in the session.
+func (m Model) fetchRoutingCmd() tea.Cmd {
+	session := m.session
+	panes := m.panes
+
+	return func() tea.Msg {
+		scores := make(map[string]RoutingScore)
+
+		// Skip if no panes
+		if len(panes) == 0 {
+			return RoutingUpdateMsg{Scores: scores}
+		}
+
+		// Score agents using the robot package
+		scorer := robot.NewAgentScorer(robot.DefaultRoutingConfig())
+		scoredAgents, err := scorer.ScoreAgents(session, "")
+		if err != nil {
+			return RoutingUpdateMsg{Err: err}
+		}
+
+		// Find the recommended agent (highest score, not excluded)
+		var recommendedPaneID string
+		var highestScore float64 = -1
+		for _, sa := range scoredAgents {
+			if !sa.Excluded && sa.Score > highestScore {
+				highestScore = sa.Score
+				recommendedPaneID = sa.PaneID
+			}
+		}
+
+		// Map results to RoutingScore
+		for _, sa := range scoredAgents {
+			scores[sa.PaneID] = RoutingScore{
+				Score:         sa.Score,
+				IsRecommended: sa.PaneID == recommendedPaneID,
+				State:         string(sa.State),
+			}
+		}
+
+		return RoutingUpdateMsg{Scores: scores}
 	}
 }

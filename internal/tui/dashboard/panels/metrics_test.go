@@ -1,6 +1,7 @@
 package panels
 
 import (
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -185,6 +186,25 @@ func TestMetricsPanelViewShowsAgents(t *testing.T) {
 	}
 }
 
+func TestMetricsPanelViewShowsErrorState(t *testing.T) {
+	panel := NewMetricsPanel()
+	panel.SetSize(80, 20)
+
+	panel.SetData(MetricsData{}, errors.New("metrics backend down"))
+
+	view := panel.View()
+
+	if !strings.Contains(view, "Error") {
+		t.Error("expected view to include error badge")
+	}
+	if !strings.Contains(view, "metrics backend down") {
+		t.Error("expected view to include error message")
+	}
+	if !strings.Contains(view, "Press r") {
+		t.Error("expected view to include retry hint")
+	}
+}
+
 func TestMetricsPanelViewSessionTotal(t *testing.T) {
 	panel := NewMetricsPanel()
 	panel.SetSize(80, 20)
@@ -247,5 +267,98 @@ func TestMetricsDataStruct(t *testing.T) {
 	}
 	if len(data.Agents) != 1 {
 		t.Errorf("expected 1 agent, got %d", len(data.Agents))
+	}
+}
+
+func TestMetricsPanelViewShowsRoutingScore(t *testing.T) {
+	panel := NewMetricsPanel()
+	panel.SetSize(80, 20)
+
+	// Provide data with routing score
+	data := MetricsData{
+		TotalTokens: 100,
+		TotalCost:   0.01,
+		Agents: []AgentMetric{
+			{
+				Name:         "claude-1",
+				Type:         "cc",
+				Tokens:       100,
+				ContextPct:   50.0,
+				RoutingScore: 85.0,
+				State:        "waiting",
+			},
+		},
+	}
+	panel.SetData(data, nil)
+
+	view := panel.View()
+
+	// Routing score should be visible
+	if !strings.Contains(view, "85") {
+		t.Error("expected view to contain routing score '85'")
+	}
+	// State should be visible
+	if !strings.Contains(view, "waiting") {
+		t.Error("expected view to contain state 'waiting'")
+	}
+}
+
+func TestMetricsPanelViewShowsRecommendedIndicator(t *testing.T) {
+	panel := NewMetricsPanel()
+	panel.SetSize(80, 20)
+
+	// Provide data with recommended agent
+	data := MetricsData{
+		TotalTokens: 200,
+		TotalCost:   0.02,
+		Agents: []AgentMetric{
+			{
+				Name:          "claude-1",
+				Type:          "cc",
+				Tokens:        100,
+				ContextPct:    30.0,
+				RoutingScore:  90.0,
+				IsRecommended: true,
+			},
+			{
+				Name:          "codex-1",
+				Type:          "cod",
+				Tokens:        100,
+				ContextPct:    40.0,
+				RoutingScore:  70.0,
+				IsRecommended: false,
+			},
+		},
+	}
+	panel.SetData(data, nil)
+
+	view := panel.View()
+
+	// Recommended indicator (star) should be visible
+	if !strings.Contains(view, "★") {
+		t.Error("expected view to contain recommended indicator '★'")
+	}
+}
+
+func TestAgentMetricRoutingFields(t *testing.T) {
+	metric := AgentMetric{
+		Name:          "test_agent",
+		Type:          "cc",
+		Tokens:        50000,
+		Cost:          5.00,
+		ContextPct:    25.5,
+		RoutingScore:  75.0,
+		IsRecommended: true,
+		State:         "generating",
+	}
+
+	if metric.RoutingScore != 75.0 {
+		t.Errorf("expected RoutingScore 75.0, got %f", metric.RoutingScore)
+	}
+	if !metric.IsRecommended {
+		t.Error("expected IsRecommended true")
+	}
+	if metric.State != "generating" {
+		t.Errorf("expected State 'generating', got %q", metric.State)
 	}
 }
