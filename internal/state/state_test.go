@@ -453,7 +453,9 @@ func TestAgentCRUD(t *testing.T) {
 		ID: "agent-sess", Name: "agent-test", ProjectPath: "/test",
 		CreatedAt: time.Now(), Status: SessionActive,
 	}
-	store.CreateSession(sess)
+	if err := store.CreateSession(sess); err != nil {
+		t.Fatalf("CreateSession error: %v", err)
+	}
 
 	now := time.Now().UTC().Round(time.Second)
 	agent := &Agent{
@@ -511,14 +513,18 @@ func TestListAgents(t *testing.T) {
 		ID: "list-agent-sess", Name: "list-agents", ProjectPath: "/test",
 		CreatedAt: time.Now(), Status: SessionActive,
 	}
-	store.CreateSession(sess)
+	if err := store.CreateSession(sess); err != nil {
+		t.Fatalf("CreateSession error: %v", err)
+	}
 
 	agents := []*Agent{
 		{ID: "la-1", SessionID: sess.ID, Name: "Alpha", Type: AgentTypeClaude, Status: AgentIdle},
 		{ID: "la-2", SessionID: sess.ID, Name: "Beta", Type: AgentTypeCodex, Status: AgentWorking},
 	}
 	for _, a := range agents {
-		store.CreateAgent(a)
+		if err := store.CreateAgent(a); err != nil {
+			t.Fatalf("CreateAgent error: %v", err)
+		}
 	}
 
 	list, err := store.ListAgents(sess.ID)
@@ -541,14 +547,18 @@ func TestTaskCRUD(t *testing.T) {
 		ID: "task-sess", Name: "task-test", ProjectPath: "/test",
 		CreatedAt: time.Now(), Status: SessionActive,
 	}
-	store.CreateSession(sess)
+	if err := store.CreateSession(sess); err != nil {
+		t.Fatalf("CreateSession error: %v", err)
+	}
 
 	// Create agent for FK reference (agent_id can be NULL, but empty string fails FK check)
 	agent := &Agent{
 		ID: "task-agent", SessionID: sess.ID, Name: "TaskAgent",
 		Type: AgentTypeClaude, Status: AgentIdle,
 	}
-	store.CreateAgent(agent)
+	if err := store.CreateAgent(agent); err != nil {
+		t.Fatalf("CreateAgent error: %v", err)
+	}
 
 	task := &Task{
 		ID:            "task-1",
@@ -606,14 +616,18 @@ func TestListTasks(t *testing.T) {
 		ID: "list-task-sess", Name: "list-tasks", ProjectPath: "/test",
 		CreatedAt: time.Now(), Status: SessionActive,
 	}
-	store.CreateSession(sess)
+	if err := store.CreateSession(sess); err != nil {
+		t.Fatalf("CreateSession error: %v", err)
+	}
 
 	// Create agent for FK reference
 	agent := &Agent{
 		ID: "list-task-agent", SessionID: sess.ID, Name: "ListTaskAgent",
 		Type: AgentTypeClaude, Status: AgentIdle,
 	}
-	store.CreateAgent(agent)
+	if err := store.CreateAgent(agent); err != nil {
+		t.Fatalf("CreateAgent error: %v", err)
+	}
 
 	tasks := []*Task{
 		{ID: "lt-1", SessionID: sess.ID, AgentID: agent.ID, Status: TaskPending, CreatedAt: time.Now()},
@@ -621,7 +635,9 @@ func TestListTasks(t *testing.T) {
 		{ID: "lt-3", SessionID: sess.ID, AgentID: agent.ID, Status: TaskPending, CreatedAt: time.Now()},
 	}
 	for _, task := range tasks {
-		store.CreateTask(task)
+		if err := store.CreateTask(task); err != nil {
+			t.Fatalf("CreateTask error: %v", err)
+		}
 	}
 
 	// List all
@@ -654,13 +670,17 @@ func TestReservationCRUD(t *testing.T) {
 		ID: "res-sess", Name: "res-test", ProjectPath: "/test",
 		CreatedAt: time.Now(), Status: SessionActive,
 	}
-	store.CreateSession(sess)
+	if err := store.CreateSession(sess); err != nil {
+		t.Fatalf("CreateSession error: %v", err)
+	}
 
 	agent := &Agent{
 		ID: "res-agent", SessionID: sess.ID, Name: "ResAgent",
 		Type: AgentTypeClaude, Status: AgentIdle,
 	}
-	store.CreateAgent(agent)
+	if err := store.CreateAgent(agent); err != nil {
+		t.Fatalf("CreateAgent error: %v", err)
+	}
 
 	res := &Reservation{
 		SessionID:   sess.ID,
@@ -708,13 +728,17 @@ func TestListReservations(t *testing.T) {
 		ID: "list-res-sess", Name: "list-res", ProjectPath: "/test",
 		CreatedAt: time.Now(), Status: SessionActive,
 	}
-	store.CreateSession(sess)
+	if err := store.CreateSession(sess); err != nil {
+		t.Fatalf("CreateSession error: %v", err)
+	}
 
 	agent := &Agent{
 		ID: "list-res-agent", SessionID: sess.ID, Name: "ListResAgent",
 		Type: AgentTypeClaude, Status: AgentIdle,
 	}
-	store.CreateAgent(agent)
+	if err := store.CreateAgent(agent); err != nil {
+		t.Fatalf("CreateAgent error: %v", err)
+	}
 
 	// Create reservations: one active, one expired, one released
 	now := time.Now()
@@ -723,17 +747,25 @@ func TestListReservations(t *testing.T) {
 
 	// Active reservation (future expiry, not released)
 	activeRes := &Reservation{SessionID: sess.ID, AgentID: agent.ID, PathPattern: "active/*", Exclusive: true, ExpiresAt: future}
-	store.CreateReservation(activeRes)
+	if err := store.CreateReservation(activeRes); err != nil {
+		t.Fatalf("CreateReservation (active) error: %v", err)
+	}
 
 	// Expired reservation (past expiry, not released)
 	expiredRes := &Reservation{SessionID: sess.ID, AgentID: agent.ID, PathPattern: "expired/*", Exclusive: true, ExpiresAt: past}
-	store.CreateReservation(expiredRes)
+	if err := store.CreateReservation(expiredRes); err != nil {
+		t.Fatalf("CreateReservation (expired) error: %v", err)
+	}
 
 	// Released reservation (future expiry, but released)
 	releasedRes := &Reservation{SessionID: sess.ID, AgentID: agent.ID, PathPattern: "released/*", Exclusive: true, ExpiresAt: future}
-	store.CreateReservation(releasedRes)
+	if err := store.CreateReservation(releasedRes); err != nil {
+		t.Fatalf("CreateReservation (released) error: %v", err)
+	}
 	releasedRes.ReleasedAt = &now
-	store.UpdateReservation(releasedRes) // Update to set released_at
+	if err := store.UpdateReservation(releasedRes); err != nil {
+		t.Fatalf("UpdateReservation error: %v", err)
+	}
 
 	// List all
 	all, err := store.ListReservations(sess.ID, false)
@@ -761,13 +793,17 @@ func TestFindConflicts(t *testing.T) {
 		ID: "conflict-sess", Name: "conflict-test", ProjectPath: "/test",
 		CreatedAt: time.Now(), Status: SessionActive,
 	}
-	store.CreateSession(sess)
+	if err := store.CreateSession(sess); err != nil {
+		t.Fatalf("CreateSession error: %v", err)
+	}
 
 	agent := &Agent{
 		ID: "conflict-agent", SessionID: sess.ID, Name: "ConflictAgent",
 		Type: AgentTypeClaude, Status: AgentIdle,
 	}
-	store.CreateAgent(agent)
+	if err := store.CreateAgent(agent); err != nil {
+		t.Fatalf("CreateAgent error: %v", err)
+	}
 
 	// Create exclusive reservation
 	res := &Reservation{
@@ -777,7 +813,9 @@ func TestFindConflicts(t *testing.T) {
 		Exclusive:   true,
 		ExpiresAt:   time.Now().Add(time.Hour),
 	}
-	store.CreateReservation(res)
+	if err := store.CreateReservation(res); err != nil {
+		t.Fatalf("CreateReservation error: %v", err)
+	}
 
 	// Check for conflicts
 	conflicts, err := store.FindConflicts(sess.ID, "internal/cli/main.go")
@@ -855,7 +893,9 @@ func TestListPendingApprovals(t *testing.T) {
 		{ID: "pa-3", Action: "action3", Resource: "r3", RequestedBy: "a3", CreatedAt: time.Now(), ExpiresAt: time.Now().Add(-time.Hour), Status: ApprovalPending}, // expired
 	}
 	for _, a := range approvals {
-		store.CreateApproval(a)
+		if err := store.CreateApproval(a); err != nil {
+			t.Fatalf("CreateApproval error: %v", err)
+		}
 	}
 
 	pending, err := store.ListPendingApprovals()
@@ -917,7 +957,9 @@ func TestListToolHealth(t *testing.T) {
 		{Tool: "ubs", Version: "2.0.0"},
 	}
 	for _, th := range tools {
-		store.UpsertToolHealth(th)
+		if err := store.UpsertToolHealth(th); err != nil {
+			t.Fatalf("UpsertToolHealth error: %v", err)
+		}
 	}
 
 	list, err := store.ListToolHealth()
@@ -973,7 +1015,9 @@ func TestEventLogCRUD(t *testing.T) {
 		ID: "event-sess", Name: "event-test", ProjectPath: "/test",
 		CreatedAt: time.Now(), Status: SessionActive,
 	}
-	store.CreateSession(sess)
+	if err := store.CreateSession(sess); err != nil {
+		t.Fatalf("CreateSession error: %v", err)
+	}
 
 	entry := &EventLogEntry{
 		SessionID:     sess.ID,
@@ -1007,7 +1051,9 @@ func TestReplayEvents(t *testing.T) {
 		ID: "replay-sess", Name: "replay-test", ProjectPath: "/test",
 		CreatedAt: time.Now(), Status: SessionActive,
 	}
-	store.CreateSession(sess)
+	if err := store.CreateSession(sess); err != nil {
+		t.Fatalf("CreateSession error: %v", err)
+	}
 
 	// Log multiple events
 	for i := 0; i < 5; i++ {
@@ -1016,7 +1062,9 @@ func TestReplayEvents(t *testing.T) {
 			EventType: "test_event",
 			EventData: `{"seq": ` + string(rune('0'+i)) + `}`,
 		}
-		store.LogEvent(entry)
+		if err := store.LogEvent(entry); err != nil {
+			t.Fatalf("LogEvent error: %v", err)
+		}
 	}
 
 	// Replay from ID 2 (should get events 3, 4, 5)
