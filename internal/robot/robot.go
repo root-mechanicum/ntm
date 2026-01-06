@@ -3805,3 +3805,186 @@ func normalizeAgentType(t string) string {
 		return strings.ToLower(t)
 	}
 }
+
+// ============================================================================
+// --robot-diff: Compare agent activity and file changes
+// ============================================================================
+
+// DiffOptions holds options for the --robot-diff command.
+type DiffOptions struct {
+	Session string        // Required: session name
+	Since   time.Duration // Duration to look back (default: 15m)
+}
+
+// DiffOutput is the structured output for --robot-diff.
+type DiffOutput struct {
+	RobotResponse
+	Timeframe     DiffTimeframe   `json:"timeframe"`
+	Files         DiffFiles       `json:"files"`
+	AgentActivity []DiffAgentInfo `json:"agent_activity"`
+	AgentHints    *DiffAgentHints `json:"_agent_hints,omitempty"`
+}
+
+// DiffTimeframe describes the analysis time window.
+type DiffTimeframe struct {
+	Since      string `json:"since"`       // Duration string (e.g., "15m")
+	SinceTS    string `json:"since_ts"`    // RFC3339 timestamp
+	CapturedAt string `json:"captured_at"` // RFC3339 timestamp
+}
+
+// DiffFiles categorizes files by modification status.
+type DiffFiles struct {
+	Modified           []string       `json:"modified"`
+	PotentialConflicts []DiffConflict `json:"potential_conflicts"`
+	Clean              []string       `json:"clean"`
+}
+
+// DiffConflict represents a potential file conflict.
+type DiffConflict struct {
+	File            string   `json:"file"`
+	LikelyModifiers []string `json:"likely_modifiers"`
+	Reason          string   `json:"reason"`
+	Confidence      float64  `json:"confidence"`
+}
+
+// DiffAgentInfo provides activity info for a single agent pane.
+type DiffAgentInfo struct {
+	Pane        string `json:"pane"`
+	AgentType   string `json:"agent_type"`
+	State       string `json:"state"`
+	OutputLines int    `json:"output_lines"`
+	ActiveTime  string `json:"active_time,omitempty"`
+}
+
+// DiffAgentHints provides actionable hints for AI agents.
+type DiffAgentHints struct {
+	Summary          string   `json:"summary"`
+	ConflictWarnings []string `json:"conflict_warnings,omitempty"`
+	SuggestedActions []string `json:"suggested_actions,omitempty"`
+}
+
+// PrintDiff outputs agent activity comparison and file change analysis.
+func PrintDiff(opts DiffOptions) error {
+	// Validate session exists
+	if !tmux.SessionExists(opts.Session) {
+		return RobotError(
+			fmt.Errorf("session '%s' not found", opts.Session),
+			ErrCodeSessionNotFound,
+			"Use 'ntm list' to see available sessions",
+		)
+	}
+
+	// Default to 15 minutes if not specified
+	if opts.Since == 0 {
+		opts.Since = 15 * time.Minute
+	}
+
+	now := time.Now().UTC()
+	sinceTime := now.Add(-opts.Since)
+
+	output := DiffOutput{
+		RobotResponse: NewRobotResponse(true),
+		Timeframe: DiffTimeframe{
+			Since:      opts.Since.String(),
+			SinceTS:    sinceTime.Format(time.RFC3339),
+			CapturedAt: now.Format(time.RFC3339),
+		},
+		Files: DiffFiles{
+			Modified:           []string{},
+			PotentialConflicts: []DiffConflict{},
+			Clean:              []string{},
+		},
+		AgentActivity: []DiffAgentInfo{},
+	}
+
+	// Get panes for agent activity
+	panes, err := tmux.GetPanes(opts.Session)
+	if err != nil {
+		return RobotError(
+			fmt.Errorf("failed to get panes: %w", err),
+			ErrCodeInternalError,
+			"Check tmux is running and session is accessible",
+		)
+	}
+
+	// Create conflict detector for file analysis
+	wd, _ := os.Getwd()
+	detector := NewConflictDetector(&ConflictDetectorConfig{
+		RepoPath: wd,
+	})
+
+	// Analyze activity windows per pane
+	for _, pane := range panes {
+		agentType := string(pane.Type)
+		if agentType == "" || agentType == "unknown" {
+			agentType = "user"
+		}
+
+		// Capture pane output for state detection
+		captured, _ := tmux.CapturePaneOutput(pane.ID, 100)
+		lines := strings.Split(captured, "\n")
+		state := "idle"
+		if len(lines) > 0 {
+			// Simple state detection from output
+			lastLine := strings.ToLower(lines[len(lines)-1])
+			if strings.Contains(lastLine, "thinking") || strings.Contains(lastLine, "generating") {
+				state = "generating"
+			} else if strings.Contains(lastLine, "error") || strings.Contains(lastLine, "failed") {
+				state = "error"
+			}
+		}
+
+		info := DiffAgentInfo{
+			Pane:        pane.Title,
+			AgentType:   agentType,
+			State:       state,
+			OutputLines: len(lines),
+		}
+		output.AgentActivity = append(output.AgentActivity, info)
+
+		// Record activity window for conflict detection
+		detector.RecordActivity(pane.ID, agentType, sinceTime, now, len(lines) > 0)
+	}
+
+	// Get modified files from git
+	gitStatus, err := detector.GetGitStatus()
+	if err == nil {
+		for _, fs := range gitStatus {
+			output.Files.Modified = append(output.Files.Modified, fs.Path)
+		}
+	}
+
+	// Detect potential conflicts
+	ctx := context.Background()
+	conflicts, _ := detector.DetectConflicts(ctx)
+	for _, c := range conflicts {
+		output.Files.PotentialConflicts = append(output.Files.PotentialConflicts, DiffConflict{
+			File:            c.Path,
+			LikelyModifiers: c.LikelyModifiers,
+			Reason:          string(c.Reason),
+			Confidence:      c.Confidence,
+		})
+	}
+
+	// Generate hints
+	hints := &DiffAgentHints{
+		Summary: fmt.Sprintf("%s activity: %d files modified, %d agents",
+			opts.Session, len(output.Files.Modified), len(panes)),
+	}
+
+	if len(output.Files.PotentialConflicts) > 0 {
+		hints.ConflictWarnings = append(hints.ConflictWarnings,
+			fmt.Sprintf("%d potential conflict(s) detected", len(output.Files.PotentialConflicts)))
+		hints.SuggestedActions = append(hints.SuggestedActions,
+			"Review conflicts before committing")
+	}
+
+	if len(output.Files.Modified) == 0 {
+		hints.SuggestedActions = append(hints.SuggestedActions,
+			fmt.Sprintf("No file changes in the last %s", opts.Since.String()))
+	}
+
+	output.AgentHints = hints
+
+	return encodeJSON(output)
+}

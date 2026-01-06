@@ -446,17 +446,33 @@ func truncateCassText(s string, maxLen int) string {
 	if maxLen <= 0 {
 		return ""
 	}
+	if len(s) <= maxLen {
+		return s
+	}
+
+	// For very small maxLen (<=3), truncate without ellipsis but respect UTF-8 boundaries
 	if maxLen <= 3 {
-		if len(s) <= maxLen {
-			return s
+		byteLen := 0
+		for i := range s {
+			if i >= maxLen {
+				return s[:byteLen]
+			}
+			byteLen = i + 1 // Will be adjusted for multi-byte runes in next iteration
 		}
 		return s[:maxLen]
 	}
 
-	if len(s) > maxLen {
-		return s[:maxLen-3] + "..."
+	// For maxLen >= 4, use ellipsis
+	// Find last rune boundary at or before maxLen-3 bytes (UTF-8 safe)
+	targetLen := maxLen - 3
+	prevI := 0
+	for i := range s {
+		if i > targetLen {
+			return s[:prevI] + "..."
+		}
+		prevI = i
 	}
-	return s
+	return s[:prevI] + "..."
 }
 
 // extractSessionNameFromPath extracts a readable session name from the file path.

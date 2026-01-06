@@ -32,6 +32,8 @@ func resetFlags() {
 	robotSendType = ""
 	robotSendExclude = ""
 	robotSendDelay = 0
+	robotDiff = ""
+	robotDiffSince = "15m"
 }
 
 // sessionAutoSelectPossible returns true if the CLI would auto-select a session.
@@ -1303,6 +1305,51 @@ func TestRobotTailWithLines(t *testing.T) {
 
 	// Will error because session doesn't exist
 	_ = rootCmd.Execute()
+}
+
+// TestRobotDiffExecutes tests robot-diff flag executes
+func TestRobotDiffExecutes(t *testing.T) {
+	if !tmux.IsInstalled() {
+		t.Skip("tmux not installed")
+	}
+
+	resetFlags()
+	rootCmd.SetArgs([]string{"--robot-diff", "nonexistent_session_xyz"})
+
+	// Will error because session doesn't exist, but shouldn't panic
+	_ = rootCmd.Execute()
+}
+
+// TestRobotDiffWithSince tests robot-diff with --diff-since flag
+func TestRobotDiffWithSince(t *testing.T) {
+	if !tmux.IsInstalled() {
+		t.Skip("tmux not installed")
+	}
+
+	resetFlags()
+	rootCmd.SetArgs([]string{"--robot-diff", "nonexistent", "--diff-since", "30m"})
+
+	// Will error because session doesn't exist
+	_ = rootCmd.Execute()
+}
+
+// TestRobotDiffFlagParsing tests that --robot-diff flag is registered properly
+func TestRobotDiffFlagParsing(t *testing.T) {
+	resetFlags()
+
+	// Parse the flags
+	err := rootCmd.ParseFlags([]string{"--robot-diff", "test_session", "--diff-since", "1h"})
+	if err != nil {
+		t.Fatalf("ParseFlags failed: %v", err)
+	}
+
+	if robotDiff != "test_session" {
+		t.Errorf("expected robotDiff='test_session', got '%s'", robotDiff)
+	}
+
+	if robotDiffSince != "1h" {
+		t.Errorf("expected robotDiffSince='1h', got '%s'", robotDiffSince)
+	}
 }
 
 // TestGlobalJSONFlag tests the global --json flag works

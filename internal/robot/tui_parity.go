@@ -1054,12 +1054,28 @@ func isLikelyFilePath(s string) bool {
 	return false
 }
 
-// truncateString truncates a string to max length with ellipsis
+// truncateString truncates a string to max length with ellipsis.
+// Respects UTF-8 rune boundaries.
 func truncateString(s string, max int) string {
+	if max <= 0 {
+		return ""
+	}
 	if len(s) <= max {
 		return s
 	}
-	return s[:max-3] + "..."
+	if max <= 3 {
+		return "..."[:max]
+	}
+	// Find last rune boundary at or before max-3 bytes
+	targetLen := max - 3
+	prevI := 0
+	for i := range s {
+		if i > targetLen {
+			return s[:prevI] + "..."
+		}
+		prevI = i
+	}
+	return s[:prevI] + "..."
 }
 
 // =============================================================================

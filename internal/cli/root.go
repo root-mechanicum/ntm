@@ -682,6 +682,25 @@ Shell Integration:
 			return
 		}
 
+		// Robot-diff handler for comparing agent activity (synthesis)
+		if robotDiff != "" {
+			// Parse duration
+			since, err := util.ParseDurationWithDefault(robotDiffSince, time.Minute, "diff-since")
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error: invalid --diff-since: %v\n", err)
+				os.Exit(1)
+			}
+			opts := robot.DiffOptions{
+				Session: robotDiff,
+				Since:   since,
+			}
+			if err := robot.PrintDiff(opts); err != nil {
+				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				os.Exit(1)
+			}
+			return
+		}
+
 		// Robot-alerts handler for alert listing (TUI parity)
 		if robotAlerts {
 			opts := robot.TUIAlertsOptions{
@@ -957,6 +976,10 @@ var (
 	robotDismissSession  string // session scope for alert dismissal
 	robotDismissAll      bool   // dismiss all matching alerts
 
+	// Robot-diff flags for comparing agent activity
+	robotDiff      string // session name for diff
+	robotDiffSince string // duration like "10m", "1h"
+
 	// Robot-alerts flags for alert listing
 	robotAlerts         bool   // list alerts
 	robotAlertsSeverity string // filter by severity
@@ -1163,6 +1186,10 @@ func init() {
 	rootCmd.Flags().StringVar(&robotDismissAlert, "robot-dismiss-alert", "", "Dismiss an alert by ID. Example: ntm --robot-dismiss-alert=alert-abc123")
 	rootCmd.Flags().StringVar(&robotDismissSession, "dismiss-session", "", "Scope dismissal to session. Optional with --robot-dismiss-alert")
 	rootCmd.Flags().BoolVar(&robotDismissAll, "dismiss-all", false, "Dismiss all matching alerts. Optional with --robot-dismiss-alert")
+
+	// Robot-diff flags for comparing agent activity (synthesis)
+	rootCmd.Flags().StringVar(&robotDiff, "robot-diff", "", "Compare agent activity and file changes. Required: SESSION. Example: ntm --robot-diff=myproject --diff-since=10m")
+	rootCmd.Flags().StringVar(&robotDiffSince, "diff-since", "15m", "Duration to look back (e.g., 10m, 1h). Optional with --robot-diff. Default: 15m")
 
 	// Robot-alerts flags for alert listing (TUI parity)
 	rootCmd.Flags().BoolVar(&robotAlerts, "robot-alerts", false, "List active alerts with filtering. TUI parity for Alerts panel. Example: ntm --robot-alerts --alerts-severity=critical")

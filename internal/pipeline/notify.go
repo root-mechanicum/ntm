@@ -348,14 +348,27 @@ func formatDuration(d time.Duration) string {
 }
 
 // truncateMessage truncates a message to the specified length.
+// Respects UTF-8 rune boundaries.
 func truncateMessage(s string, n int) string {
+	if n <= 0 {
+		return ""
+	}
 	if len(s) <= n {
 		return s
 	}
 	if n <= 3 {
 		return "..."[:n]
 	}
-	return s[:n-3] + "..."
+	// Find last rune boundary at or before n-3 bytes
+	targetLen := n - 3
+	prevI := 0
+	for i := range s {
+		if i > targetLen {
+			return s[:prevI] + "..."
+		}
+		prevI = i
+	}
+	return s[:prevI] + "..."
 }
 
 // BuildPayloadFromState creates a NotificationPayload from execution state.

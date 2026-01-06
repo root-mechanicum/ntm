@@ -307,11 +307,27 @@ func extractSignatureFromDesc(desc string) string {
 }
 
 // truncateMessage truncates a message to maxLen, adding ellipsis if needed.
+// Respects UTF-8 rune boundaries.
 func truncateMessage(msg string, maxLen int) string {
+	if maxLen <= 0 {
+		return ""
+	}
 	if len(msg) <= maxLen {
 		return msg
 	}
-	return msg[:maxLen-3] + "..."
+	if maxLen <= 3 {
+		return "..."[:maxLen]
+	}
+	// Find last rune boundary at or before maxLen-3 bytes
+	targetLen := maxLen - 3
+	prevI := 0
+	for i := range msg {
+		if i > targetLen {
+			return msg[:prevI] + "..."
+		}
+		prevI = i
+	}
+	return msg[:prevI] + "..."
 }
 
 // shortenPath returns the last N path components for readability.
