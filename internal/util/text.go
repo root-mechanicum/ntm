@@ -75,12 +75,15 @@ func ExtractNewOutput(before, after string) string {
 		offset += step
 	}
 
-	// Fallback for overlaps smaller than chunkSize (only needed if we capped chunk size)
-	if len(after) > chunkSize {
-		for k := chunkSize - 1; k > 0; k-- {
-			if before[len(before)-k:] == after[:k] {
-				return after[k:]
-			}
+	// Fallback: check for overlaps smaller than searchChunk
+	// This handles cases where the overlap is shorter than what we searched for
+	maxOverlap := len(after) - 1
+	if maxOverlap > len(before) {
+		maxOverlap = len(before)
+	}
+	for k := maxOverlap; k > 0; k-- {
+		if before[len(before)-k:] == after[:k] {
+			return after[k:]
 		}
 	}
 
@@ -89,7 +92,7 @@ func ExtractNewOutput(before, after string) string {
 }
 
 // Truncate shortens a string to maxLen with ellipsis.
-// Uses the standard single-character ellipsis "…" (U+2026).
+// Uses three ASCII periods "..." to indicate truncation.
 func Truncate(s string, n int) string {
 	if n <= 0 {
 		return ""
