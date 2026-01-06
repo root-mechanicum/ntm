@@ -12,6 +12,7 @@ import (
 
 	"github.com/Dicklesworthstone/ntm/internal/cass"
 	"github.com/Dicklesworthstone/ntm/internal/output"
+	"github.com/Dicklesworthstone/ntm/internal/robot"
 	"github.com/Dicklesworthstone/ntm/internal/tui/theme"
 )
 
@@ -26,6 +27,7 @@ func newCassCmd() *cobra.Command {
 	cmd.AddCommand(newCassSearchCmd())
 	cmd.AddCommand(newCassInsightsCmd())
 	cmd.AddCommand(newCassTimelineCmd())
+	cmd.AddCommand(newCassPreviewCmd())
 
 	return cmd
 }
@@ -281,4 +283,190 @@ func runCassTimeline(since, groupBy string) error {
 	w.Flush()
 
 	return nil
+}
+
+func newCassPreviewCmd() *cobra.Command {
+	var (
+		maxResults int
+		maxAgeDays int
+		format     string
+		maxTokens  int
+	)
+
+	cmd := &cobra.Command{
+		Use:   "preview <prompt>",
+		Short: "Preview what CASS would inject for a prompt",
+		Long: `Preview the context that CASS would inject into an agent prompt.
+
+This is useful for:
+- Understanding what CASS finds for a given prompt
+- Debugging why certain context is/isn't injected
+- Tuning threshold and filter settings
+- Seeing token counts before injection`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runCassPreview(args[0], maxResults, maxAgeDays, format, maxTokens)
+		},
+	}
+
+	cmd.Flags().IntVar(&maxResults, "max-results", 5, "Maximum CASS hits to retrieve")
+	cmd.Flags().IntVar(&maxAgeDays, "max-age", 30, "Maximum age in days")
+	cmd.Flags().StringVar(&format, "format", "markdown", "Injection format (markdown, minimal, structured)")
+	cmd.Flags().IntVar(&maxTokens, "max-tokens", 500, "Maximum tokens for injection")
+
+	return cmd
+}
+
+func runCassPreview(prompt string, maxResults, maxAgeDays int, format string, maxTokens int) error {
+	// Import robot package functions
+	queryConfig := robot.CASSConfig{
+		Enabled:           true,
+		MaxResults:        maxResults,
+		MaxAgeDays:        maxAgeDays,
+		PreferSameProject: true,
+	}
+
+	filterConfig := robot.DefaultFilterConfig()
+	filterConfig.MaxItems = maxResults
+	filterConfig.MaxAgeDays = maxAgeDays
+
+	// Get current workspace for same-project preference
+	if wd, err := os.Getwd(); err == nil {
+		filterConfig.CurrentWorkspace = wd
+	}
+
+	// Query and filter
+	queryResult, filterResult := robot.QueryAndFilterCASS(prompt, queryConfig, filterConfig)
+
+	if IsJSONOutput() {
+		return output.PrintJSON(map[string]interface{}{
+			"query":        queryResult,
+			"filter":       filterResult,
+			"keywords":     queryResult.Keywords,
+			"total_hits":   queryResult.TotalMatches,
+			"filtered_out": filterResult.RemovedByScore + filterResult.RemovedByAge,
+		})
+	}
+
+	t := theme.Current()
+
+	// Title
+	fmt.Printf("%sCASS Injection Preview%s\n", "\033[1m", "\033[0m")
+	fmt.Printf("%s%s%s\n\n", "\033[2m", strings.Repeat("─", 60), "\033[0m")
+
+	// Query info
+	fmt.Printf("%sPrompt:%s %s\n", colorize(t.Info), "\033[0m", truncateCassText(prompt, 60))
+	if len(queryResult.Keywords) > 0 {
+		fmt.Printf("%sExtracted Keywords:%s %s\n", colorize(t.Info), "\033[0m", strings.Join(queryResult.Keywords, ", "))
+	}
+	fmt.Printf("%sQuery:%s %s\n\n", colorize(t.Info), "\033[0m", queryResult.Query)
+
+	// Results summary
+	if !queryResult.Success {
+		fmt.Printf("%sError:%s %s\n", colorize(t.Error), "\033[0m", queryResult.Error)
+		return nil
+	}
+
+	fmt.Printf("%sResults:%s %d hits found, %d after filtering\n",
+		colorize(t.Success), "\033[0m",
+		queryResult.TotalMatches, filterResult.FilteredCount)
+
+	if filterResult.RemovedByAge > 0 {
+		fmt.Printf("  %s→ %d removed (too old)%s\n", colorize(t.Subtext), filterResult.RemovedByAge, "\033[0m")
+	}
+	if filterResult.RemovedByScore > 0 {
+		fmt.Printf("  %s→ %d removed (low relevance)%s\n", colorize(t.Subtext), filterResult.RemovedByScore, "\033[0m")
+	}
+	fmt.Println()
+
+	// Show each hit with details
+	if len(filterResult.Hits) > 0 {
+		fmt.Printf("%sFiltered Hits:%s\n", colorize(t.Primary), "\033[0m")
+		for i, hit := range filterResult.Hits {
+			score := int(hit.ComputedScore * 100)
+			sessionName := extractSessionNameFromPath(hit.SourcePath)
+			fmt.Printf("  %d. %s%s%s (%d%% relevance)\n", i+1, colorize(t.Info), sessionName, "\033[0m", score)
+			if hit.Content != "" {
+				snippet := truncateCassText(hit.Content, 80)
+				fmt.Printf("     %s%s%s\n", "\033[2m", snippet, "\033[0m")
+			}
+		}
+		fmt.Println()
+	}
+
+	// Format injection preview
+	injectFormat := robot.FormatMarkdown
+	switch strings.ToLower(format) {
+	case "minimal":
+		injectFormat = robot.FormatMinimal
+	case "structured":
+		injectFormat = robot.FormatStructured
+	}
+
+	injectConfig := robot.InjectConfig{
+		Format:    injectFormat,
+		MaxTokens: maxTokens,
+		DryRun:    true, // Don't modify prompt
+	}
+
+	injectResult := robot.InjectContext(prompt, filterResult.Hits, injectConfig)
+
+	// Show injection preview
+	fmt.Printf("%sInjection Preview (%s format):%s\n", colorize(t.Primary), format, "\033[0m")
+	fmt.Printf("%s%s%s\n\n", "\033[2m", strings.Repeat("─", 40), "\033[0m")
+
+	if injectResult.InjectedContext != "" {
+		// Print context with indentation
+		for _, line := range strings.Split(injectResult.InjectedContext, "\n") {
+			fmt.Printf("  %s\n", line)
+		}
+		fmt.Println()
+	} else {
+		fmt.Printf("  %s(no context would be injected)%s\n\n", "\033[2m", "\033[0m")
+	}
+
+	// Token count
+	fmt.Printf("%s%s%s\n", "\033[2m", strings.Repeat("─", 40), "\033[0m")
+	fmt.Printf("%sToken estimate:%s ~%d tokens\n", colorize(t.Info), "\033[0m", injectResult.Metadata.TokensAdded)
+	fmt.Printf("%sItems injected:%s %d\n", colorize(t.Info), "\033[0m", injectResult.Metadata.ItemsInjected)
+
+	if injectResult.Metadata.SkippedReason != "" {
+		fmt.Printf("%sSkipped:%s %s\n", colorize(t.Subtext), "\033[0m", injectResult.Metadata.SkippedReason)
+	}
+
+	return nil
+}
+
+// truncateCassText truncates text for CASS preview display.
+func truncateCassText(s string, maxLen int) string {
+	// Replace newlines with spaces for single-line display
+	s = strings.ReplaceAll(s, "\n", " ")
+	s = strings.TrimSpace(s)
+	if len(s) > maxLen {
+		return s[:maxLen-3] + "..."
+	}
+	return s
+}
+
+// extractSessionNameFromPath extracts a readable session name from the file path.
+func extractSessionNameFromPath(path string) string {
+	if path == "" {
+		return "unknown"
+	}
+
+	parts := strings.Split(path, "/")
+	filename := parts[len(parts)-1]
+
+	if filename == "" {
+		return "unknown"
+	}
+
+	filename = strings.TrimSuffix(filename, ".jsonl")
+	filename = strings.TrimSuffix(filename, ".json")
+
+	if len(filename) > 40 {
+		filename = filename[:37] + "..."
+	}
+
+	return filename
 }
