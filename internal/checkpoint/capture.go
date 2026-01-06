@@ -77,8 +77,14 @@ func (c *Capturer) Create(sessionName, name string, opts ...CheckpointOption) (*
 		return nil, fmt.Errorf("saving checkpoint: %w", err)
 	}
 
-	// Capture pane scrollback
-	if err := c.captureScrollback(cp, options.scrollbackLines); err != nil {
+	// Capture pane scrollback with compression support
+	scrollbackConfig := ScrollbackConfig{
+		Lines:     options.scrollbackLines,
+		Compress:  options.scrollbackCompress,
+		MaxSizeMB: options.scrollbackMaxSizeMB,
+		Timeout:   30 * time.Second,
+	}
+	if err := c.captureScrollbackEnhanced(cp, scrollbackConfig); err != nil {
 		// Non-fatal, continue
 		fmt.Fprintf(os.Stderr, "Warning: failed to capture some scrollback: %v\n", err)
 	}
@@ -132,30 +138,6 @@ func (c *Capturer) captureSessionState(sessionName string) (SessionState, error)
 	}, nil
 }
 
-// captureScrollback captures scrollback content from all panes.
-func (c *Capturer) captureScrollback(cp *Checkpoint, lines int) error {
-	for i := range cp.Session.Panes {
-		pane := &cp.Session.Panes[i]
-
-		// Get pane ID for capture
-		paneID := fmt.Sprintf("%s:%d", cp.SessionName, pane.Index)
-		content, err := tmux.CapturePaneOutput(paneID, lines)
-		if err != nil {
-			continue // Skip panes that fail
-		}
-
-		// Save scrollback
-		relativePath, err := c.storage.SaveScrollback(cp.SessionName, cp.ID, pane.ID, content)
-		if err != nil {
-			continue
-		}
-
-		pane.ScrollbackFile = relativePath
-		pane.ScrollbackLines = countLines(content)
-	}
-
-	return nil
-}
 
 // captureGitState captures the git repository state.
 func (c *Capturer) captureGitState(workingDir, sessionName, checkpointID string) (GitState, error) {

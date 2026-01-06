@@ -746,11 +746,17 @@ func TestCheckpointOptions(t *testing.T) {
 	if !opts.captureGit {
 		t.Error("defaultOptions().captureGit should be true")
 	}
-	if opts.scrollbackLines != 1000 {
-		t.Errorf("defaultOptions().scrollbackLines = %d, want 1000", opts.scrollbackLines)
+	if opts.scrollbackLines != 5000 {
+		t.Errorf("defaultOptions().scrollbackLines = %d, want 5000", opts.scrollbackLines)
 	}
 	if opts.description != "" {
 		t.Errorf("defaultOptions().description should be empty")
+	}
+	if !opts.scrollbackCompress {
+		t.Error("defaultOptions().scrollbackCompress should be true")
+	}
+	if opts.scrollbackMaxSizeMB != 10 {
+		t.Errorf("defaultOptions().scrollbackMaxSizeMB = %d, want 10", opts.scrollbackMaxSizeMB)
 	}
 
 	// Test WithDescription

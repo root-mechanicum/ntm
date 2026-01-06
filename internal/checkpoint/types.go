@@ -113,9 +113,11 @@ func FromTmuxPane(p tmux.Pane) PaneState {
 type CheckpointOption func(*checkpointOptions)
 
 type checkpointOptions struct {
-	description     string
-	captureGit      bool
-	scrollbackLines int
+	description       string
+	captureGit        bool
+	scrollbackLines   int
+	scrollbackCompress bool
+	scrollbackMaxSizeMB int
 }
 
 // WithDescription sets the checkpoint description.
@@ -139,9 +141,26 @@ func WithScrollbackLines(lines int) CheckpointOption {
 	}
 }
 
+// WithScrollbackCompress enables/disables gzip compression for scrollback.
+func WithScrollbackCompress(compress bool) CheckpointOption {
+	return func(o *checkpointOptions) {
+		o.scrollbackCompress = compress
+	}
+}
+
+// WithScrollbackMaxSizeMB sets the maximum compressed scrollback size in MB.
+// Scrollback larger than this will be skipped. 0 = no limit.
+func WithScrollbackMaxSizeMB(sizeMB int) CheckpointOption {
+	return func(o *checkpointOptions) {
+		o.scrollbackMaxSizeMB = sizeMB
+	}
+}
+
 func defaultOptions() checkpointOptions {
 	return checkpointOptions{
-		captureGit:      true,
-		scrollbackLines: 1000,
+		captureGit:          true,
+		scrollbackLines:     5000,
+		scrollbackCompress:  true,
+		scrollbackMaxSizeMB: 10,
 	}
 }
