@@ -659,6 +659,11 @@ func DetectFileChanges(before, after map[string]FileState) []FileChange {
 	// Detect deletions
 	for path, beforeState := range before {
 		if _, ok := after[path]; !ok {
+			// Verify file is actually gone (handle git clean files missing from snapshot)
+			if _, err := os.Stat(path); err == nil {
+				continue
+			}
+
 			b := beforeState
 			changes = append(changes, FileChange{
 				Path:   path,

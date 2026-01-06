@@ -96,6 +96,12 @@ func LoadSessionAgent(sessionName, projectKey string) (*SessionAgentInfo, error)
 		return nil, fmt.Errorf("parsing session agent: %w", err)
 	}
 
+	// Strict validation: if we requested a specific project, ensure we got it.
+	// This protects against legacy fallback returning an agent for a different project.
+	if projectKey != "" && info.ProjectKey != projectKey {
+		return nil, nil
+	}
+
 	return &info, nil
 }
 
