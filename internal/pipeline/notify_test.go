@@ -95,6 +95,12 @@ func TestShouldNotify(t *testing.T) {
 			event:    NotifyStarted,
 			want:     false,
 		},
+		{
+			name:     "cancelled never notifies (no setting yet)",
+			settings: WorkflowSettings{NotifyOnComplete: true, NotifyOnError: true},
+			event:    NotifyCancelled,
+			want:     false,
+		},
 	}
 
 	for _, tt := range tests {
