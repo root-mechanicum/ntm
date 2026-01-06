@@ -1283,6 +1283,7 @@ func init() {
 		newLockCmd(),
 		newUnlockCmd(),
 		newLocksCmd(),
+		newMessageCmd(), // Unified messaging
 
 		// Git coordination
 		newGitCmd(),
