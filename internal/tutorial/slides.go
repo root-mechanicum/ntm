@@ -592,7 +592,7 @@ func (m Model) renderTipsSlide(tick int) string {
 		{"*", "Save Often", "`ntm save myproject -o ~/logs` preserves outputs", "#a6e3a1"},
 		{"*", "Width Tiers", "120+ cols split view; 200+/240+ unlock richer metadata", "#94e2d5"},
 		{"*", "Icons", "ASCII by default; use NTM_ICONS=unicode|nerd only with good fonts", "#f2cdcd"},
-		{"*", "Tmux Keys", "Ctrl+B, D to detach • Ctrl+B, [ to scroll", "#f9e2af"},
+		{"*", "Tmux Keys", "Ctrl+A, D to detach • Ctrl+A, [ to scroll", "#f9e2af"},
 		{"*", "Interrupt Fast", "`ntm interrupt myproject` stops all agents", "#f38ba8"},
 	}
 
