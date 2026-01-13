@@ -612,6 +612,9 @@ func (c *Client) SendKeys(target, keys string, enter bool) error {
 	}
 
 	if enter {
+		// Brief delay before Enter to ensure agent CLIs (Codex, Gemini) have time to
+		// process the pasted text. Without this, Enter can be lost due to input buffering.
+		time.Sleep(50 * time.Millisecond)
 		return c.RunSilent("send-keys", "-t", target, "C-m")
 	}
 	return nil
