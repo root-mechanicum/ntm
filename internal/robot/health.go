@@ -1767,7 +1767,7 @@ func (rm *RestartManager) trySoftRestart(ctx context.Context, paneID, agentType 
 
 	// Send Ctrl+C (target format: session:pane)
 	target := fmt.Sprintf("%s:%s", rm.session, paneID)
-	if err := tmux.SendKeys(target, "C-c", false); err != nil {
+	if err := tmux.SendInterrupt(target); err != nil {
 		result.Reason = fmt.Sprintf("failed to send Ctrl+C: %v", err)
 		return result
 	}
@@ -1822,7 +1822,7 @@ func (rm *RestartManager) tryHardRestart(ctx context.Context, paneID, agentType 
 		default:
 		}
 
-		if err := tmux.SendKeys(target, "C-c", false); err != nil {
+		if err := tmux.SendInterrupt(target); err != nil {
 			continue
 		}
 
@@ -1846,7 +1846,7 @@ func (rm *RestartManager) tryHardRestart(ctx context.Context, paneID, agentType 
 
 	// If still not at prompt, try Ctrl+D
 	if !isShellPrompt(output) {
-		tmux.SendKeys(target, "C-d", false)
+		tmux.SendEOF(target)
 		select {
 		case <-ctx.Done():
 			result.Reason = "context cancelled during hard restart"

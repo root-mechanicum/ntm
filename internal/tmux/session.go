@@ -660,6 +660,16 @@ func SendInterrupt(target string) error {
 	return DefaultClient.SendInterrupt(target)
 }
 
+// SendEOF sends Ctrl+D (EOF) to a pane
+func (c *Client) SendEOF(target string) error {
+	return c.RunSilent("send-keys", "-t", target, "C-d")
+}
+
+// SendEOF sends Ctrl+D (EOF) to a pane (default client)
+func SendEOF(target string) error {
+	return DefaultClient.SendEOF(target)
+}
+
 // DisplayMessage shows a message in the tmux status line
 func (c *Client) DisplayMessage(session, msg string, durationMs int) error {
 	return c.RunSilent("display-message", "-t", session, "-d", fmt.Sprintf("%d", durationMs), msg)
