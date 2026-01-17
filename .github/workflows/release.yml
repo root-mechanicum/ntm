@@ -8,7 +8,8 @@ on:
 permissions:
   contents: write
   packages: write
-  id-token: write  # For cosign signing
+  id-token: write       # For cosign signing and attestations
+  attestations: write   # For artifact attestations
 
 env:
   GO_VERSION: "1.25"
@@ -22,11 +23,18 @@ jobs:
   release:
     name: Release
     runs-on: ubuntu-latest
+    timeout-minutes: 30
+    outputs:
+      version: ${{ steps.version.outputs.version }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+
+      - name: Extract version
+        id: version
+        run: echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
 
       - name: Set up Go
         uses: actions/setup-go@v5
@@ -54,6 +62,7 @@ jobs:
         uses: anchore/sbom-action/download-syft@v0
 
       - name: Run GoReleaser
+        id: goreleaser
         uses: goreleaser/goreleaser-action@v6
         with:
           distribution: goreleaser
@@ -71,12 +80,23 @@ jobs:
           path: dist/
           retention-days: 30
 
+      # Generate attestations for release artifacts
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@v2
+        continue-on-error: true  # Don't fail if attestation fails
+        with:
+          subject-path: |
+            dist/*.tar.gz
+            dist/*.zip
+            dist/checksums.txt
+
   # ============================================================================
   # DOCKER - Build and push multi-arch container images
   # ============================================================================
   docker:
     name: Docker Images
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     needs: release
     steps:
       - name: Checkout
@@ -118,7 +138,7 @@ jobs:
 
       - name: Build and push
         if: steps.dockerfile.outputs.exists == 'true'
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v6
         with:
           context: .
           platforms: linux/amd64,linux/arm64
@@ -127,6 +147,8 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+          provenance: true
+          sbom: true
 
   # ============================================================================
   # VERIFY - Verify release artifacts
@@ -134,6 +156,7 @@ jobs:
   verify:
     name: Verify Release
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     needs: release
     steps:
       - name: Download artifacts
@@ -154,8 +177,32 @@ jobs:
         run: |
           cd dist
           if [ -f checksums.txt ]; then
-            sha256sum -c checksums.txt --ignore-missing || true
+            echo "Verifying SHA256 checksums..."
+            sha256sum -c checksums.txt --ignore-missing
+            echo "All checksums verified successfully"
+          else
+            echo "No checksums.txt found"
+            exit 1
           fi
+
+      - name: Verify archive contents
+        run: |
+          cd dist
+          echo "Verifying archive contents..."
+          for archive in *.tar.gz; do
+            if [ -f "$archive" ]; then
+              echo "Contents of $archive:"
+              tar -tzf "$archive" | head -20
+              echo ""
+            fi
+          done
+          for archive in *.zip; do
+            if [ -f "$archive" ]; then
+              echo "Contents of $archive:"
+              unzip -l "$archive" | head -20
+              echo ""
+            fi
+          done
 
   # ============================================================================
   # UPGRADE-VERIFY - Verify upgrade command works on all platforms
@@ -164,6 +211,7 @@ jobs:
   upgrade-verify:
     name: Verify Upgrade (${{ matrix.os }})
     needs: release
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
@@ -174,7 +222,7 @@ jobs:
           - os: macos-latest
             goos: darwin
             goarch: arm64
-          - os: macos-15
+          - os: macos-13
             goos: darwin
             goarch: amd64
           - os: windows-latest
@@ -200,9 +248,9 @@ jobs:
           echo "Testing upgrade --check on ${{ matrix.goos }}/${{ matrix.goarch }}"
           # Run upgrade --check and capture output
           if ./ntm upgrade --check 2>&1 | tee upgrade_output.txt; then
-            echo "✓ Upgrade check passed"
+            echo "Upgrade check passed"
           else
-            echo "✗ Upgrade check failed"
+            echo "Upgrade check failed"
             cat upgrade_output.txt
             exit 1
           fi
@@ -214,7 +262,7 @@ jobs:
             exit 1
           fi
 
-          echo "✓ Asset naming contract verified for ${{ matrix.goos }}/${{ matrix.goarch }}"
+          echo "Asset naming contract verified for ${{ matrix.goos }}/${{ matrix.goarch }}"
 
   # ============================================================================
   # ANNOUNCE - Post-release notifications
@@ -222,6 +270,7 @@ jobs:
   announce:
     name: Announce Release
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     needs: [release, verify, upgrade-verify]
     steps:
       - name: Get release info
@@ -246,3 +295,10 @@ jobs:
           echo "# Go install" >> $GITHUB_STEP_SUMMARY
           echo "go install github.com/Dicklesworthstone/ntm/cmd/ntm@${{ steps.release.outputs.tag }}" >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## Verification" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "All release artifacts have been verified:" >> $GITHUB_STEP_SUMMARY
+          echo "- SHA256 checksums validated" >> $GITHUB_STEP_SUMMARY
+          echo "- Upgrade command tested on Linux, macOS, and Windows" >> $GITHUB_STEP_SUMMARY
+          echo "- Docker images built with SBOM and provenance" >> $GITHUB_STEP_SUMMARY

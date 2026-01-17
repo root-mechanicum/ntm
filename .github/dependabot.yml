@@ -27,12 +27,14 @@ updates:
       prefix: "deps"
       include: "scope"
     groups:
+      # Group all minor/patch updates together to reduce PR noise
       go-minor-and-patch:
         patterns:
           - "*"
         update-types:
           - "minor"
           - "patch"
+      # Group Charmbracelet packages (TUI framework)
       charmbracelet:
         patterns:
           - "github.com/charmbracelet/*"
@@ -61,6 +63,7 @@ updates:
       prefix: "ci"
       include: "scope"
     groups:
+      # Group all action updates together
       actions-minor-and-patch:
         patterns:
           - "*"
@@ -80,3 +83,16 @@ updates:
       - "docker"
     commit-message:
       prefix: "docker"
+
+  # npm/Bun dependencies (for OpenAPI tooling)
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 3
+    labels:
+      - "dependencies"
+      - "npm"
+    commit-message:
+      prefix: "deps"

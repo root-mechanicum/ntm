@@ -11,6 +11,11 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+# Restrict permissions to minimum required for CI
+permissions:
+  contents: read
+  security-events: write  # For SARIF upload
+
 env:
   GO_VERSION: "1.25"
 
@@ -21,6 +26,7 @@ jobs:
   lint:
     name: Lint
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
 
@@ -50,7 +56,7 @@ jobs:
         run: go vet ./...
 
       - name: Set up Bun
-        uses: oven-sh/setup-bun@v1
+        uses: oven-sh/setup-bun@v2
         with:
           bun-version: "latest"
 
@@ -68,6 +74,7 @@ jobs:
   test:
     name: Test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
@@ -100,7 +107,7 @@ jobs:
 
       - name: Upload Coverage to Codecov
         if: matrix.os == 'ubuntu-latest'
-        uses: codecov/codecov-action@v4
+        uses: codecov/codecov-action@v5
         with:
           files: coverage.out
           flags: unittests
@@ -123,6 +130,7 @@ jobs:
   coverage:
     name: Coverage Thresholds
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     needs: test
     steps:
       - uses: actions/checkout@v4
@@ -170,6 +178,7 @@ jobs:
   build:
     name: Build (${{ matrix.goos }}/${{ matrix.goarch }})
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     strategy:
       fail-fast: false
       matrix:
@@ -229,6 +238,7 @@ jobs:
   security:
     name: Security Scan
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
 
@@ -262,6 +272,7 @@ jobs:
   goreleaser-check:
     name: GoReleaser Check
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
         with:
@@ -296,7 +307,11 @@ jobs:
   dependency-review:
     name: Dependency Review
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     if: github.event_name == 'pull_request'
+    permissions:
+      contents: read
+      pull-requests: write
     steps:
       - uses: actions/checkout@v4
 
@@ -312,6 +327,7 @@ jobs:
   integration:
     name: Integration Tests
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
 
@@ -344,6 +360,7 @@ jobs:
   upgrade-check:
     name: Upgrade Check (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
     strategy:
       fail-fast: false
       matrix:
@@ -369,14 +386,14 @@ jobs:
           # It should NOT report "no suitable release asset found" (naming mismatch)
 
           if ./ntm upgrade --check 2>&1 | tee upgrade_output.txt; then
-            echo "✓ Upgrade check succeeded"
+            echo "Upgrade check succeeded"
           else
             # Check if it's a "no releases" error (acceptable for forks/new repos)
             if grep -qi "no releases found\|development version" upgrade_output.txt; then
-              echo "⚠ No releases found (expected for dev builds)"
+              echo "No releases found (expected for dev builds)"
               exit 0
             fi
-            echo "✗ Upgrade check failed"
+            echo "Upgrade check failed"
             cat upgrade_output.txt
             exit 1
           fi
@@ -384,21 +401,21 @@ jobs:
           # Critical check: "no suitable release asset found" means naming mismatch
           if grep -q "no suitable release asset" upgrade_output.txt; then
             echo ""
-            echo "╔════════════════════════════════════════════════════════════════╗"
-            echo "║  ERROR: Asset naming mismatch detected!                        ║"
-            echo "║                                                                ║"
-            echo "║  upgrade.go cannot find assets from the latest release.       ║"
-            echo "║  This likely means:                                            ║"
-            echo "║  1. upgrade.go naming logic was changed, OR                    ║"
-            echo "║  2. .goreleaser.yaml naming template was changed               ║"
-            echo "║                                                                ║"
-            echo "║  Review: TestUpgradeAssetNamingContract in cli_test.go        ║"
-            echo "╚════════════════════════════════════════════════════════════════╝"
+            echo "========================================================================"
+            echo "  ERROR: Asset naming mismatch detected!"
+            echo ""
+            echo "  upgrade.go cannot find assets from the latest release."
+            echo "  This likely means:"
+            echo "  1. upgrade.go naming logic was changed, OR"
+            echo "  2. .goreleaser.yaml naming template was changed"
+            echo ""
+            echo "  Review: TestUpgradeAssetNamingContract in cli_test.go"
+            echo "========================================================================"
             echo ""
             exit 1
           fi
 
-          echo "✓ Upgrade asset naming contract verified"
+          echo "Upgrade asset naming contract verified"
 
   # ============================================================================
   # SUMMARY - Final status check
@@ -406,6 +423,7 @@ jobs:
   ci-success:
     name: CI Success
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     needs: [lint, test, coverage, build, security, goreleaser-check, integration, upgrade-check]
     if: always()
     steps:
