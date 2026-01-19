@@ -64,6 +64,78 @@ type RotationEvent struct {
 	Error         string         `json:"error,omitempty"`
 }
 
+// ConfirmAction represents the action to take for a pending rotation.
+type ConfirmAction string
+
+const (
+	// ConfirmRotate proceeds with the rotation.
+	ConfirmRotate ConfirmAction = "rotate"
+	// ConfirmCompact tries compaction instead of rotation.
+	ConfirmCompact ConfirmAction = "compact"
+	// ConfirmIgnore cancels the rotation and continues as-is.
+	ConfirmIgnore ConfirmAction = "ignore"
+	// ConfirmPostpone delays the rotation by a specified duration.
+	ConfirmPostpone ConfirmAction = "postpone"
+)
+
+// PendingRotation represents a rotation awaiting user confirmation.
+type PendingRotation struct {
+	AgentID        string        `json:"agent_id"`
+	SessionName    string        `json:"session_name"`
+	PaneID         string        `json:"pane_id"`
+	ContextPercent float64       `json:"context_percent"`
+	CreatedAt      time.Time     `json:"created_at"`
+	TimeoutAt      time.Time     `json:"timeout_at"`
+	DefaultAction  ConfirmAction `json:"default_action"`
+	WorkDir        string        `json:"-"` // Not serialized
+}
+
+// PendingRotationOutput provides robot mode JSON output for pending rotations.
+type PendingRotationOutput struct {
+	Type               string   `json:"type"`
+	AgentID            string   `json:"agent_id"`
+	SessionName        string   `json:"session_name"`
+	ContextPercent     float64  `json:"context_percent"`
+	AwaitingConfirm    bool     `json:"awaiting_confirmation"`
+	TimeoutSeconds     int      `json:"timeout_seconds"`
+	DefaultAction      string   `json:"default_action"`
+	AvailableActions   []string `json:"available_actions"`
+	GeneratedAt        string   `json:"generated_at"`
+}
+
+// NewPendingRotationOutput creates a robot mode output for a pending rotation.
+func NewPendingRotationOutput(p *PendingRotation) PendingRotationOutput {
+	remaining := int(time.Until(p.TimeoutAt).Seconds())
+	if remaining < 0 {
+		remaining = 0
+	}
+	return PendingRotationOutput{
+		Type:               "rotation_pending",
+		AgentID:            p.AgentID,
+		SessionName:        p.SessionName,
+		ContextPercent:     p.ContextPercent,
+		AwaitingConfirm:    true,
+		TimeoutSeconds:     remaining,
+		DefaultAction:      string(p.DefaultAction),
+		AvailableActions:   []string{"rotate", "compact", "ignore", "postpone"},
+		GeneratedAt:        time.Now().UTC().Format(time.RFC3339),
+	}
+}
+
+// RemainingSeconds returns the seconds remaining before timeout.
+func (p *PendingRotation) RemainingSeconds() int {
+	remaining := int(time.Until(p.TimeoutAt).Seconds())
+	if remaining < 0 {
+		return 0
+	}
+	return remaining
+}
+
+// IsExpired returns true if the pending rotation has timed out.
+func (p *PendingRotation) IsExpired() bool {
+	return time.Now().After(p.TimeoutAt)
+}
+
 // PaneSpawner abstracts pane creation for testing.
 type PaneSpawner interface {
 	// SpawnAgent creates a new agent pane and returns its ID.
@@ -199,6 +271,9 @@ type Rotator struct {
 
 	// History of rotations for audit
 	history []RotationEvent
+
+	// Pending rotations awaiting confirmation (keyed by agentID)
+	pending map[string]*PendingRotation
 }
 
 // RotatorConfig holds configuration for creating a Rotator.
@@ -228,11 +303,14 @@ func NewRotator(cfg RotatorConfig) *Rotator {
 		spawner:   cfg.Spawner,
 		config:    cfg.Config,
 		history:   make([]RotationEvent, 0),
+		pending:   make(map[string]*PendingRotation),
 	}
 }
 
 // CheckAndRotate checks all agents and rotates those above the threshold.
 // Returns the results of all rotation attempts.
+// If RequireConfirm is enabled, agents needing rotation are added to pending
+// and results have State=RotationStatePending until confirmed.
 func (r *Rotator) CheckAndRotate(sessionName, workDir string) ([]RotationResult, error) {
 	if r.monitor == nil {
 		return nil, fmt.Errorf("no monitor available")
@@ -244,6 +322,9 @@ func (r *Rotator) CheckAndRotate(sessionName, workDir string) ([]RotationResult,
 		return nil, nil // Rotation disabled
 	}
 
+	// First, process any expired pending rotations
+	r.processExpiredPending(sessionName, workDir)
+
 	// Find agents above rotate threshold
 	// Note: r.config.RotateThreshold is 0.0-1.0, but AgentsAboveThreshold expects 0-100 percentage
 	agentsToRotate := r.monitor.AgentsAboveThreshold(r.config.RotateThreshold * 100)
@@ -253,14 +334,98 @@ func (r *Rotator) CheckAndRotate(sessionName, workDir string) ([]RotationResult,
 
 	var results []RotationResult
 
-	// Rotate one at a time to avoid overwhelming the system
+	// Process agents one at a time
 	for _, agentInfo := range agentsToRotate {
+		// Skip if already pending
+		if _, exists := r.pending[agentInfo.AgentID]; exists {
+			continue
+		}
+
+		// If confirmation is required, create a pending rotation instead
+		if r.config.RequireConfirm {
+			pending := r.createPendingRotation(sessionName, agentInfo.AgentID, agentInfo.UsagePercent, workDir)
+			results = append(results, RotationResult{
+				OldAgentID: agentInfo.AgentID,
+				Method:     RotationThresholdExceeded,
+				State:      RotationStatePending,
+				Timestamp:  pending.CreatedAt,
+				Error:      fmt.Sprintf("awaiting confirmation, timeout in %ds", pending.RemainingSeconds()),
+			})
+			continue
+		}
+
+		// No confirmation required, rotate directly
 		result := r.rotateAgent(sessionName, agentInfo.AgentID, workDir)
 		results = append(results, result)
-		// Failed rotations are captured in results; continue with others
 	}
 
 	return results, nil
+}
+
+// createPendingRotation creates a pending rotation entry for an agent.
+func (r *Rotator) createPendingRotation(session, agentID string, contextPercent float64, workDir string) *PendingRotation {
+	now := time.Now()
+	timeoutSec := r.config.ConfirmTimeoutSec
+	if timeoutSec <= 0 {
+		timeoutSec = 60 // Default to 60 seconds if not configured
+	}
+
+	defaultAction := ConfirmAction(r.config.DefaultConfirmAction)
+	if defaultAction == "" {
+		defaultAction = ConfirmRotate
+	}
+
+	// Find the pane ID for this agent
+	paneID := ""
+	if panes, err := r.spawner.GetPanes(session); err == nil {
+		for _, p := range panes {
+			if p.Title == agentID {
+				paneID = p.ID
+				break
+			}
+		}
+	}
+
+	pending := &PendingRotation{
+		AgentID:        agentID,
+		SessionName:    session,
+		PaneID:         paneID,
+		ContextPercent: contextPercent,
+		CreatedAt:      now,
+		TimeoutAt:      now.Add(time.Duration(timeoutSec) * time.Second),
+		DefaultAction:  defaultAction,
+		WorkDir:        workDir,
+	}
+
+	r.pending[agentID] = pending
+	return pending
+}
+
+// processExpiredPending handles pending rotations that have timed out.
+func (r *Rotator) processExpiredPending(session, workDir string) {
+	for agentID, pending := range r.pending {
+		if !pending.IsExpired() {
+			continue
+		}
+
+		// Execute the default action
+		switch pending.DefaultAction {
+		case ConfirmRotate:
+			r.rotateAgent(session, agentID, workDir)
+		case ConfirmCompact:
+			if paneID := pending.PaneID; paneID != "" {
+				r.tryCompaction(agentID, paneID)
+			}
+		case ConfirmIgnore:
+			// Do nothing, just remove from pending
+		case ConfirmPostpone:
+			// Re-add with new timeout
+			pending.TimeoutAt = time.Now().Add(30 * time.Minute)
+			continue // Don't remove from pending
+		}
+
+		delete(r.pending, agentID)
+	}
 }
 
 // rotateAgent performs the full rotation flow for a single agent.
@@ -665,4 +830,111 @@ func (r *RotationResult) FormatForDisplay() string {
 	}
 
 	return sb.String()
+}
+
+// GetPendingRotations returns all pending rotations awaiting confirmation.
+func (r *Rotator) GetPendingRotations() []*PendingRotation {
+	result := make([]*PendingRotation, 0, len(r.pending))
+	for _, p := range r.pending {
+		result = append(result, p)
+	}
+	return result
+}
+
+// GetPendingRotation returns a specific pending rotation by agent ID.
+func (r *Rotator) GetPendingRotation(agentID string) *PendingRotation {
+	return r.pending[agentID]
+}
+
+// HasPendingRotation returns true if there is a pending rotation for the agent.
+func (r *Rotator) HasPendingRotation(agentID string) bool {
+	_, exists := r.pending[agentID]
+	return exists
+}
+
+// ConfirmRotation handles user confirmation of a pending rotation.
+// Returns the result of the action taken.
+func (r *Rotator) ConfirmRotation(agentID string, action ConfirmAction, postponeMinutes int) RotationResult {
+	pending := r.pending[agentID]
+	if pending == nil {
+		return RotationResult{
+			OldAgentID: agentID,
+			State:      RotationStateFailed,
+			Error:      "no pending rotation found for agent",
+			Timestamp:  time.Now(),
+		}
+	}
+
+	result := RotationResult{
+		OldAgentID: agentID,
+		Timestamp:  time.Now(),
+	}
+
+	switch action {
+	case ConfirmRotate:
+		// Remove from pending and perform the rotation
+		delete(r.pending, agentID)
+		return r.rotateAgent(pending.SessionName, agentID, pending.WorkDir)
+
+	case ConfirmCompact:
+		// Try compaction first
+		if pending.PaneID == "" {
+			result.State = RotationStateFailed
+			result.Error = "cannot compact: pane ID unknown"
+			return result
+		}
+		delete(r.pending, agentID)
+		compactResult := r.tryCompaction(agentID, pending.PaneID)
+		if compactResult != nil && compactResult.Success {
+			result.Success = true
+			result.State = RotationStateAborted
+			result.Error = "compaction succeeded, rotation not needed"
+		} else {
+			result.State = RotationStateFailed
+			result.Error = "compaction failed"
+			if compactResult != nil && compactResult.Error != "" {
+				result.Error = compactResult.Error
+			}
+		}
+		return result
+
+	case ConfirmIgnore:
+		// Cancel the rotation
+		delete(r.pending, agentID)
+		result.Success = true
+		result.State = RotationStateAborted
+		result.Error = "rotation cancelled by user"
+		return result
+
+	case ConfirmPostpone:
+		// Extend the timeout
+		minutes := postponeMinutes
+		if minutes <= 0 {
+			minutes = 30 // Default postpone duration
+		}
+		pending.TimeoutAt = time.Now().Add(time.Duration(minutes) * time.Minute)
+		result.Success = true
+		result.State = RotationStatePending
+		result.Error = fmt.Sprintf("rotation postponed for %d minutes", minutes)
+		return result
+
+	default:
+		result.State = RotationStateFailed
+		result.Error = fmt.Sprintf("unknown action: %s", action)
+		return result
+	}
+}
+
+// CancelPendingRotation removes a pending rotation without taking any action.
+func (r *Rotator) CancelPendingRotation(agentID string) bool {
+	if _, exists := r.pending[agentID]; exists {
+		delete(r.pending, agentID)
+		return true
+	}
+	return false
+}
+
+// ClearPending removes all pending rotations.
+func (r *Rotator) ClearPending() {
+	r.pending = make(map[string]*PendingRotation)
 }
