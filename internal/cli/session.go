@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"sort"
 	"strings"
 	"text/tabwriter"
 	"time"
@@ -12,6 +13,7 @@ import (
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 
+	"github.com/Dicklesworthstone/ntm/internal/assignment"
 	"github.com/Dicklesworthstone/ntm/internal/output"
 	"github.com/Dicklesworthstone/ntm/internal/status"
 	"github.com/Dicklesworthstone/ntm/internal/tmux"
@@ -247,6 +249,7 @@ func runList(tags []string) error {
 }
 func newStatusCmd() *cobra.Command {
 	var tags []string
+	var showAssignments bool
 	cmd := &cobra.Command{
 		Use:   "status <session-name>",
 		Short: "Show detailed status of a session",
@@ -254,20 +257,23 @@ func newStatusCmd() *cobra.Command {
 - All panes with their titles and current commands
 - Agent type counts (Claude, Codex, Gemini)
 - Session directory
+- Bead assignments (with --assignments flag)
 
 Examples:
   ntm status myproject
-  ntm status myproject --tag=frontend`,
+  ntm status myproject --tag=frontend
+  ntm status myproject --assignments`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runStatus(cmd.OutOrStdout(), args[0], tags)
+			return runStatus(cmd.OutOrStdout(), args[0], tags, showAssignments)
 		},
 	}
 	cmd.Flags().StringSliceVar(&tags, "tag", nil, "filter panes by tag")
+	cmd.Flags().BoolVar(&showAssignments, "assignments", false, "show bead-to-agent assignments")
 	return cmd
 }
 
-func runStatus(w io.Writer, session string, tags []string) error {
+func runStatus(w io.Writer, session string, tags []string, showAssignments bool) error {
 	// Helper for JSON error output
 	outputError := func(err error) error {
 		if IsJSONOutput() {
@@ -325,6 +331,12 @@ func runStatus(w io.Writer, session string, tags []string) error {
 		}
 	}
 
+	// Load assignments if requested
+	var assignmentStore *assignment.AssignmentStore
+	if showAssignments {
+		assignmentStore, _ = assignment.LoadStore(session)
+	}
+
 	// JSON output mode - build structured response
 	if IsJSONOutput() {
 		// Check if session is attached
@@ -364,6 +376,45 @@ func runStatus(w io.Writer, session string, tags []string) error {
 				Height:  p.Height,
 				Command: p.Command,
 			})
+		}
+
+		// Add assignments if requested
+		if showAssignments && assignmentStore != nil {
+			assignments := assignmentStore.List()
+			for _, a := range assignments {
+				assignResp := output.AssignmentResponse{
+					BeadID:     a.BeadID,
+					BeadTitle:  a.BeadTitle,
+					Pane:       a.Pane,
+					AgentType:  a.AgentType,
+					AgentName:  a.AgentName,
+					Status:     string(a.Status),
+					AssignedAt: a.AssignedAt.Format(time.RFC3339),
+					FailReason: a.FailReason,
+				}
+				if a.StartedAt != nil {
+					ts := a.StartedAt.Format(time.RFC3339)
+					assignResp.StartedAt = &ts
+				}
+				if a.CompletedAt != nil {
+					ts := a.CompletedAt.Format(time.RFC3339)
+					assignResp.CompletedAt = &ts
+				}
+				if a.FailedAt != nil {
+					ts := a.FailedAt.Format(time.RFC3339)
+					assignResp.FailedAt = &ts
+				}
+				resp.Assignments = append(resp.Assignments, assignResp)
+			}
+			stats := assignmentStore.Stats()
+			resp.AssignmentStats = &output.AssignmentStats{
+				Total:      stats.Total,
+				Assigned:   stats.Assigned,
+				Working:    stats.Working,
+				Completed:  stats.Completed,
+				Failed:     stats.Failed,
+				Reassigned: stats.Reassigned,
+			}
 		}
 
 		return output.PrintJSON(resp)
@@ -577,6 +628,94 @@ func runStatus(w io.Writer, session string, tags []string) error {
 			}
 		} else {
 			fmt.Fprintf(w, "    %s%s No active file locks%s\n", overlay, lockIcon, reset)
+		}
+
+		fmt.Fprintln(w)
+	}
+
+	// Assignments section (only if requested)
+	if showAssignments && assignmentStore != nil {
+		assignColor := colorize(t.Peach)
+		beadIcon := "◆"
+
+		fmt.Fprintf(w, "  %sAssignments%s\n", bold, reset)
+		fmt.Fprintf(w, "  %s%s%s\n", surface, "─────────────────────────────────────────────────────────", reset)
+
+		assignments := assignmentStore.List()
+		if len(assignments) == 0 {
+			fmt.Fprintf(w, "    %sNo active assignments%s\n", overlay, reset)
+		} else {
+			// Sort by pane index for consistent display
+			sort.Slice(assignments, func(i, j int) bool {
+				return assignments[i].Pane < assignments[j].Pane
+			})
+
+			// Build a map of pane index -> assignments for grouped display
+			for _, a := range assignments {
+				// Status icon and color
+				var statusIcon, statusColor string
+				switch a.Status {
+				case assignment.StatusAssigned:
+					statusIcon = "○"
+					statusColor = overlay
+				case assignment.StatusWorking:
+					statusIcon = "▶"
+					statusColor = success
+				case assignment.StatusCompleted:
+					statusIcon = "✓"
+					statusColor = success
+				case assignment.StatusFailed:
+					statusIcon = "✗"
+					statusColor = errorColor
+				case assignment.StatusReassigned:
+					statusIcon = "→"
+					statusColor = subtext
+				default:
+					statusIcon = "?"
+					statusColor = overlay
+				}
+
+				// Agent type color
+				var agentColor string
+				switch a.AgentType {
+				case "claude":
+					agentColor = claude
+				case "codex":
+					agentColor = codex
+				case "gemini":
+					agentColor = gemini
+				default:
+					agentColor = text
+				}
+
+				// Duration since assigned
+				duration := time.Since(a.AssignedAt)
+				durationStr := formatDuration(duration)
+
+				// Truncate bead title
+				title := a.BeadTitle
+				if len(title) > 40 {
+					title = title[:37] + "..."
+				}
+
+				fmt.Fprintf(w, "    %s%s%s %s%-8s%s %s%s %s%s%s %s(%s)%s\n",
+					statusColor, statusIcon, reset,
+					assignColor, beadIcon+" "+a.BeadID, reset,
+					agentColor, a.AgentType, text, title, reset,
+					overlay, durationStr, reset)
+			}
+		}
+
+		// Show stats
+		stats := assignmentStore.Stats()
+		if stats.Total > 0 {
+			fmt.Fprintln(w)
+			fmt.Fprintf(w, "    %sStats:%s %sTotal:%s %d  %sWorking:%s %d  %sCompleted:%s %d  %sFailed:%s %d\n",
+				subtext, reset,
+				subtext, reset, stats.Total,
+				success, reset, stats.Working,
+				success, reset, stats.Completed,
+				errorColor, reset, stats.Failed)
 		}
 
 		fmt.Fprintln(w)
