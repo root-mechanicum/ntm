@@ -211,6 +211,38 @@ func (t *Tracker) ManualResolve(id string) bool {
 	return false
 }
 
+// AddAlert adds a single alert without affecting other active alerts.
+// Unlike Update(), this does not auto-resolve alerts not in the update batch.
+// Use this for event-based alerts (like rotation events) that shouldn't
+// interfere with other active alerts.
+func (t *Tracker) AddAlert(alert Alert) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	now := time.Now()
+
+	if existing, ok := t.active[alert.ID]; ok {
+		// Refresh existing alert
+		existing.LastSeenAt = now
+		existing.Count++
+		// Update severity if it increased
+		if severityRank(alert.Severity) > severityRank(existing.Severity) {
+			existing.Severity = alert.Severity
+		}
+		// Update context if present
+		if alert.Context != nil {
+			existing.Context = alert.Context
+		}
+	} else {
+		// Add new alert
+		alertCopy := alert
+		alertCopy.CreatedAt = now
+		alertCopy.LastSeenAt = now
+		alertCopy.Count = 1
+		t.active[alert.ID] = &alertCopy
+	}
+}
+
 // pruneResolved removes old resolved alerts
 func (t *Tracker) pruneResolved(now time.Time) {
 	cutoff := now.Add(-t.pruneAfter)

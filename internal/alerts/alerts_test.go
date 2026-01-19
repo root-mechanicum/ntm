@@ -410,6 +410,59 @@ func TestTruncateString(t *testing.T) {
 	}
 }
 
+func TestTrackerAddAlert(t *testing.T) {
+	cfg := DefaultConfig()
+	tracker := NewTracker(cfg)
+
+	// Add two alerts using AddAlert
+	alert1 := Alert{ID: "add-1", Type: AlertAgentError, Severity: SeverityWarning, Message: "Alert 1"}
+	alert2 := Alert{ID: "add-2", Type: AlertDiskLow, Severity: SeverityError, Message: "Alert 2"}
+
+	tracker.AddAlert(alert1)
+	tracker.AddAlert(alert2)
+
+	active := tracker.GetActive()
+	if len(active) != 2 {
+		t.Errorf("expected 2 active alerts, got %d", len(active))
+	}
+
+	// Add a third alert - should NOT resolve the first two (unlike Update)
+	alert3 := Alert{ID: "add-3", Type: AlertBeadStale, Severity: SeverityInfo, Message: "Alert 3"}
+	tracker.AddAlert(alert3)
+
+	active = tracker.GetActive()
+	if len(active) != 3 {
+		t.Errorf("expected 3 active alerts (AddAlert doesn't auto-resolve), got %d", len(active))
+	}
+
+	// Verify refresh behavior
+	alert1.Severity = SeverityError // Escalate severity
+	tracker.AddAlert(alert1)
+
+	active = tracker.GetActive()
+	if len(active) != 3 {
+		t.Errorf("expected 3 alerts after refresh, got %d", len(active))
+	}
+
+	// Find alert1 and check count/severity
+	var found *Alert
+	for _, a := range active {
+		if a.ID == "add-1" {
+			found = &a
+			break
+		}
+	}
+	if found == nil {
+		t.Fatal("expected to find alert add-1")
+	}
+	if found.Count != 2 {
+		t.Errorf("expected count 2 after refresh, got %d", found.Count)
+	}
+	if found.Severity != SeverityError {
+		t.Errorf("expected severity to escalate to error, got %s", found.Severity)
+	}
+}
+
 func TestGlobalTracker(t *testing.T) {
 	// Get global tracker twice - should be same instance
 	t1 := GetGlobalTracker()

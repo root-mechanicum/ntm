@@ -28,6 +28,17 @@ const (
 	AlertDependencyCycle AlertType = "dependency_cycle"
 	// AlertRateLimit indicates rate limiting detected in agent output
 	AlertRateLimit AlertType = "rate_limit"
+	// AlertFileConflict indicates a file reservation conflict was detected
+	AlertFileConflict AlertType = "file_conflict"
+
+	// AlertContextWarning indicates an agent is approaching context threshold
+	AlertContextWarning AlertType = "context_warning"
+	// AlertRotationStarted indicates a context rotation has begun
+	AlertRotationStarted AlertType = "rotation_started"
+	// AlertRotationComplete indicates a context rotation completed successfully
+	AlertRotationComplete AlertType = "rotation_complete"
+	// AlertRotationFailed indicates a context rotation failed
+	AlertRotationFailed AlertType = "rotation_failed"
 )
 
 // Severity indicates the urgency of an alert
@@ -105,17 +116,20 @@ type Config struct {
 	ProjectsDir string `json:"projects_dir,omitempty"`
 	// SessionFilter restricts agent checks to a specific session (runtime only)
 	SessionFilter string `json:"session_filter,omitempty"`
+	// ContextWarningThreshold is the context usage percentage that triggers a warning (0-100)
+	ContextWarningThreshold float64 `toml:"context_warning_threshold" json:"context_warning_threshold,omitempty"`
 }
 
 // DefaultConfig returns sensible default alert thresholds
 func DefaultConfig() Config {
 	return Config{
-		AgentStuckMinutes:    5,
-		DiskLowThresholdGB:   5.0,
-		MailBacklogThreshold: 10,
-		BeadStaleHours:       24,
-		ResolvedPruneMinutes: 60,
-		Enabled:              true,
+		AgentStuckMinutes:       5,
+		DiskLowThresholdGB:      5.0,
+		MailBacklogThreshold:    10,
+		BeadStaleHours:          24,
+		ResolvedPruneMinutes:    60,
+		Enabled:                 true,
+		ContextWarningThreshold: 75.0, // Warn at 75% context usage
 	}
 }
 
