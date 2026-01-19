@@ -53,6 +53,7 @@ type FileReservationWatcher struct {
 	cancelFunc         context.CancelFunc
 	wg                 sync.WaitGroup
 	debug              bool
+	conflictCallback   ConflictCallback // Called when conflicts are detected
 }
 
 // FileReservationWatcherOption configures a FileReservationWatcher.
@@ -110,6 +111,13 @@ func WithReservationTTL(d time.Duration) FileReservationWatcherOption {
 func WithDebug(debug bool) FileReservationWatcherOption {
 	return func(w *FileReservationWatcher) {
 		w.debug = debug
+	}
+}
+
+// WithConflictCallback sets the callback for conflict notifications.
+func WithConflictCallback(cb ConflictCallback) FileReservationWatcherOption {
+	return func(w *FileReservationWatcher) {
+		w.conflictCallback = cb
 	}
 }
 
@@ -309,8 +317,46 @@ func (w *FileReservationWatcher) OnFileEdit(ctx context.Context, sessionName str
 		log.Printf("[FileReservationWatcher] Reserved %d files for pane %s: %v",
 			len(result.Granted), pane.ID, newFiles)
 	}
-	if w.debug && len(result.Conflicts) > 0 {
-		log.Printf("[FileReservationWatcher] Conflicts for pane %s: %v", pane.ID, result.Conflicts)
+
+	// Emit conflicts to callback
+	if len(result.Conflicts) > 0 {
+		if w.debug {
+			log.Printf("[FileReservationWatcher] Conflicts for pane %s: %v", pane.ID, result.Conflicts)
+		}
+
+		if w.conflictCallback != nil {
+			for _, conflict := range result.Conflicts {
+				fc := FileConflict{
+					Path:           conflict.Path,
+					RequestorAgent: reservation.AgentName,
+					RequestorPane:  pane.ID,
+					SessionName:    sessionName,
+					Holders:        conflict.Holders,
+					DetectedAt:     time.Now(),
+				}
+
+				// Try to get additional info about the conflicting reservation
+				if w.client != nil && len(conflict.Holders) > 0 {
+					reservations, err := w.client.ListReservations(ctx, w.projectDir, "", true)
+					if err == nil {
+						for _, r := range reservations {
+							// Match by path pattern and holder
+							if r.PathPattern == conflict.Path {
+								for _, holder := range conflict.Holders {
+									if r.AgentName == holder {
+										fc.ReservedSince = &r.CreatedTS
+										fc.ExpiresAt = &r.ExpiresTS
+										fc.HolderReservationIDs = append(fc.HolderReservationIDs, r.ID)
+									}
+								}
+							}
+						}
+					}
+				}
+
+				w.conflictCallback(fc)
+			}
+		}
 	}
 }
 
