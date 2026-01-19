@@ -132,6 +132,129 @@ func TruncateWidthDefault(s string, maxWidth int) string {
 	return TruncateWidth(s, maxWidth, "…")
 }
 
+// TruncateMiddle truncates a string by removing characters from the middle,
+// preserving both the beginning and end. This is useful when the end of a string
+// contains distinguishing information (like numbered suffixes or file extensions).
+//
+// The function allocates 1/3 of available space to the beginning and 2/3 to the end,
+// ensuring that differentiating suffixes are preserved while keeping some context
+// from the start.
+//
+// Examples:
+//   - "destructive_command_guard_cc_16" (width 20) -> "destru…guard_cc_16"
+//   - "short" (width 20) -> "short" (no truncation needed)
+//   - "abcdefghij" (width 7) -> "ab…hij"
+func TruncateMiddle(s string, maxWidth int) string {
+	if maxWidth <= 0 {
+		return ""
+	}
+
+	// Fast path: string already fits
+	currentWidth := lipgloss.Width(s)
+	if currentWidth <= maxWidth {
+		return s
+	}
+
+	ellipsis := "…"
+	ellipsisWidth := lipgloss.Width(ellipsis)
+	available := maxWidth - ellipsisWidth
+
+	// Need at least 2 characters (1 start + 1 end) plus ellipsis
+	if available < 2 {
+		return truncateToWidth(s, maxWidth)
+	}
+
+	// Allocate 1/3 to start, 2/3 to end (end usually has unique info)
+	endChars := (available * 2) / 3
+	startChars := available - endChars
+
+	// Ensure minimum of 1 char on each side
+	if startChars < 1 {
+		startChars = 1
+		endChars = available - 1
+	}
+	if endChars < 1 {
+		endChars = 1
+		startChars = available - 1
+	}
+
+	runes := []rune(s)
+
+	// Find the start portion that fits in startChars width
+	startRunes := runes
+	for len(startRunes) > 0 && lipgloss.Width(string(startRunes)) > startChars {
+		startRunes = startRunes[:len(startRunes)-1]
+	}
+
+	// Find the end portion that fits in endChars width
+	endRunes := runes
+	for len(endRunes) > 0 && lipgloss.Width(string(endRunes)) > endChars {
+		endRunes = endRunes[1:]
+	}
+
+	// Combine: start + ellipsis + end
+	result := string(startRunes) + ellipsis + string(endRunes)
+
+	// Final safety check - truncate if still too wide
+	if lipgloss.Width(result) > maxWidth {
+		return truncateToWidth(result, maxWidth)
+	}
+
+	return result
+}
+
+// TruncateMiddleWidth is like TruncateMiddle but with a custom ellipsis string.
+func TruncateMiddleWidth(s string, maxWidth int, ellipsis string) string {
+	if maxWidth <= 0 {
+		return ""
+	}
+
+	// Fast path: string already fits
+	currentWidth := lipgloss.Width(s)
+	if currentWidth <= maxWidth {
+		return s
+	}
+
+	ellipsisWidth := lipgloss.Width(ellipsis)
+	available := maxWidth - ellipsisWidth
+
+	if available < 2 {
+		return truncateToWidth(s, maxWidth)
+	}
+
+	endChars := (available * 2) / 3
+	startChars := available - endChars
+
+	if startChars < 1 {
+		startChars = 1
+		endChars = available - 1
+	}
+	if endChars < 1 {
+		endChars = 1
+		startChars = available - 1
+	}
+
+	runes := []rune(s)
+
+	startRunes := runes
+	for len(startRunes) > 0 && lipgloss.Width(string(startRunes)) > startChars {
+		startRunes = startRunes[:len(startRunes)-1]
+	}
+
+	endRunes := runes
+	for len(endRunes) > 0 && lipgloss.Width(string(endRunes)) > endChars {
+		endRunes = endRunes[1:]
+	}
+
+	result := string(startRunes) + ellipsis + string(endRunes)
+
+	if lipgloss.Width(result) > maxWidth {
+		return truncateToWidth(result, maxWidth)
+	}
+
+	return result
+}
+
 // TruncatePaneTitle truncates a pane title while preserving the differentiating suffix.
 // NTM pane titles follow the pattern: <project>__<agent>_<number> (e.g., "myproject__cc_1").
 // When multiple panes share the same project prefix, naive truncation makes them all
