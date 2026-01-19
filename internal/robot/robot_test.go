@@ -1964,25 +1964,25 @@ func TestCalculateConfidence(t *testing.T) {
 		minConf   float64
 		maxConf   float64
 	}{
-		// Claude strengths
+		// Claude strengths (using assign.DefaultCapabilities)
 		{"claude analysis", "claude", bv.BeadPreview{Title: "Analyze codebase"}, "balanced", 0.85, 0.95},
-		{"claude refactor", "claude", bv.BeadPreview{Title: "Refactor module"}, "balanced", 0.85, 0.95},
-		{"claude generic", "claude", bv.BeadPreview{Title: "Some task"}, "balanced", 0.65, 0.75},
+		{"claude refactor", "claude", bv.BeadPreview{Title: "Refactor module"}, "balanced", 0.90, 1.00},
+		{"claude generic", "claude", bv.BeadPreview{Title: "Some task"}, "balanced", 0.75, 0.85}, // TaskTask = 0.80
 
 		// Codex strengths
 		{"codex feature", "codex", bv.BeadPreview{Title: "Implement feature"}, "balanced", 0.85, 0.95},
-		{"codex bug", "codex", bv.BeadPreview{Title: "Fix bug"}, "balanced", 0.75, 0.85},
+		{"codex bug", "codex", bv.BeadPreview{Title: "Fix bug"}, "balanced", 0.85, 0.95}, // TaskBug = 0.90
 
 		// Gemini strengths
 		{"gemini docs", "gemini", bv.BeadPreview{Title: "Update documentation"}, "balanced", 0.85, 0.95},
 
 		// Strategy adjustments
-		{"speed boost", "claude", bv.BeadPreview{Title: "Some task"}, "speed", 0.75, 0.85},
-		{"dependency P1", "claude", bv.BeadPreview{Title: "Task", Priority: "P1"}, "dependency", 0.75, 0.85},
-		{"dependency P0", "claude", bv.BeadPreview{Title: "Task", Priority: "P0"}, "dependency", 0.75, 0.95},
+		{"speed boost", "claude", bv.BeadPreview{Title: "Some task"}, "speed", 0.80, 0.90}, // (0.80 + 0.9) / 2 = 0.85
+		{"dependency P1", "claude", bv.BeadPreview{Title: "Task", Priority: "P1"}, "dependency", 0.85, 0.95}, // 0.80 + 0.1 = 0.90
+		{"dependency P0", "claude", bv.BeadPreview{Title: "Task", Priority: "P0"}, "dependency", 0.85, 0.95},
 
-		// Unknown agent
-		{"unknown agent", "unknown", bv.BeadPreview{Title: "Task"}, "balanced", 0.65, 0.75},
+		// Unknown agent returns 0.5 default from capability matrix
+		{"unknown agent", "unknown", bv.BeadPreview{Title: "Task"}, "balanced", 0.45, 0.55},
 	}
 
 	for _, tc := range tests {
