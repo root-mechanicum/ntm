@@ -108,8 +108,8 @@ func RenderEmptyState(opts EmptyStateOptions) string {
 		lines = append(lines, "") // blank line before description
 		// Word wrap description if needed
 		desc := opts.Description
-		if opts.Width > 0 && len(desc) > opts.Width-4 {
-			desc = layout.TruncateRunes(desc, opts.Width-4, "…")
+		if opts.Width > 0 && lipgloss.Width(desc) > opts.Width-4 {
+			desc = layout.TruncateWidthDefault(desc, opts.Width-4)
 		}
 		lines = append(lines, descStyle.Render(desc))
 	}
@@ -117,8 +117,8 @@ func RenderEmptyState(opts EmptyStateOptions) string {
 	// Action line (if provided)
 	if opts.Action != "" {
 		action := opts.Action
-		if opts.Width > 0 && len(action) > opts.Width-4 {
-			action = layout.TruncateRunes(action, opts.Width-4, "…")
+		if opts.Width > 0 && lipgloss.Width(action) > opts.Width-4 {
+			action = layout.TruncateWidthDefault(action, opts.Width-4)
 		}
 		lines = append(lines, actionStyle.Render(action))
 	}
@@ -245,7 +245,7 @@ func RenderState(opts StateOptions) string {
 	}
 
 	if available > 0 {
-		message = layout.TruncateRunes(message, available, "…")
+		message = layout.TruncateWidthDefault(message, available)
 	}
 
 	lines := []string{lineStyle.Render(prefix + message)}
@@ -260,7 +260,7 @@ func RenderState(opts StateOptions) string {
 			}
 		}
 		if hAvailable > 0 {
-			hint = layout.TruncateRunes(hint, hAvailable, "…")
+			hint = layout.TruncateWidthDefault(hint, hAvailable)
 		}
 		lines = append(lines, hintStyle.Render(hintPrefix+hint))
 	}

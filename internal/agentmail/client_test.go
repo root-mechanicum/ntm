@@ -31,20 +31,44 @@ func TestNewClient(t *testing.T) {
 }
 
 func TestHealthCheck(t *testing.T) {
-	// Mock server
+	// Mock MCP JSON-RPC server for health_check tool
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/mcp/health" {
-			t.Errorf("unexpected path: %s", r.URL.Path)
+		if r.Method != "POST" {
+			t.Errorf("expected POST, got %s", r.Method)
 		}
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(HealthStatus{
+
+		var req JSONRPCRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Fatalf("failed to decode request: %v", err)
+		}
+
+		// Verify it's a health_check tool call
+		params, ok := req.Params.(map[string]interface{})
+		if !ok {
+			t.Fatal("expected params to be a map")
+		}
+		if params["name"] != "health_check" {
+			t.Errorf("expected health_check tool, got %v", params["name"])
+		}
+
+		// Return health status via JSON-RPC
+		healthStatus := HealthStatus{
 			Status:    "ok",
 			Timestamp: time.Now().Format(time.RFC3339),
-		})
+		}
+		statusJSON, _ := json.Marshal(healthStatus)
+
+		resp := JSONRPCResponse{
+			JSONRPC: "2.0",
+			ID:      req.ID,
+			Result:  json.RawMessage(statusJSON),
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(resp)
 	}))
 	defer server.Close()
 
-	c := NewClient(WithBaseURL(server.URL + "/mcp/"))
+	c := NewClient(WithBaseURL(server.URL + "/"))
 	status, err := c.HealthCheck(context.Background())
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -55,19 +79,34 @@ func TestHealthCheck(t *testing.T) {
 }
 
 func TestIsAvailable(t *testing.T) {
-	// Server that returns 200
+	// Mock MCP JSON-RPC server for health_check
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(HealthStatus{Status: "ok"})
+		var req JSONRPCRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Fatalf("failed to decode request: %v", err)
+		}
+
+		// Return healthy status
+		healthStatus := HealthStatus{Status: "ok"}
+		statusJSON, _ := json.Marshal(healthStatus)
+
+		resp := JSONRPCResponse{
+			JSONRPC: "2.0",
+			ID:      req.ID,
+			Result:  json.RawMessage(statusJSON),
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(resp)
 	}))
 	defer server.Close()
 
-	c := NewClient(WithBaseURL(server.URL + "/mcp/"))
+	c := NewClient(WithBaseURL(server.URL + "/"))
 	if !c.IsAvailable() {
 		t.Error("expected IsAvailable to return true")
 	}
 
 	// Test unavailable server
-	c = NewClient(WithBaseURL("http://localhost:1/mcp/"))
+	c = NewClient(WithBaseURL("http://localhost:1/"))
 	if c.IsAvailable() {
 		t.Error("expected IsAvailable to return false for unreachable server")
 	}

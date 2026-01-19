@@ -565,8 +565,10 @@ func RenderPaneRow(row PaneTableRow, dims LayoutDimensions, t theme.Theme) strin
 	}
 
 	title := row.Title
-	if len(title) > titleWidth {
-		title = layout.Truncate(title, titleWidth)
+	if lipgloss.Width(title) > titleWidth {
+		// Use smart truncation that preserves the agent suffix (e.g., __cc_1)
+		// so panes with the same project prefix remain visually distinguishable
+		title = layout.TruncatePaneTitle(title, titleWidth)
 	}
 	titleStyle := lipgloss.NewStyle().Foreground(t.Text)
 	if row.IsSelected {
@@ -844,7 +846,7 @@ func getStatusIconAndColor(state string, t theme.Theme, tick int) (string, lipgl
 // truncate shortens a string to maxLen with ellipsis.
 // Uses the standard single-character ellipsis "…" (U+2026).
 func truncate(s string, maxLen int) string {
-	return layout.Truncate(s, maxLen)
+	return layout.TruncateWidthDefault(s, maxLen)
 }
 
 // RenderTableHeader renders the header row for pane table

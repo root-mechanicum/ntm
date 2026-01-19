@@ -171,7 +171,7 @@ func (m *CASSPanel) View() string {
 	content.WriteString(headerStyle.Render(title) + "\n")
 
 	if m.err != nil {
-		errMsg := layout.TruncateRunes(m.err.Error(), w-6, "…")
+		errMsg := layout.TruncateWidthDefault(m.err.Error(), w-6)
 		content.WriteString(components.ErrorState(errMsg, "Press r to refresh", w-4) + "\n")
 	}
 
@@ -219,7 +219,7 @@ func (m *CASSPanel) View() string {
 		if titleWidth < 8 {
 			titleWidth = 8
 		}
-		name := layout.TruncateRunes(hit.Title, titleWidth, "…")
+		name := layout.TruncateWidthDefault(hit.Title, titleWidth)
 
 		line := fmt.Sprintf("%s %s %s", score, age, name)
 		content.WriteString(lineStyle.Render(line) + "\n")

@@ -165,24 +165,15 @@ func (c *Client) InvalidateCache() {
 }
 
 // HealthCheck performs a health check against the Agent Mail server.
+// This uses the MCP health_check tool via JSON-RPC.
 func (c *Client) HealthCheck(ctx context.Context) (*HealthStatus, error) {
-	req, err := http.NewRequestWithContext(ctx, "GET", c.baseURL+HealthCheckPath, nil)
+	result, err := c.callTool(ctx, "health_check", nil)
 	if err != nil {
-		return nil, NewAPIError("health_check", 0, err)
-	}
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return nil, NewAPIError("health_check", 0, ErrServerUnavailable)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, NewAPIError("health_check", resp.StatusCode, fmt.Errorf("unexpected status: %s", resp.Status))
+		return nil, err
 	}
 
 	var status HealthStatus
-	if err := json.NewDecoder(resp.Body).Decode(&status); err != nil {
+	if err := json.Unmarshal(result, &status); err != nil {
 		return nil, NewAPIError("health_check", 0, err)
 	}
 

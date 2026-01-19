@@ -388,15 +388,15 @@ setup_shell_integration() {
     case "$shell_name" in
         zsh)
             rc_file="${HOME}/.zshrc"
-            init_cmd='eval "$(ntm init zsh)"'
+            init_cmd='eval "$(ntm shell zsh)"'
             ;;
         bash)
             rc_file="${HOME}/.bashrc"
-            init_cmd='eval "$(ntm init bash)"'
+            init_cmd='eval "$(ntm shell bash)"'
             ;;
         fish)
             rc_file="${HOME}/.config/fish/config.fish"
-            init_cmd='ntm init fish | source'
+            init_cmd='ntm shell fish | source'
             ;;
         *)
             return
@@ -404,8 +404,13 @@ setup_shell_integration() {
     esac
 
     # Check if already configured
-    if [ -f "$rc_file" ] && grep -q "ntm init" "$rc_file"; then
+    if [ -f "$rc_file" ] && grep -q "ntm shell" "$rc_file"; then
         print_info "Shell integration already configured in ${rc_file}"
+        return
+    fi
+    if [ -f "$rc_file" ] && grep -q "ntm init" "$rc_file"; then
+        print_warning "Legacy shell integration detected in ${rc_file}"
+        print_info "Replace \"ntm init\" with \"ntm shell\" to keep aliases working."
         return
     fi
 

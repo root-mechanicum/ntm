@@ -3,7 +3,6 @@ package cli
 import (
 	"fmt"
 	"strings"
-	"unicode/utf8"
 
 	"github.com/charmbracelet/lipgloss"
 
@@ -203,12 +202,11 @@ func (t *StyledTable) String() string {
 	return t.Render()
 }
 
-// runeWidth returns the rune count of a string after stripping ANSI codes.
-// Note: This counts runes, not display width. CJK characters that occupy
-// 2 terminal columns are counted as 1. Sufficient for ASCII/Latin content.
+// runeWidth returns the visual display width of a string.
+// Uses lipgloss.Width() which properly handles ANSI escape codes and
+// double-width characters (CJK, emoji) that occupy 2 terminal columns.
 func runeWidth(s string) int {
-	cleaned := stripANSI(s)
-	return utf8.RuneCountInString(cleaned)
+	return lipgloss.Width(s)
 }
 
 // padRight pads a string to the specified width

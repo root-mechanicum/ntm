@@ -129,26 +129,8 @@ func (p *Preview) Render() string {
 		lines := strings.Split(boxContent, "\n")
 		if len(lines) > 0 {
 			topBorder := lines[0]
-			runes := []rune(topBorder)
-
-			if len(runes) > 4 {
-				// Build new top with title
-				titleRunes := []rune(renderedTitle)
-				insertPos := 2
-
-				var newTop strings.Builder
-				for i := 0; i < len(runes); i++ {
-					if i == insertPos {
-						newTop.WriteString(renderedTitle)
-						i += len(titleRunes) - 1
-						if i >= len(runes) {
-							break
-						}
-					} else {
-						newTop.WriteRune(runes[i])
-					}
-				}
-				lines[0] = newTop.String()
+			if lipgloss.Width(topBorder) > 4 {
+				lines[0] = insertTitleIntoBorder(topBorder, renderedTitle, 2)
 			}
 
 			return strings.Join(lines, "\n")

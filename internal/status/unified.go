@@ -59,6 +59,7 @@ func (d *UnifiedDetector) determineState(output, agentType string, lastActivity 
 	// 1. Check for errors first (most important)
 	// 2. Check for idle (at prompt)
 	// 3. Check activity recency (working vs unknown)
+	// 4. Heuristic check for likely-idle state
 
 	// Check for errors
 	if errType := DetectErrorInOutput(output); errType != ErrorNone {
@@ -82,8 +83,97 @@ func (d *UnifiedDetector) determineState(output, agentType string, lastActivity 
 		return StateWorking, ErrorNone
 	}
 
-	// Default to unknown
+	// Heuristic: if no recent activity and output suggests agent is waiting,
+	// prefer idle over unknown. This catches cases where:
+	// - The prompt pattern isn't recognized but the agent is clearly done
+	// - The last line is short (typical of prompts)
+	// - The output ends without indication of ongoing work
+	if looksLikeIdle(output) {
+		return StateIdle, ErrorNone
+	}
+
+	// For known AI agent types (cc, cod, gmi), default to idle when state
+	// cannot be determined. These agents are almost always either working
+	// (actively generating output) or idle (waiting for input). The "unknown"
+	// state provides little value and causes confusion in the dashboard.
+	// Only truly indeterminate user/shell panes should show "unknown".
+	if isKnownAgentType(agentType) {
+		return StateIdle, ErrorNone
+	}
+
+	// Default to unknown only for user/shell panes when we truly can't determine state
 	return StateUnknown, ErrorNone
+}
+
+// isKnownAgentType returns true for AI agent types that have predictable
+// working/idle behavior (cc=Claude Code, cod=Codex, gmi=Gemini).
+func isKnownAgentType(agentType string) bool {
+	switch agentType {
+	case "cc", "cod", "gmi", "cursor", "windsurf", "aider":
+		return true
+	default:
+		return false
+	}
+}
+
+// looksLikeIdle applies heuristics to detect likely idle state when
+// explicit prompt patterns don't match. This reduces false "unknown" states.
+func looksLikeIdle(output string) bool {
+	clean := StripANSI(output)
+	clean = strings.TrimSpace(clean)
+
+	if clean == "" {
+		return false
+	}
+
+	lines := strings.Split(clean, "\n")
+	if len(lines) == 0 {
+		return false
+	}
+
+	// Check the last non-empty line
+	var lastLine string
+	for i := len(lines) - 1; i >= 0; i-- {
+		line := strings.TrimSpace(lines[i])
+		if line != "" {
+			lastLine = line
+			break
+		}
+	}
+
+	if lastLine == "" {
+		return false
+	}
+
+	// Heuristic 1: Last line is very short (< 20 chars) - likely a prompt
+	if len(lastLine) < 20 {
+		return true
+	}
+
+	// Heuristic 2: Last line ends with common prompt characters
+	promptEndings := []string{">", "$", "%", ":", "❯", "→", "»", "#"}
+	for _, ending := range promptEndings {
+		if strings.HasSuffix(lastLine, ending) || strings.HasSuffix(lastLine, ending+" ") {
+			return true
+		}
+	}
+
+	// Heuristic 3: Last line contains common "done" indicators
+	doneIndicators := []string{
+		"completed",
+		"finished",
+		"done",
+		"ready",
+		"success",
+	}
+	lowerLine := strings.ToLower(lastLine)
+	for _, indicator := range doneIndicators {
+		if strings.Contains(lowerLine, indicator) {
+			return true
+		}
+	}
+
+	return false
 }
 
 // Detect returns the current status of a single pane.

@@ -137,7 +137,7 @@ func (m *BeadsPanel) View() string {
 
 	// Show error message if present
 	if m.err != nil {
-		errMsg := layout.TruncateRunes(m.err.Error(), w-6, "…")
+		errMsg := layout.TruncateWidthDefault(m.err.Error(), w-6)
 		content.WriteString(components.ErrorState(errMsg, "Press r to refresh", w) + "\n\n")
 	}
 
@@ -162,7 +162,7 @@ func (m *BeadsPanel) View() string {
 				}) + "\n")
 			} else {
 				// Actual error - show with refresh hint
-				truncReason := layout.TruncateRunes(reason, w-6, "…")
+				truncReason := layout.TruncateWidthDefault(reason, w-6)
 				content.WriteString(components.ErrorState(truncReason, "Press r to refresh", w) + "\n")
 			}
 		}
@@ -206,7 +206,7 @@ func (m *BeadsPanel) View() string {
 				titleWidth = 10
 			}
 
-			title := layout.TruncateRunes(b.Title, titleWidth, "…")
+			title := layout.TruncateWidthDefault(b.Title, titleWidth)
 			line := fmt.Sprintf("  %s %s%s", b.ID, title, assignee)
 			content.WriteString(lipgloss.NewStyle().Foreground(t.Text).Render(line) + "\n")
 		}
@@ -235,7 +235,7 @@ func (m *BeadsPanel) View() string {
 				titleWidth = 10
 			}
 
-			title := layout.TruncateRunes(b.Title, titleWidth, "…")
+			title := layout.TruncateWidthDefault(b.Title, titleWidth)
 			line := fmt.Sprintf("  %s %s %s", prioStyle.Render(fmt.Sprintf("% -3s", prio)), b.ID, title)
 			content.WriteString(lipgloss.NewStyle().Foreground(t.Text).Render(line) + "\n")
 		}

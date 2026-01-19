@@ -688,3 +688,208 @@ func TestDetectAllWithMultiplePanes(t *testing.T) {
 		paneIDs[status.PaneID] = true
 	}
 }
+
+// TestLooksLikeIdle tests the heuristic idle detection function
+func TestLooksLikeIdle(t *testing.T) {
+	tests := []struct {
+		name     string
+		output   string
+		expected bool
+	}{
+		// Short last lines (< 20 chars) are likely prompts
+		{
+			name:     "short prompt line",
+			output:   "Some output\n>",
+			expected: true,
+		},
+		{
+			name:     "short line with space",
+			output:   "Done processing\n> ",
+			expected: true,
+		},
+		{
+			name:     "very short line",
+			output:   "Task complete\n$",
+			expected: true,
+		},
+		// Prompt character endings
+		{
+			name:     "ends with >",
+			output:   "Some long output text here\nuser@host:~/project>",
+			expected: true,
+		},
+		{
+			name:     "ends with $",
+			output:   "Output\nuser@host:~/project$",
+			expected: true,
+		},
+		{
+			name:     "ends with %",
+			output:   "Output\nuser@host:~/project%",
+			expected: true,
+		},
+		{
+			name:     "ends with ❯",
+			output:   "Output\n~/project ❯",
+			expected: true,
+		},
+		// Done indicators
+		{
+			name:     "completed indicator",
+			output:   "Processing...\nTask completed successfully",
+			expected: true,
+		},
+		{
+			name:     "finished indicator",
+			output:   "Working...\nBuild finished with 0 errors",
+			expected: true,
+		},
+		{
+			name:     "done indicator",
+			output:   "Running tests...\nAll tests done",
+			expected: true,
+		},
+		{
+			name:     "ready indicator",
+			output:   "Starting server...\nServer ready on port 3000",
+			expected: true,
+		},
+		{
+			name:     "success indicator",
+			output:   "Deploying...\nDeployment success",
+			expected: true,
+		},
+		// Not idle cases
+		{
+			name:     "empty output",
+			output:   "",
+			expected: false,
+		},
+		{
+			name:     "only whitespace",
+			output:   "   \n\t\n  ",
+			expected: false,
+		},
+		{
+			name:     "long working line no prompt ending",
+			output:   "Still processing large dataset, please wait for completion...",
+			expected: false,
+		},
+		{
+			name:     "active work line",
+			output:   "Compiling module 15 of 100, estimated time remaining: 5 minutes",
+			expected: false,
+		},
+		// Edge cases
+		{
+			name:     "ansi codes in prompt",
+			output:   "Output\n\x1b[32m>\x1b[0m",
+			expected: true, // After ANSI strip, this is ">"
+		},
+		{
+			name:     "trailing newlines with prompt",
+			output:   "Done\nclaude>\n\n",
+			expected: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := looksLikeIdle(tt.output)
+			if result != tt.expected {
+				t.Errorf("looksLikeIdle(%q) = %v, want %v", tt.output, result, tt.expected)
+			}
+		})
+	}
+}
+
+// TestDetermineState tests the state determination logic
+func TestDetermineState(t *testing.T) {
+	d := NewDetector()
+
+	tests := []struct {
+		name         string
+		output       string
+		agentType    string
+		lastActivity time.Time
+		wantState    AgentState
+		wantError    ErrorType
+	}{
+		{
+			name:         "error detected takes priority",
+			output:       "Error: rate limit exceeded",
+			agentType:    "cc",
+			lastActivity: time.Now(),
+			wantState:    StateError,
+			wantError:    ErrorRateLimit,
+		},
+		{
+			name:         "idle at claude prompt",
+			output:       "Task done\nclaude>",
+			agentType:    "cc",
+			lastActivity: time.Now().Add(-10 * time.Second),
+			wantState:    StateIdle,
+			wantError:    ErrorNone,
+		},
+		{
+			name:         "idle at generic prompt",
+			output:       "Output\n>",
+			agentType:    "cc",
+			lastActivity: time.Now().Add(-10 * time.Second),
+			wantState:    StateIdle,
+			wantError:    ErrorNone,
+		},
+		{
+			name:         "working with recent activity",
+			output:       "Processing request...",
+			agentType:    "cc",
+			lastActivity: time.Now().Add(-1 * time.Second),
+			wantState:    StateWorking,
+			wantError:    ErrorNone,
+		},
+		{
+			name:         "user pane empty is idle",
+			output:       "",
+			agentType:    "user",
+			lastActivity: time.Now().Add(-10 * time.Second),
+			wantState:    StateIdle,
+			wantError:    ErrorNone,
+		},
+		{
+			name:         "heuristic idle from short line",
+			output:       "Some very long output here\n$",
+			agentType:    "cc",
+			lastActivity: time.Now().Add(-10 * time.Second),
+			wantState:    StateIdle, // Short line heuristic
+			wantError:    ErrorNone,
+		},
+		{
+			name:         "heuristic idle from done indicator",
+			output:       "Build completed successfully",
+			agentType:    "cc",
+			lastActivity: time.Now().Add(-10 * time.Second),
+			wantState:    StateIdle, // Done indicator heuristic
+			wantError:    ErrorNone,
+		},
+		{
+			name:         "unknown when truly indeterminate",
+			output:       "Still processing the very long task that has been running for a while now",
+			agentType:    "cc",
+			lastActivity: time.Now().Add(-60 * time.Second),
+			wantState:    StateUnknown,
+			wantError:    ErrorNone,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			state, errType := d.determineState(tt.output, tt.agentType, tt.lastActivity)
+			if state != tt.wantState {
+				t.Errorf("determineState() state = %v, want %v", state, tt.wantState)
+			}
+			if errType != tt.wantError {
+				t.Errorf("determineState() errType = %v, want %v", errType, tt.wantError)
+			}
+		})
+	}
+}

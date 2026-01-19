@@ -62,7 +62,8 @@ func newHooksInstallCmd() *cobra.Command {
 		Use:   "install [hook-type]",
 		Short: "Install a git hook",
 		Long: `Install a git hook. Currently supports:
-  - pre-commit: Runs UBS on staged files before commit
+  - pre-commit: Syncs beads (if available) and runs UBS on staged files
+  - post-checkout: Warns when .beads has uncommitted changes
 
 If no hook type is specified, installs pre-commit.`,
 		Args: cobra.MaximumNArgs(1),

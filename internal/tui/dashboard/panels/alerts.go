@@ -185,7 +185,7 @@ func (m *AlertsPanel) View() string {
 			Foreground(t.Red).
 			Italic(true).
 			Padding(0, 1)
-		errMsg := layout.TruncateRunes(m.err.Error(), w-6, "…")
+		errMsg := layout.TruncateWidthDefault(m.err.Error(), w-6)
 		content.WriteString(errorStyle.Render("⚠ "+errMsg) + "\n\n")
 	}
 
@@ -238,7 +238,7 @@ func (m *AlertsPanel) View() string {
 			if count >= availableLines {
 				return
 			}
-			msg := layout.TruncateRunes(a.Message, w-6, "…")
+			msg := layout.TruncateWidthDefault(a.Message, w-6)
 			line := fmt.Sprintf("  %s %s", icon, msg)
 			style := lipgloss.NewStyle().Foreground(color)
 			if m.shouldPulse(m.alertKey(a), now) {

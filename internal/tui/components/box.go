@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/Dicklesworthstone/ntm/internal/tui/theme"
 )
@@ -141,40 +142,26 @@ func (b *Box) Render() string {
 		lines := strings.Split(boxContent, "\n")
 		if len(lines) > 0 {
 			topBorder := lines[0]
-			// Calculate position for title
+			// Calculate position for title (visible width, ANSI-aware)
 			titlePos := 2 // After corner and one border char
+			borderWidth := lipgloss.Width(topBorder)
+			titleWidth := lipgloss.Width(renderedTitle)
 
-			if len(topBorder) > titlePos+len(b.Title)+2 {
-				// Replace part of the border with the title
-				runes := []rune(topBorder)
-				titleRunes := []rune(renderedTitle)
-
-				// Calculate actual insertion point based on alignment
+			if borderWidth > titlePos+titleWidth {
+				// Calculate insertion point based on alignment
 				insertPos := titlePos
 				switch b.TitleAlign {
 				case lipgloss.Center:
-					insertPos = (len(runes) - len([]rune(b.Title)) - 2) / 2
+					insertPos = (borderWidth - titleWidth) / 2
 				case lipgloss.Right:
-					insertPos = len(runes) - len([]rune(b.Title)) - 4
+					insertPos = borderWidth - titleWidth - 2
 				}
 
-				if insertPos < 2 {
-					insertPos = 2
+				if insertPos < titlePos {
+					insertPos = titlePos
 				}
 
-				// Build new top line
-				var newTop strings.Builder
-				for i, r := range runes {
-					if i >= insertPos && i < insertPos+len(titleRunes) {
-						// Skip - will add title
-					} else if i == insertPos {
-						newTop.WriteString(renderedTitle)
-					} else if i < insertPos || i >= insertPos+len(titleRunes) {
-						newTop.WriteRune(r)
-					}
-				}
-
-				lines[0] = newTop.String()
+				lines[0] = insertTitleIntoBorder(topBorder, renderedTitle, insertPos)
 			}
 			return strings.Join(lines, "\n")
 		}
@@ -183,6 +170,26 @@ func (b *Box) Render() string {
 	}
 
 	return style.Render(content)
+}
+
+// insertTitleIntoBorder replaces a visible-width slice of a border line with a title,
+// preserving ANSI escape sequences.
+func insertTitleIntoBorder(line, title string, insertPos int) string {
+	totalWidth := lipgloss.Width(line)
+	titleWidth := lipgloss.Width(title)
+	if totalWidth == 0 || titleWidth == 0 {
+		return line
+	}
+	if insertPos < 0 {
+		insertPos = 0
+	}
+	if insertPos+titleWidth > totalWidth {
+		return line
+	}
+
+	left := ansi.Cut(line, 0, insertPos)
+	right := ansi.Cut(line, insertPos+titleWidth, totalWidth)
+	return left + title + right
 }
 
 // String implements fmt.Stringer
@@ -277,7 +284,7 @@ func LabeledDivider(label string, width int) string {
 	lineStyle := lipgloss.NewStyle().Foreground(t.Surface2)
 	labelStyle := lipgloss.NewStyle().Foreground(t.Subtext)
 
-	labelLen := len(label) + 2 // Add padding
+	labelLen := lipgloss.Width(label) + 2 // Add padding
 	if width <= labelLen+4 {
 		return labelStyle.Render(label)
 	}

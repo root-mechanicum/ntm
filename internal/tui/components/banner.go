@@ -150,7 +150,7 @@ func RenderSection(title string, width int) string {
 		Foreground(theme.Current().Primary)
 
 	// Gradient line after title
-	titleLen := len(title) + 2
+	titleLen := lipgloss.Width(title) + 2
 	remaining := width - titleLen
 	if remaining < 0 {
 		remaining = 0

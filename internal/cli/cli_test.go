@@ -403,18 +403,18 @@ func TestCompletionCmdExecutes(t *testing.T) {
 	}
 }
 
-// TestInitCmdExecutes tests init subcommand for shell integration executes
-func TestInitCmdExecutes(t *testing.T) {
+// TestShellCmdExecutes tests shell subcommand for shell integration executes
+func TestShellCmdExecutes(t *testing.T) {
 	shells := []string{"bash", "zsh"}
 
 	for _, shell := range shells {
 		t.Run(shell, func(t *testing.T) {
 			resetFlags()
-			rootCmd.SetArgs([]string{"init", shell})
+			rootCmd.SetArgs([]string{"shell", shell})
 
 			err := rootCmd.Execute()
 			if err != nil {
-				t.Fatalf("init %s failed: %v", shell, err)
+				t.Fatalf("shell %s failed: %v", shell, err)
 			}
 		})
 	}

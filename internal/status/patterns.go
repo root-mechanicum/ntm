@@ -31,6 +31,10 @@ var promptPatterns = []PromptPattern{
 	// Claude Code patterns
 	{AgentType: "cc", Regex: regexp.MustCompile(`(?i)claude>?\s*$`), Description: "Claude prompt"},
 	{AgentType: "cc", Regex: regexp.MustCompile(`>\s*$`), Description: "Claude simple prompt"},
+	{AgentType: "cc", Regex: regexp.MustCompile(`^>\s*$`), Description: "Claude bare prompt"},
+	{AgentType: "cc", Regex: regexp.MustCompile(`(?i)^claude\s*$`), Description: "Claude name only"},
+	{AgentType: "cc", Regex: regexp.MustCompile(`^\s*\d+\s*>\s*$`), Description: "Claude numbered prompt"},
+	{AgentType: "cc", Regex: regexp.MustCompile(`^[│┃|]\s*>\s*$`), Description: "Claude prompt with border"},
 
 	// Codex CLI patterns
 	{AgentType: "cod", Regex: regexp.MustCompile(`(?i)codex>?\s*$`), Description: "Codex prompt"},

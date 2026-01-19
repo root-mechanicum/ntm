@@ -1149,7 +1149,7 @@ func (m Model) renderCommandList(width int) string {
 		if labelBudget < 10 {
 			labelBudget = 10
 		}
-		label := layout.TruncateRunes(cmd.Label, labelBudget, "…")
+		label := layout.TruncateWidthDefault(cmd.Label, labelBudget)
 
 		if isSelected {
 			line.WriteString(styles.GradientText(label, string(t.Pink), string(t.Rosewater)))
@@ -1637,11 +1637,11 @@ func (m Model) viewTargetPhase() string {
 		if len(samples) > 0 {
 			sampleText := "e.g. " + strings.Join(samples, ", ")
 			sampleIndent := "      "
-			maxRunes := boxWidth - 2 - len(sampleIndent)
-			if maxRunes < 10 {
-				maxRunes = 10
+			maxWidth := boxWidth - 2 - len(sampleIndent)
+			if maxWidth < 10 {
+				maxWidth = 10
 			}
-			sampleText = layout.TruncateRunes(sampleText, maxRunes, "…")
+			sampleText = layout.TruncateWidthDefault(sampleText, maxWidth)
 			sampleStyle := lipgloss.NewStyle().Foreground(t.Subtext).Italic(true)
 			b.WriteString("  " + sampleIndent + sampleStyle.Render(sampleText) + "\n")
 		}

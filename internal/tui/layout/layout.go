@@ -1,5 +1,7 @@
 package layout
 
+import "github.com/charmbracelet/lipgloss"
+
 // Width tiers are shared across TUI surfaces so behavior stays predictable on
 // narrow laptops, wide displays, ultra‑wide, and now mega‑wide monitors. These
 // thresholds are aligned with the design tokens in internal/tui/styles/tokens.go
@@ -85,6 +87,118 @@ func TruncateRunes(s string, max int, suffix string) string {
 // function for visual consistency across the TUI.
 func Truncate(s string, max int) string {
 	return TruncateRunes(s, max, "…")
+}
+
+// TruncateWidth trims a string to fit within maxWidth terminal columns,
+// appending suffix if truncated. Unlike TruncateRunes, this uses lipgloss.Width()
+// to properly account for double-width characters (CJK, emoji) and ANSI codes.
+// This is the preferred function when the target is a fixed-width terminal column.
+func TruncateWidth(s string, maxWidth int, suffix string) string {
+	if maxWidth <= 0 {
+		return ""
+	}
+
+	// Fast path: string already fits
+	currentWidth := lipgloss.Width(s)
+	if currentWidth <= maxWidth {
+		return s
+	}
+
+	suffixWidth := lipgloss.Width(suffix)
+	targetWidth := maxWidth - suffixWidth
+	if targetWidth <= 0 {
+		// Not enough room for suffix, just truncate hard
+		return truncateToWidth(s, maxWidth)
+	}
+
+	return truncateToWidth(s, targetWidth) + suffix
+}
+
+// truncateToWidth removes characters from the end until string fits in maxWidth.
+func truncateToWidth(s string, maxWidth int) string {
+	runes := []rune(s)
+	for len(runes) > 0 {
+		candidate := string(runes)
+		if lipgloss.Width(candidate) <= maxWidth {
+			return candidate
+		}
+		runes = runes[:len(runes)-1]
+	}
+	return ""
+}
+
+// TruncateWidthDefault is a convenience wrapper for TruncateWidth using "…".
+func TruncateWidthDefault(s string, maxWidth int) string {
+	return TruncateWidth(s, maxWidth, "…")
+}
+
+// TruncatePaneTitle truncates a pane title while preserving the differentiating suffix.
+// NTM pane titles follow the pattern: <project>__<agent>_<number> (e.g., "myproject__cc_1").
+// When multiple panes share the same project prefix, naive truncation makes them all
+// look identical ("myproject__c…"). This function preserves the agent suffix to keep
+// panes visually distinguishable.
+//
+// Examples:
+//   - "destructive_command_guard__cc_1" (width 20) -> "destructive…__cc_1"
+//   - "myproject__gmi_2" (width 20) -> "myproject__gmi_2" (fits, no truncation)
+//   - "very_long_project_name__cod_10" (width 15) -> "very…__cod_10"
+func TruncatePaneTitle(title string, maxWidth int) string {
+	if maxWidth <= 0 {
+		return ""
+	}
+
+	// Fast path: title already fits
+	currentWidth := lipgloss.Width(title)
+	if currentWidth <= maxWidth {
+		return title
+	}
+
+	// Find the agent suffix pattern: __<agent>_<number>
+	// Agent types: cc (Claude), cod (Codex), gmi (Gemini), usr (user)
+	suffixStart := -1
+	for i := len(title) - 1; i >= 2; i-- {
+		if i >= 2 && title[i-1] == '_' && title[i-2] == '_' {
+			suffixStart = i - 2
+			break
+		}
+	}
+
+	// No suffix found or suffix is the whole string - fall back to standard truncation
+	if suffixStart <= 0 {
+		return TruncateWidthDefault(title, maxWidth)
+	}
+
+	prefix := title[:suffixStart]
+	suffix := title[suffixStart:] // Includes "__cc_1" etc.
+	suffixWidth := lipgloss.Width(suffix)
+
+	// If suffix alone is too wide, truncate normally
+	if suffixWidth >= maxWidth {
+		return TruncateWidthDefault(title, maxWidth)
+	}
+
+	// Calculate available width for prefix (with ellipsis)
+	ellipsis := "…"
+	ellipsisWidth := lipgloss.Width(ellipsis)
+	prefixMaxWidth := maxWidth - suffixWidth - ellipsisWidth
+
+	if prefixMaxWidth <= 0 {
+		// Not enough room for prefix, just show suffix
+		return TruncateWidthDefault(suffix, maxWidth)
+	}
+
+	// Truncate prefix to fit
+	prefixRunes := []rune(prefix)
+	for len(prefixRunes) > 0 {
+		candidate := string(prefixRunes) + ellipsis + suffix
+		if lipgloss.Width(candidate) <= maxWidth {
+			return candidate
+		}
+		prefixRunes = prefixRunes[:len(prefixRunes)-1]
+	}
+
+	// Fallback: just the suffix
+	return TruncateWidthDefault(suffix, maxWidth)
 }
 
 // SplitProportions returns left/right widths for split view given total width.

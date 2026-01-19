@@ -54,7 +54,7 @@ type Table struct {
 func NewTable(w io.Writer, headers ...string) *Table {
 	widths := make([]int, len(headers))
 	for i, h := range headers {
-		widths[i] = len(h)
+		widths[i] = lipgloss.Width(h)
 	}
 	return &Table{
 		writer:  w,
@@ -67,8 +67,9 @@ func NewTable(w io.Writer, headers ...string) *Table {
 // AddRow adds a row to the table
 func (t *Table) AddRow(cols ...string) {
 	for i, c := range cols {
-		if i < len(t.widths) && len(c) > t.widths[i] {
-			t.widths[i] = len(c)
+		w := lipgloss.Width(c)
+		if i < len(t.widths) && w > t.widths[i] {
+			t.widths[i] = w
 		}
 	}
 	t.rows = append(t.rows, cols)
@@ -190,7 +191,7 @@ func NewStyledTableWriter(w io.Writer, headers ...string) *StyledTable {
 
 	widths := make([]int, len(headers))
 	for i, h := range headers {
-		widths[i] = len(h)
+		widths[i] = lipgloss.Width(h)
 	}
 
 	return &StyledTable{
@@ -207,8 +208,9 @@ func NewStyledTableWriter(w io.Writer, headers ...string) *StyledTable {
 // AddRow adds a row to the styled table.
 func (t *StyledTable) AddRow(cols ...string) *StyledTable {
 	for i, c := range cols {
-		if i < len(t.widths) && len(c) > t.widths[i] {
-			t.widths[i] = len(c)
+		w := lipgloss.Width(c)
+		if i < len(t.widths) && w > t.widths[i] {
+			t.widths[i] = w
 		}
 	}
 	t.rows = append(t.rows, cols)

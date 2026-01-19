@@ -200,8 +200,8 @@ func TestInitProjectConfigForce(t *testing.T) {
 		t.Fatalf("writing config: %v", err)
 	}
 
-	if err := InitProjectConfig(false); err == nil {
-		t.Fatalf("expected InitProjectConfig to fail without force when config exists")
+	if err := InitProjectConfig(false); err != nil {
+		t.Fatalf("expected InitProjectConfig to succeed without force when config exists: %v", err)
 	}
 
 	if err := InitProjectConfig(true); err != nil {
@@ -214,6 +214,21 @@ func TestInitProjectConfigForce(t *testing.T) {
 	}
 	if strings.TrimSpace(string(configContent)) == "custom config" {
 		t.Fatalf("expected config.toml to be overwritten when force=true")
+	}
+
+	// Ensure non-force run preserved the custom config before force overwrite.
+	if err := os.WriteFile(configPath, []byte("custom config\n"), 0644); err != nil {
+		t.Fatalf("writing config: %v", err)
+	}
+	if err := InitProjectConfig(false); err != nil {
+		t.Fatalf("expected InitProjectConfig to succeed without force when config exists: %v", err)
+	}
+	configContent, err = os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("reading config: %v", err)
+	}
+	if strings.TrimSpace(string(configContent)) != "custom config" {
+		t.Fatalf("expected config.toml to be preserved when force=false")
 	}
 
 	paletteContent, err := os.ReadFile(palettePath)
@@ -264,6 +279,17 @@ func TestInitProjectConfigScaffolding(t *testing.T) {
 		}
 	})
 
+	t.Run("creates pipelines subdirectory", func(t *testing.T) {
+		pipelinesDir := filepath.Join(tmpDir, ".ntm", "pipelines")
+		info, err := os.Stat(pipelinesDir)
+		if err != nil {
+			t.Fatalf("expected pipelines directory: %v", err)
+		}
+		if !info.IsDir() {
+			t.Fatal("expected pipelines to be a directory")
+		}
+	})
+
 	t.Run("creates valid TOML config", func(t *testing.T) {
 		configPath := filepath.Join(tmpDir, ".ntm", "config.toml")
 		content, err := os.ReadFile(configPath)
@@ -298,6 +324,17 @@ func TestInitProjectConfigScaffolding(t *testing.T) {
 		}
 	})
 
+	t.Run("creates personas.toml scaffold", func(t *testing.T) {
+		personaPath := filepath.Join(tmpDir, ".ntm", "personas.toml")
+		content, err := os.ReadFile(personaPath)
+		if err != nil {
+			t.Fatalf("reading personas.toml: %v", err)
+		}
+		if !strings.Contains(string(content), "Project personas for NTM") {
+			t.Error("personas.toml missing header")
+		}
+	})
+
 	t.Run("config contains expected sections", func(t *testing.T) {
 		configPath := filepath.Join(tmpDir, ".ntm", "config.toml")
 		content, err := os.ReadFile(configPath)
@@ -306,7 +343,7 @@ func TestInitProjectConfigScaffolding(t *testing.T) {
 		}
 
 		contentStr := string(content)
-		expectedSections := []string{"[defaults]", "[palette]", "[palette_state]", "[templates]", "[agents]"}
+		expectedSections := []string{"[project]", "[integrations]", "[defaults]", "[palette]", "[palette_state]", "[templates]", "[agents]"}
 		for _, section := range expectedSections {
 			if !strings.Contains(contentStr, section) {
 				t.Errorf("config missing section: %s", section)

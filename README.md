@@ -28,7 +28,7 @@ curl -fsSL "https://raw.githubusercontent.com/Dicklesworthstone/ntm/main/install
 curl -fsSL "https://raw.githubusercontent.com/Dicklesworthstone/ntm/main/install.sh?$(date +%s)" | bash -s -- --easy-mode
 
 # Add shell integration
-echo 'eval "$(ntm init zsh)"' >> ~/.zshrc && source ~/.zshrc
+echo 'eval "$(ntm shell zsh)"' >> ~/.zshrc && source ~/.zshrc
 
 # Run the interactive tutorial
 ntm tutorial
@@ -296,13 +296,13 @@ After installing, add to your shell rc file:
 
 ```bash
 # zsh (~/.zshrc)
-eval "$(ntm init zsh)"
+eval "$(ntm shell zsh)"
 
 # bash (~/.bashrc)
-eval "$(ntm init bash)"
+eval "$(ntm shell bash)"
 
 # fish (~/.config/fish/config.fish)
-ntm init fish | source
+ntm shell fish | source
 ```
 
 Then reload your shell:
@@ -1739,7 +1739,7 @@ export NTM_THEME=plain   # Explicit no-color theme (escape hatch)
 ```bash
 # 1) Install + shell integration (zsh example)
 curl -fsSL "https://raw.githubusercontent.com/Dicklesworthstone/ntm/main/install.sh?$(date +%s)" | bash -s -- --easy-mode
-echo 'eval "$(ntm init zsh)"' >> ~/.zshrc && source ~/.zshrc
+echo 'eval "$(ntm shell zsh)"' >> ~/.zshrc && source ~/.zshrc
 
 # 2) Sanity check + quick orientation
 ntm deps -v
@@ -3936,7 +3936,7 @@ ntm upgrade
 
 **Q: Does this work with bash?**
 
-A: Yes! NTM is a compiled Go binary that works with any shell. The shell integration (`ntm init bash`) provides aliases and completions for bash.
+A: Yes! NTM is a compiled Go binary that works with any shell. The shell integration (`ntm shell bash`) provides aliases and completions for bash.
 
 **Q: Can I use this over SSH?**
 

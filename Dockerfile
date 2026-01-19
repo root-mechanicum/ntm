@@ -50,8 +50,8 @@ WORKDIR /home/ntm
 COPY --from=builder /ntm /usr/local/bin/ntm
 
 # Default shell init
-RUN echo 'eval "$(ntm init bash)"' >> ~/.bashrc && \
-    echo 'eval "$(ntm init zsh)"' >> ~/.zshrc
+RUN echo 'eval "$(ntm shell bash)"' >> ~/.bashrc && \
+    echo 'eval "$(ntm shell zsh)"' >> ~/.zshrc
 
 ENTRYPOINT ["ntm"]
 CMD ["--help"]

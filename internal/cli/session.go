@@ -491,13 +491,13 @@ func runStatus(w io.Writer, session string, tags []string) error {
 			cmdWidth = 10
 		}
 
-		title := layout.TruncateRunes(p.Title, titleWidth, "…")
+		title := layout.TruncateWidthDefault(p.Title, titleWidth)
 		titlePart := fmt.Sprintf("%-*s", titleWidth, title)
 
 		if variantWidth > 0 {
 			variant := ""
 			if p.Variant != "" {
-				variant = layout.TruncateRunes(p.Variant, variantWidth, "…")
+				variant = layout.TruncateWidthDefault(p.Variant, variantWidth)
 			}
 			variantPart = fmt.Sprintf(" %s%-*s%s", subtext, variantWidth, variant, reset)
 		}
@@ -505,7 +505,7 @@ func runStatus(w io.Writer, session string, tags []string) error {
 		if cmdWidth > 0 {
 			cmd := ""
 			if p.Command != "" {
-				cmd = layout.TruncateRunes(p.Command, cmdWidth, "…")
+				cmd = layout.TruncateWidthDefault(p.Command, cmdWidth)
 			}
 			cmdPart = fmt.Sprintf(" %s%-*s%s", subtext, cmdWidth, cmd, reset)
 		}

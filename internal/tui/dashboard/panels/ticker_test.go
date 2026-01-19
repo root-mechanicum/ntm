@@ -146,6 +146,16 @@ func TestTickerPanelBuildFleetSegment(t *testing.T) {
 		contains []string
 	}{
 		{
+			name: "with user pane",
+			data: TickerData{
+				TotalAgents:  3,
+				ActiveAgents: 1,
+				ClaudeCount:  2,
+				UserCount:    1,
+			},
+			contains: []string{"Fleet", "1 active / 3 total", "C:2", "U:1"},
+		},
+		{
 			name: "with all agent types",
 			data: TickerData{
 				TotalAgents:  6,
@@ -154,7 +164,7 @@ func TestTickerPanelBuildFleetSegment(t *testing.T) {
 				CodexCount:   2,
 				GeminiCount:  2,
 			},
-			contains: []string{"Fleet", "4/6", "C:2", "X:2", "G:2"},
+			contains: []string{"Fleet", "4 active / 6 total", "C:2", "X:2", "G:2"},
 		},
 		{
 			name: "with only Claude",
@@ -163,7 +173,7 @@ func TestTickerPanelBuildFleetSegment(t *testing.T) {
 				ActiveAgents: 1,
 				ClaudeCount:  2,
 			},
-			contains: []string{"Fleet", "1/2", "C:2"},
+			contains: []string{"Fleet", "1 active / 2 total", "C:2"},
 		},
 		{
 			name: "empty fleet",
@@ -171,7 +181,7 @@ func TestTickerPanelBuildFleetSegment(t *testing.T) {
 				TotalAgents:  0,
 				ActiveAgents: 0,
 			},
-			contains: []string{"Fleet", "0/0"},
+			contains: []string{"Fleet", "0 active / 0 total"},
 		},
 	}
 

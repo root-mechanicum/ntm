@@ -374,7 +374,7 @@ func TestTruncateBadgeText(t *testing.T) {
 		{"empty_string", "", 8, ""},
 		{"single_char_limit", "hello", 1, "…"},
 		{"zero_limit", "hello", 0, ""},
-		{"unicode_string", "日本語テスト", 4, "日本語…"},
+		{"unicode_string", "日本語テスト", 4, "日…"},
 	}
 
 	for _, tt := range tests {

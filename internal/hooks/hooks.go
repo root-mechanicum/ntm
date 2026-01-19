@@ -24,10 +24,11 @@ var (
 type HookType string
 
 const (
-	HookPreCommit  HookType = "pre-commit"
-	HookPrePush    HookType = "pre-push"
-	HookCommitMsg  HookType = "commit-msg"
-	HookPostCommit HookType = "post-commit"
+	HookPreCommit    HookType = "pre-commit"
+	HookPrePush      HookType = "pre-push"
+	HookCommitMsg    HookType = "commit-msg"
+	HookPostCommit   HookType = "post-commit"
+	HookPostCheckout HookType = "post-checkout"
 )
 
 // HookInfo contains information about an installed hook.
@@ -170,7 +171,7 @@ func (m *Manager) Status(hookType HookType) (*HookInfo, error) {
 
 // ListAll returns status of all supported hook types.
 func (m *Manager) ListAll() ([]*HookInfo, error) {
-	hooks := []HookType{HookPreCommit, HookPrePush, HookCommitMsg, HookPostCommit}
+	hooks := []HookType{HookPreCommit, HookPrePush, HookCommitMsg, HookPostCommit, HookPostCheckout}
 	infos := make([]*HookInfo, 0, len(hooks))
 
 	for _, h := range hooks {
@@ -211,15 +212,16 @@ func isNTMHook(content string) bool {
 
 // generateHookScript generates the hook script content.
 func generateHookScript(hookType HookType, repoRoot string) (string, error) {
-	// Ensure ntm is available
-	ntmPath, err := exec.LookPath("ntm")
-	if err != nil {
-		return "", ErrNTMNotFound
-	}
-
 	switch hookType {
 	case HookPreCommit:
+		// Ensure ntm is available (pre-commit invokes ntm hooks)
+		ntmPath, err := exec.LookPath("ntm")
+		if err != nil {
+			return "", ErrNTMNotFound
+		}
 		return generatePreCommitScript(ntmPath, repoRoot), nil
+	case HookPostCheckout:
+		return generatePostCheckoutScript(repoRoot), nil
 	default:
 		return "", fmt.Errorf("hook type %s not yet implemented", hookType)
 	}
@@ -230,6 +232,7 @@ func generatePreCommitScript(ntmPath, repoRoot string) string {
 	// Sanitize repoRoot to prevent injection via newlines
 	safeRepoRoot := strings.ReplaceAll(repoRoot, "\n", " ")
 	safeRepoRoot = strings.ReplaceAll(safeRepoRoot, "\r", " ")
+	repoRootQuoted := quoteShell(repoRoot)
 
 	return fmt.Sprintf(`#!/bin/bash
 # NTM_MANAGED_HOOK - Do not edit manually
@@ -237,6 +240,18 @@ func generatePreCommitScript(ntmPath, repoRoot string) string {
 # Repository: %s
 
 set -e
+
+# Repo root for hooks that need project context
+REPO_ROOT=%s
+
+# Sync beads metadata if available
+if command -v br &> /dev/null; then
+    if [ -d "$REPO_ROOT/.beads" ]; then
+        (cd "$REPO_ROOT" && br sync --flush-only)
+    fi
+else
+    echo "[ntm] br not installed - skipping beads sync" >&2
+fi
 
 # Run UBS scan on staged files
 UBS_EXIT=0
@@ -256,7 +271,7 @@ elif [ $UBS_EXIT -ne 0 ]; then
 fi
 
 exit 0
-`, safeRepoRoot, quoteShell(ntmPath))
+`, safeRepoRoot, repoRootQuoted, quoteShell(ntmPath))
 }
 
 // quoteShell quotes a string for safe use in a shell script.
@@ -267,4 +282,31 @@ func quoteShell(s string) string {
 	}
 	// Use single quotes, and replace any single quote with '\''
 	return "'" + strings.ReplaceAll(s, "'", "'\\''") + "'"
+}
+
+func generatePostCheckoutScript(repoRoot string) string {
+	// Sanitize repoRoot to prevent injection via newlines
+	safeRepoRoot := strings.ReplaceAll(repoRoot, "\n", " ")
+	safeRepoRoot = strings.ReplaceAll(safeRepoRoot, "\r", " ")
+	repoRootQuoted := quoteShell(repoRoot)
+
+	return fmt.Sprintf(`#!/bin/bash
+# NTM_MANAGED_HOOK - Do not edit manually
+# Installed by: ntm hooks install post-checkout
+# Repository: %s
+
+set -e
+
+# Repo root for hooks that need project context
+REPO_ROOT=%s
+
+# Warn on uncommitted beads changes
+if [ -d "$REPO_ROOT/.beads" ]; then
+    if git -C "$REPO_ROOT" status --porcelain .beads | grep -q .; then
+        echo "[ntm] Warning: .beads has uncommitted changes. Run: br sync --flush-only and commit .beads/"
+    fi
+fi
+
+exit 0
+`, safeRepoRoot, repoRootQuoted)
 }

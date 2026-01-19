@@ -366,9 +366,10 @@ func DefaultCASSConfig() CASSConfig {
 
 // AgentConfig defines the commands for each agent type
 type AgentConfig struct {
-	Claude string `toml:"claude"`
-	Codex  string `toml:"codex"`
-	Gemini string `toml:"gemini"`
+	Claude       string `toml:"claude"`
+	Codex        string `toml:"codex"`
+	Gemini       string `toml:"gemini"`
+	DefaultCount int    `toml:"default_count"`
 }
 
 // ContextRotationConfig holds configuration for automatic context window rotation
@@ -497,12 +498,12 @@ func DefaultModels() ModelsConfig {
 			"fast":      "claude-sonnet-4-20250514",
 		},
 		Codex: map[string]string{
-			"gpt4":   "gpt-4",
-			"gpt5":   "gpt-5.2-codex",
-			"o1":     "o1",
-			"o3":     "o3",
-			"turbo":  "gpt-4-turbo",
-			"codex":  "gpt-5.2-codex",
+			"gpt4":  "gpt-4",
+			"gpt5":  "gpt-5.2-codex",
+			"o1":    "o1",
+			"o3":    "o3",
+			"turbo": "gpt-4-turbo",
+			"codex": "gpt-5.2-codex",
 		},
 		Gemini: map[string]string{
 			"pro":    "gemini-3-pro-preview",

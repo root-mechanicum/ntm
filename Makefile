@@ -35,8 +35,8 @@ install: build
 	@echo "Installed $(BINARY_NAME) to /usr/local/bin/"
 	@echo ""
 	@echo "Add to your shell rc file:"
-	@echo '  eval "$$(ntm init zsh)"   # for zsh'
-	@echo '  eval "$$(ntm init bash)"  # for bash'
+	@echo '  eval "$$(ntm shell zsh)"   # for zsh'
+	@echo '  eval "$$(ntm shell bash)"  # for bash'
 
 ## Install to user bin directory
 install-user: build

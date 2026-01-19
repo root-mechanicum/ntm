@@ -118,7 +118,8 @@ func PrintStunningHelp(w io.Writer) {
 			commands: []commandHelp{
 				{"deps", "cad", "", "Check agent CLI dependencies"},
 				{"kill", "knt", "[-f] <session>", "Kill a session"},
-				{"init", "", "<zsh|bash|fish>", "Generate shell integration"},
+				{"init", "", "[path]", "Initialize NTM for a project"},
+				{"shell", "", "<zsh|bash|fish>", "Generate shell integration"},
 				{"config", "", "[show|edit|path]", "Manage configuration"},
 			},
 		},
@@ -149,7 +150,7 @@ func PrintStunningHelp(w io.Writer) {
 	// Shell init hint
 	hintStyle := lipgloss.NewStyle().Foreground(t.Overlay).Italic(true)
 	cmdStyle := lipgloss.NewStyle().Foreground(t.Blue).Bold(true)
-	b.WriteString("  " + hintStyle.Render("Add to shell: ") + cmdStyle.Render("eval \"$(ntm init zsh)\"") + "\n\n")
+	b.WriteString("  " + hintStyle.Render("Add to shell: ") + cmdStyle.Render("eval \"$(ntm shell zsh)\"") + "\n\n")
 
 	fmt.Fprint(w, b.String())
 }
@@ -170,7 +171,11 @@ func renderSection(title, icon string, color lipgloss.Color, commands []commandH
 	b.WriteString("  " + headerGradient + "\n")
 
 	// Subtle underline
-	underline := lipgloss.NewStyle().Foreground(t.Surface2).Render(strings.Repeat("─", len(title)+4))
+	underlineWidth := lipgloss.Width(headerText)
+	if underlineWidth < 1 {
+		underlineWidth = 1
+	}
+	underline := lipgloss.NewStyle().Foreground(t.Surface2).Render(strings.Repeat("─", underlineWidth))
 	b.WriteString("  " + underline + "\n\n")
 
 	// Commands table
@@ -292,7 +297,7 @@ func PrintCompactHelp(w io.Writer) {
 
 	// Shell init hint
 	cmdHighlight := lipgloss.NewStyle().Foreground(t.Blue).Bold(true)
-	fmt.Fprintf(w, "  Shell setup: %s\n\n", cmdHighlight.Render("eval \"$(ntm init zsh)\""))
+	fmt.Fprintf(w, "  Shell setup: %s\n\n", cmdHighlight.Render("eval \"$(ntm shell zsh)\""))
 
 	_ = ic // Use icons in future enhancements
 }

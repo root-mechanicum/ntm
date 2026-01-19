@@ -212,7 +212,7 @@ func (m *SpawnPanel) View() string {
 			break
 		}
 
-		pane := layout.TruncateRunes(p.Pane, w-20, "...")
+		pane := layout.TruncateWidth(p.Pane, w-20, "...")
 		var line string
 		var style lipgloss.Style
 

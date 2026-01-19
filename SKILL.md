@@ -25,7 +25,7 @@ NTM solves all of this with one session containing many agents, persistent acros
 curl -fsSL https://raw.githubusercontent.com/Dicklesworthstone/ntm/main/install.sh | bash
 
 # Add shell integration
-echo 'eval "$(ntm init zsh)"' >> ~/.zshrc && source ~/.zshrc
+echo 'eval "$(ntm shell zsh)"' >> ~/.zshrc && source ~/.zshrc
 
 # Interactive tutorial
 ntm tutorial
@@ -519,7 +519,7 @@ Status indicators: **C** = Claude, **X** = Codex, **G** = Gemini, **U** = User
 
 ## Shell Aliases
 
-After `eval "$(ntm init zsh)"`:
+After `eval "$(ntm shell zsh)"`:
 
 | Category | Aliases |
 |----------|---------|

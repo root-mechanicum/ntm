@@ -22,47 +22,52 @@ import (
 )
 
 // fetchBeadsCmd calls bv.GetBeadsSummary
-func (m Model) fetchBeadsCmd() tea.Cmd {
+func (m *Model) fetchBeadsCmd() tea.Cmd {
+	gen := m.nextGen(refreshBeads)
+	projectDir := m.projectDir
 	return func() tea.Msg {
 		if !bv.IsInstalled() {
 			// bv not installed - return unavailable summary (not an error)
-			return BeadsUpdateMsg{Summary: bv.BeadsSummary{Available: false, Reason: "bv not installed"}}
+			return BeadsUpdateMsg{Summary: bv.BeadsSummary{Available: false, Reason: "bv not installed"}, Gen: gen}
 		}
-		summary := bv.GetBeadsSummary(m.projectDir, 5) // Get top 5 ready/in-progress
+		summary := bv.GetBeadsSummary(projectDir, 5) // Get top 5 ready/in-progress
 		// Return summary regardless of availability - let UI handle gracefully
 		// "No beads" is not an error, just an unavailable state
-		return BeadsUpdateMsg{Summary: *summary, Ready: summary.ReadyPreview}
+		return BeadsUpdateMsg{Summary: *summary, Ready: summary.ReadyPreview, Gen: gen}
 	}
 }
 
 // fetchAlertsCmd aggregates alerts
-func (m Model) fetchAlertsCmd() tea.Cmd {
+func (m *Model) fetchAlertsCmd() tea.Cmd {
+	gen := m.nextGen(refreshAlerts)
+	cfg := m.cfg
 	return func() tea.Msg {
-		var cfg alerts.Config
-		if m.cfg != nil {
-			cfg = alerts.ToConfigAlerts(
-				m.cfg.Alerts.Enabled,
-				m.cfg.Alerts.AgentStuckMinutes,
-				m.cfg.Alerts.DiskLowThresholdGB,
-				m.cfg.Alerts.MailBacklogThreshold,
-				m.cfg.Alerts.BeadStaleHours,
-				m.cfg.Alerts.ResolvedPruneMinutes,
-				m.cfg.ProjectsBase,
+		var alertCfg alerts.Config
+		if cfg != nil {
+			alertCfg = alerts.ToConfigAlerts(
+				cfg.Alerts.Enabled,
+				cfg.Alerts.AgentStuckMinutes,
+				cfg.Alerts.DiskLowThresholdGB,
+				cfg.Alerts.MailBacklogThreshold,
+				cfg.Alerts.BeadStaleHours,
+				cfg.Alerts.ResolvedPruneMinutes,
+				cfg.ProjectsBase,
 			)
 		} else {
-			cfg = alerts.DefaultConfig()
+			alertCfg = alerts.DefaultConfig()
 		}
 
 		// Use GenerateAndTrack to benefit from lifecycle management and error handling
-		tracker := alerts.GenerateAndTrack(cfg)
+		tracker := alerts.GenerateAndTrack(alertCfg)
 		activeAlerts := tracker.GetActive()
-		return AlertsUpdateMsg{Alerts: activeAlerts}
+		return AlertsUpdateMsg{Alerts: activeAlerts, Gen: gen}
 	}
 }
 
 // fetchMetricsCmd calculates token usage
-func (m Model) fetchMetricsCmd() tea.Cmd {
-	// Capture panes from model to avoid race (Model is value receiver so copy)
+func (m *Model) fetchMetricsCmd() tea.Cmd {
+	gen := m.nextGen(refreshMetrics)
+	// Capture panes from model to avoid mutation during async fetch
 	panes := m.panes
 
 	return func() tea.Msg {
@@ -113,34 +118,38 @@ func (m Model) fetchMetricsCmd() tea.Cmd {
 				TotalCost:   totalCost,
 				Agents:      agentMetrics,
 			},
+			Gen: gen,
 		}
 	}
 }
 
 // fetchHistoryCmd reads recent history
-func (m Model) fetchHistoryCmd() tea.Cmd {
+func (m *Model) fetchHistoryCmd() tea.Cmd {
+	gen := m.nextGen(refreshHistory)
 	return func() tea.Msg {
 		entries, err := history.ReadRecent(20)
 		if err != nil {
-			return HistoryUpdateMsg{Err: err}
+			return HistoryUpdateMsg{Err: err, Gen: gen}
 		}
-		return HistoryUpdateMsg{Entries: entries}
+		return HistoryUpdateMsg{Entries: entries, Gen: gen}
 	}
 }
 
 // fetchFileChangesCmd queries tracker
-func (m Model) fetchFileChangesCmd() tea.Cmd {
+func (m *Model) fetchFileChangesCmd() tea.Cmd {
+	gen := m.nextGen(refreshFiles)
 	return func() tea.Msg {
 		// Get changes from last 5 minutes
 		since := time.Now().Add(-5 * time.Minute)
 		changes := tracker.RecordedChangesSince(since)
-		return FileChangeMsg{Changes: changes}
+		return FileChangeMsg{Changes: changes, Gen: gen}
 	}
 }
 
 // fetchCASSContextCmd searches CASS for recent context related to the session.
 // We keep this generic: use the session name as the query and return top hits.
-func (m Model) fetchCASSContextCmd() tea.Cmd {
+func (m *Model) fetchCASSContextCmd() tea.Cmd {
+	gen := m.nextGen(refreshCass)
 	session := m.session
 
 	return func() tea.Msg {
@@ -149,7 +158,7 @@ func (m Model) fetchCASSContextCmd() tea.Cmd {
 
 		// If CASS not installed/available, degrade gracefully.
 		if !client.IsInstalled() {
-			return CASSContextMsg{Err: fmt.Errorf("cass not installed")}
+			return CASSContextMsg{Err: fmt.Errorf("cass not installed"), Gen: gen}
 		}
 
 		resp, err := client.Search(ctx, cass.SearchOptions{
@@ -157,15 +166,16 @@ func (m Model) fetchCASSContextCmd() tea.Cmd {
 			Limit: 5,
 		})
 		if err != nil {
-			return CASSContextMsg{Err: err}
+			return CASSContextMsg{Err: err, Gen: gen}
 		}
 
-		return CASSContextMsg{Hits: resp.Hits}
+		return CASSContextMsg{Hits: resp.Hits, Gen: gen}
 	}
 }
 
 // fetchRoutingCmd fetches routing scores for all agents in the session.
-func (m Model) fetchRoutingCmd() tea.Cmd {
+func (m *Model) fetchRoutingCmd() tea.Cmd {
+	gen := m.nextGen(refreshRouting)
 	session := m.session
 	panes := m.panes
 
@@ -174,14 +184,14 @@ func (m Model) fetchRoutingCmd() tea.Cmd {
 
 		// Skip if no panes
 		if len(panes) == 0 {
-			return RoutingUpdateMsg{Scores: scores}
+			return RoutingUpdateMsg{Scores: scores, Gen: gen}
 		}
 
 		// Score agents using the robot package
 		scorer := robot.NewAgentScorer(robot.DefaultRoutingConfig())
 		scoredAgents, err := scorer.ScoreAgents(session, "")
 		if err != nil {
-			return RoutingUpdateMsg{Err: err}
+			return RoutingUpdateMsg{Err: err, Gen: gen}
 		}
 
 		// Find the recommended agent (highest score, not excluded)
@@ -203,19 +213,20 @@ func (m Model) fetchRoutingCmd() tea.Cmd {
 			}
 		}
 
-		return RoutingUpdateMsg{Scores: scores}
+		return RoutingUpdateMsg{Scores: scores, Gen: gen}
 	}
 }
 
 // fetchSpawnStateCmd reads spawn state from the project directory
-func (m Model) fetchSpawnStateCmd() tea.Cmd {
+func (m *Model) fetchSpawnStateCmd() tea.Cmd {
+	gen := m.nextGen(refreshSpawn)
 	projectDir := m.projectDir
 
 	return func() tea.Msg {
 		state, err := loadSpawnState(projectDir)
 		if err != nil || state == nil {
 			// No spawn state or error reading - return inactive
-			return SpawnUpdateMsg{Data: panels.SpawnData{Active: false}}
+			return SpawnUpdateMsg{Data: panels.SpawnData{Active: false}, Gen: gen}
 		}
 
 		// Convert to SpawnData for the panel
@@ -238,7 +249,7 @@ func (m Model) fetchSpawnStateCmd() tea.Cmd {
 			})
 		}
 
-		return SpawnUpdateMsg{Data: data}
+		return SpawnUpdateMsg{Data: data, Gen: gen}
 	}
 }
 

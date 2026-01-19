@@ -18,6 +18,7 @@ type TickerData struct {
 	ClaudeCount  int
 	CodexCount   int
 	GeminiCount  int
+	UserCount    int
 
 	// Alerts
 	CriticalAlerts int
@@ -172,7 +173,7 @@ func (m *TickerPanel) buildPlainSegments() []string {
 func (m *TickerPanel) buildPlainFleetSegment() string {
 	var parts []string
 
-	activeStatus := fmt.Sprintf("Fleet: %d/%d", m.data.ActiveAgents, m.data.TotalAgents)
+	activeStatus := fmt.Sprintf("Fleet: %d active / %d total", m.data.ActiveAgents, m.data.TotalAgents)
 	parts = append(parts, activeStatus)
 
 	if m.data.TotalAgents > 0 {
@@ -185,6 +186,9 @@ func (m *TickerPanel) buildPlainFleetSegment() string {
 		}
 		if m.data.GeminiCount > 0 {
 			agentParts = append(agentParts, fmt.Sprintf("G:%d", m.data.GeminiCount))
+		}
+		if m.data.UserCount > 0 {
+			agentParts = append(agentParts, fmt.Sprintf("U:%d", m.data.UserCount))
 		}
 		if len(agentParts) > 0 {
 			parts = append(parts, "("+strings.Join(agentParts, " ")+")")

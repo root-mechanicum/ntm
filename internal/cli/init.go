@@ -3,23 +3,236 @@ package cli
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/spf13/cobra"
 
 	"github.com/Dicklesworthstone/ntm/internal/config"
+	"github.com/Dicklesworthstone/ntm/internal/hooks"
+	"github.com/Dicklesworthstone/ntm/internal/output"
 )
 
 func newInitCmd() *cobra.Command {
+	var template string
+	var agents string
+	var autoSpawn bool
+	var nonInteractive bool
+	var force bool
+	var noHooks bool
+
+	cmd := &cobra.Command{
+		Use:   "init [path]",
+		Short: "Initialize NTM for a project directory",
+		Long: `Initialize NTM orchestration for a project directory.
+
+This command will set up project-local NTM configuration and integrations.
+By default, it targets the current working directory.
+
+Git hooks installed (unless --no-hooks):
+  - pre-commit: Syncs beads and runs UBS quality checks
+  - post-checkout: Warns about uncommitted beads changes`,
+		Args: cobra.RangeArgs(0, 1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			opts := initOptions{
+				Template:       template,
+				Agents:         agents,
+				AutoSpawn:      autoSpawn,
+				NonInteractive: nonInteractive,
+				Force:          force,
+				NoHooks:        noHooks,
+			}
+			if len(args) > 0 {
+				opts.TargetDir = args[0]
+			}
+			return runProjectInit(opts)
+		},
+	}
+
+	cmd.Flags().StringVar(&template, "template", "", "Project template (go, python, node, rust)")
+	cmd.Flags().StringVar(&agents, "agents", "", "Agent spec for auto-spawn (e.g. cc=2,cod=1,gmi=1)")
+	cmd.Flags().BoolVar(&autoSpawn, "auto-spawn", false, "Spawn agents after initialization")
+	cmd.Flags().BoolVar(&nonInteractive, "non-interactive", false, "Disable prompts; fail on missing info")
+	cmd.Flags().BoolVarP(&force, "force", "f", false, "Overwrite existing .ntm directory")
+	cmd.Flags().BoolVar(&noHooks, "no-hooks", false, "Skip git hooks installation")
+
+	return cmd
+}
+
+type initOptions struct {
+	TargetDir      string
+	Template       string
+	Agents         string
+	AutoSpawn      bool
+	NonInteractive bool
+	Force          bool
+	NoHooks        bool
+}
+
+func runProjectInit(opts initOptions) error {
+	target := opts.TargetDir
+	if target == "" {
+		var err error
+		target, err = os.Getwd()
+		if err != nil {
+			return fmt.Errorf("get working directory: %w", err)
+		}
+	}
+
+	if opts.TargetDir != "" && isShellName(opts.TargetDir) {
+		if _, err := os.Stat(opts.TargetDir); err != nil {
+			return fmt.Errorf("shell integration moved: use \"ntm shell %s\"", opts.TargetDir)
+		}
+	}
+
+	absTarget, err := filepath.Abs(target)
+	if err != nil {
+		return fmt.Errorf("resolve target directory: %w", err)
+	}
+
+	stat, err := os.Stat(absTarget)
+	if err != nil {
+		return fmt.Errorf("target directory not found: %w", err)
+	}
+	if !stat.IsDir() {
+		return fmt.Errorf("target path is not a directory: %s", absTarget)
+	}
+
+	ntmDir := filepath.Join(absTarget, ".ntm")
+	if fileExists(ntmDir) && !opts.Force {
+		return fmt.Errorf("ntm already initialized at %s (use --force to reinitialize)", ntmDir)
+	}
+
+	result, err := config.InitProjectConfigAt(absTarget, opts.Force)
+	if err != nil {
+		return err
+	}
+
+	configPath := filepath.Join(result.NTMDir, "config.toml")
+	registered, warning, err := registerAgentMailProject(absTarget, configPath)
+	if err != nil {
+		return err
+	}
+
+	// Install git hooks (unless --no-hooks)
+	var hooksInstalled []string
+	var hooksWarning string
+	if !opts.NoHooks {
+		hooksInstalled, hooksWarning = installGitHooks(absTarget, opts.Force)
+	}
+
+	if IsJSONOutput() {
+		payload := map[string]interface{}{
+			"success":         true,
+			"project_path":    absTarget,
+			"ntm_dir":         result.NTMDir,
+			"created_dirs":    result.CreatedDirs,
+			"created_files":   result.CreatedFiles,
+			"agent_mail":      registered,
+			"hooks_installed": hooksInstalled,
+			"template":        opts.Template,
+			"agents":          opts.Agents,
+			"auto_spawn":      opts.AutoSpawn,
+			"non_interactive": opts.NonInteractive,
+			"force":           opts.Force,
+			"no_hooks":        opts.NoHooks,
+		}
+		if warning != "" {
+			payload["agent_mail_warning"] = warning
+		}
+		if hooksWarning != "" {
+			payload["hooks_warning"] = hooksWarning
+		}
+		return output.PrintJSON(payload)
+	}
+
+	output.PrintSuccessf("Initialized NTM project in %s", result.NTMDir)
+	if warning != "" {
+		output.PrintWarningf("Agent Mail: %s", warning)
+	} else if registered {
+		output.PrintSuccess("Registered project with Agent Mail")
+	}
+	if len(result.CreatedDirs) > 0 {
+		output.PrintInfof("Created %s", output.CountStr(len(result.CreatedDirs), "directory", "directories"))
+	}
+	if len(result.CreatedFiles) > 0 {
+		output.PrintInfof("Created %s", output.CountStr(len(result.CreatedFiles), "file", "files"))
+	}
+
+	// Report hooks installation
+	if len(hooksInstalled) > 0 {
+		output.PrintSuccessf("Installed git hooks: %s", strings.Join(hooksInstalled, ", "))
+	}
+	if hooksWarning != "" {
+		output.PrintWarningf("Git hooks: %s", hooksWarning)
+	}
+
+	if opts.Template != "" {
+		output.PrintWarning("Template setup not yet implemented for init")
+	}
+	if opts.Agents != "" || opts.AutoSpawn {
+		output.PrintWarning("Auto-spawn not yet implemented for init")
+	}
+
+	return nil
+}
+
+// installGitHooks installs pre-commit and post-checkout hooks for the project.
+// Returns the list of installed hooks and any warning message.
+func installGitHooks(projectDir string, force bool) ([]string, string) {
+	var installed []string
+
+	// Try to create a hook manager - this will fail if not a git repo
+	mgr, err := hooks.NewManager(projectDir)
+	if err != nil {
+		if err == hooks.ErrNotGitRepo {
+			return nil, "not a git repository, skipping hooks"
+		}
+		return nil, fmt.Sprintf("failed to initialize hooks: %v", err)
+	}
+
+	// Install pre-commit hook (beads sync + UBS)
+	if err := mgr.Install(hooks.HookPreCommit, force); err != nil {
+		if err != hooks.ErrHookExists {
+			return installed, fmt.Sprintf("pre-commit: %v", err)
+		}
+		// Hook exists and force is false - skip but don't warn
+	} else {
+		installed = append(installed, "pre-commit")
+	}
+
+	// Install post-checkout hook (beads warning)
+	if err := mgr.Install(hooks.HookPostCheckout, force); err != nil {
+		if err != hooks.ErrHookExists {
+			return installed, fmt.Sprintf("post-checkout: %v", err)
+		}
+		// Hook exists and force is false - skip but don't warn
+	} else {
+		installed = append(installed, "post-checkout")
+	}
+
+	return installed, ""
+}
+
+func isShellName(value string) bool {
+	switch value {
+	case "zsh", "bash", "fish":
+		return true
+	default:
+		return false
+	}
+}
+
+func newShellCmd() *cobra.Command {
 	return &cobra.Command{
-		Use:   "init <shell>",
+		Use:   "shell <shell>",
 		Short: "Generate shell integration script",
 		Long: `Generate shell integration for zsh, bash, or fish.
 
 Add to your shell rc file:
-  zsh:  eval "$(ntm init zsh)"   → ~/.zshrc
-  bash: eval "$(ntm init bash)"  → ~/.bashrc
-  fish: ntm init fish | source   → ~/.config/fish/config.fish
+  zsh:  eval "$(ntm shell zsh)"   → ~/.zshrc
+  bash: eval "$(ntm shell bash)"  → ~/.bashrc
+  fish: ntm shell fish | source   → ~/.config/fish/config.fish
 
 This adds:
   - Agent aliases (cc, cod, gmi)
@@ -29,12 +242,12 @@ This adds:
 		Args:      cobra.ExactArgs(1),
 		ValidArgs: []string{"zsh", "bash", "fish"},
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runInit(args[0])
+			return runShellInit(args[0])
 		},
 	}
 }
 
-func runInit(shell string) error {
+func runShellInit(shell string) error {
 	// Load config for agent commands (use defaults if not found)
 	cfg, err := config.Load("")
 	if err != nil {
@@ -67,8 +280,8 @@ func quoteAlias(s string) string {
 func generateZsh(cfg *config.Config) string {
 	var b strings.Builder
 
-	b.WriteString(`# NTM Shell Integration (generated by 'ntm init zsh')
-# Add to ~/.zshrc: eval "$(ntm init zsh)"
+	b.WriteString(`# NTM Shell Integration (generated by 'ntm shell zsh')
+# Add to ~/.zshrc: eval "$(ntm shell zsh)"
 
 `)
 
@@ -136,7 +349,8 @@ _ntm() {
     'palette:Open command palette'
     'deps:Check dependencies'
     'kill:Kill a session'
-    'init:Generate shell integration'
+    'init:Initialize project'
+    'shell:Generate shell integration'
     'completion:Generate completions'
     'config:Manage configuration'
     'version:Print version'
@@ -185,8 +399,8 @@ fi
 func generateBash(cfg *config.Config) string {
 	var b strings.Builder
 
-	b.WriteString(`# NTM Shell Integration (generated by 'ntm init bash')
-# Add to ~/.bashrc: eval "$(ntm init bash)"
+	b.WriteString(`# NTM Shell Integration (generated by 'ntm shell bash')
+# Add to ~/.bashrc: eval "$(ntm shell bash)"
 
 `)
 
@@ -234,7 +448,7 @@ _ntm_completions() {
   local prev="${COMP_WORDS[COMP_CWORD-1]}"
 
   if [[ ${COMP_CWORD} -eq 1 ]]; then
-    COMPREPLY=($(compgen -W "create spawn quick add send interrupt attach list status view zoom copy save palette deps kill init completion config version" -- "$cur"))
+    COMPREPLY=($(compgen -W "create spawn quick add send interrupt attach list status view zoom copy save palette deps kill init shell completion config version" -- "$cur"))
   else
     case "${COMP_WORDS[1]}" in
       attach|status|send|interrupt|kill|add|palette|view|zoom|copy|save)
@@ -258,8 +472,8 @@ bind '"\e[17~":"ntm palette\n"'
 func generateFish(cfg *config.Config) string {
 	var b strings.Builder
 
-	b.WriteString(`# NTM Shell Integration (generated by 'ntm init fish')
-# Add to config.fish: ntm init fish | source
+	b.WriteString(`# NTM Shell Integration (generated by 'ntm shell fish')
+# Add to config.fish: ntm shell fish | source
 
 `)
 
@@ -323,7 +537,8 @@ complete -c ntm -n "__fish_use_subcommand" -a "save" -d "Save pane outputs to fi
 complete -c ntm -n "__fish_use_subcommand" -a "palette" -d "Open command palette"
 complete -c ntm -n "__fish_use_subcommand" -a "deps" -d "Check dependencies"
 complete -c ntm -n "__fish_use_subcommand" -a "kill" -d "Kill a session"
-complete -c ntm -n "__fish_use_subcommand" -a "init" -d "Generate shell integration"
+complete -c ntm -n "__fish_use_subcommand" -a "init" -d "Initialize project"
+complete -c ntm -n "__fish_use_subcommand" -a "shell" -d "Generate shell integration"
 complete -c ntm -n "__fish_use_subcommand" -a "config" -d "Manage configuration"
 
 complete -c ntm -n "__fish_seen_subcommand_from attach status send interrupt kill add palette view zoom copy save" -a "(__fish_ntm_sessions)"

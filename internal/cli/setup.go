@@ -1,10 +1,15 @@
 package cli
 
 import (
+	"context"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"sort"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/cobra"
@@ -58,6 +63,8 @@ type SetupResponse struct {
 	CreatedFiles      []string `json:"created_files"`
 	WrappersInstalled bool     `json:"wrappers_installed,omitempty"`
 	HooksInstalled    bool     `json:"hooks_installed,omitempty"`
+	BeadsInitialized  bool     `json:"beads_initialized,omitempty"`
+	BeadsWarning      string   `json:"beads_warning,omitempty"`
 }
 
 func runSetup(installWrappers, installHooks, force bool) error {
@@ -128,6 +135,15 @@ func runSetup(installWrappers, installHooks, force bool) error {
 		createdFiles = append(createdFiles, ".ntm/policy.yaml")
 	}
 
+	// Write AGENTS.md
+	agentsCreated, err := writeAgentsFile(projectPath, force)
+	if err != nil {
+		return err
+	}
+	if agentsCreated {
+		createdFiles = append(createdFiles, "AGENTS.md")
+	}
+
 	// Add .ntm to .gitignore if it exists
 	gitignorePath := filepath.Join(projectPath, ".gitignore")
 	if fileExists(gitignorePath) {
@@ -135,6 +151,11 @@ func runSetup(installWrappers, installHooks, force bool) error {
 			// Non-fatal, just warn
 			fmt.Fprintf(os.Stderr, "Warning: could not update .gitignore: %v\n", err)
 		}
+	}
+
+	beadsInitialized, beadsWarning, err := initBeadsIfAvailable(projectPath)
+	if err != nil {
+		return fmt.Errorf("initializing beads: %w", err)
 	}
 
 	// Install wrappers if requested
@@ -168,6 +189,8 @@ func runSetup(installWrappers, installHooks, force bool) error {
 			CreatedFiles:        createdFiles,
 			WrappersInstalled:   wrappersInstalled,
 			HooksInstalled:      hooksInstalled,
+			BeadsInitialized:    beadsInitialized,
+			BeadsWarning:        beadsWarning,
 		})
 	}
 
@@ -197,6 +220,13 @@ func runSetup(installWrappers, installHooks, force bool) error {
 	}
 	if hooksInstalled {
 		fmt.Printf("  %s Installed Claude Code hooks\n", okStyle.Render("✓"))
+	}
+	if beadsInitialized {
+		fmt.Printf("  %s Initialized beads tracking (.beads/)\n", okStyle.Render("✓"))
+	}
+	if beadsWarning != "" {
+		warnStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("214"))
+		fmt.Printf("  %s %s\n", warnStyle.Render("⚠"), beadsWarning)
 	}
 
 	fmt.Printf("  %s\n", mutedStyle.Render("Project ready for NTM orchestration"))
@@ -359,4 +389,142 @@ func splitLines(s string) []string {
 		lines = append(lines, strings.TrimSuffix(line, "\r"))
 	}
 	return lines
+}
+
+func initBeadsIfAvailable(projectPath string) (bool, string, error) {
+	beadsPath := filepath.Join(projectPath, ".beads")
+	if fileExists(beadsPath) {
+		return false, "", nil
+	}
+
+	if _, err := exec.LookPath("br"); err != nil {
+		return false, "beads_rust (br) not found in PATH; install beads_rust to enable .beads tracking", nil
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "br", "init", "--json")
+	cmd.Dir = projectPath
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		if ctx.Err() == context.DeadlineExceeded {
+			return false, "", fmt.Errorf("br init timed out")
+		}
+		return false, "", fmt.Errorf("br init failed: %w: %s", err, strings.TrimSpace(string(out)))
+	}
+
+	return true, "", nil
+}
+
+func registerAgentMailProject(projectPath, configPath string) (bool, string, error) {
+	absPath, err := filepath.Abs(projectPath)
+	if err != nil {
+		return false, "", fmt.Errorf("resolving project path: %w", err)
+	}
+
+	client := newAgentMailClient(absPath)
+	registered := false
+	warning := ""
+
+	if !client.IsAvailable() {
+		warning = "server not available"
+	} else {
+		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+		defer cancel()
+
+		if _, err := client.EnsureProject(ctx, absPath); err != nil {
+			warning = fmt.Sprintf("ensure_project failed: %v", err)
+		} else {
+			registered = true
+		}
+	}
+
+	updates := map[string]string{
+		"agent_mail":             "true",
+		"agent_mail_project_key": strconv.Quote(absPath),
+		"agent_mail_registered":  strconv.FormatBool(registered),
+	}
+	if registered {
+		updates["agent_mail_registered_at"] = strconv.Quote(time.Now().UTC().Format(time.RFC3339))
+	}
+
+	if err := updateTomlSection(configPath, "integrations", updates); err != nil {
+		return registered, warning, err
+	}
+
+	return registered, warning, nil
+}
+
+func updateTomlSection(path, section string, updates map[string]string) error {
+	if len(updates) == 0 {
+		return nil
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("reading config: %w", err)
+	}
+
+	lines := splitLines(string(data))
+	sectionHeader := "[" + section + "]"
+
+	start := -1
+	for i, line := range lines {
+		if strings.TrimSpace(line) == sectionHeader {
+			start = i
+			break
+		}
+	}
+
+	keys := make([]string, 0, len(updates))
+	for k := range updates {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
+	if start == -1 {
+		if len(lines) > 0 && strings.TrimSpace(lines[len(lines)-1]) != "" {
+			lines = append(lines, "")
+		}
+		lines = append(lines, sectionHeader)
+		for _, key := range keys {
+			lines = append(lines, fmt.Sprintf("%s = %s", key, updates[key]))
+		}
+		return os.WriteFile(path, []byte(strings.Join(lines, "\n")+"\n"), 0644)
+	}
+
+	end := len(lines)
+	for i := start + 1; i < len(lines); i++ {
+		if strings.HasPrefix(strings.TrimSpace(lines[i]), "[") {
+			end = i
+			break
+		}
+	}
+
+	existing := make(map[string]int)
+	for i := start + 1; i < end; i++ {
+		trimmed := strings.TrimSpace(lines[i])
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+		if idx := strings.Index(trimmed, "="); idx != -1 {
+			key := strings.TrimSpace(trimmed[:idx])
+			if key != "" {
+				existing[key] = i
+			}
+		}
+	}
+
+	for _, key := range keys {
+		line := fmt.Sprintf("%s = %s", key, updates[key])
+		if idx, ok := existing[key]; ok {
+			lines[idx] = line
+		} else {
+			lines = append(lines[:end], append([]string{line}, lines[end:]...)...)
+			end++
+		}
+	}
+
+	return os.WriteFile(path, []byte(strings.Join(lines, "\n")+"\n"), 0644)
 }

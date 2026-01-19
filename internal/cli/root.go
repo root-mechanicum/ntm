@@ -50,8 +50,8 @@ Quick Start:
   ntm send myproject --all "fix bugs"   # Broadcast prompt to all agents
 
 Shell Integration:
-  Add to your .zshrc:  eval "$(ntm init zsh)"
-  Add to your .bashrc: eval "$(ntm init bash)"`,
+  Add to your .zshrc:  eval "$(ntm shell zsh)"
+  Add to your .bashrc: eval "$(ntm shell bash)"`,
 	SilenceUsage:  true,
 	SilenceErrors: true,
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
@@ -1340,8 +1340,9 @@ func init() {
 		// Beads daemon management
 		newBeadsCmd(),
 
-		// Shell integration
+		// Project initialization + shell integration
 		newInitCmd(),
+		newShellCmd(),
 		newCompletionCmd(),
 		newVersionCmd(),
 		newConfigCmd(),
@@ -1694,7 +1695,27 @@ Examples:
 		Use:   "init",
 		Short: "Initialize .ntm configuration for current project",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return config.InitProjectConfig(projectInitForce)
+			if err := config.InitProjectConfig(projectInitForce); err != nil {
+				return err
+			}
+
+			projectPath, err := os.Getwd()
+			if err != nil {
+				return fmt.Errorf("getting working directory: %w", err)
+			}
+
+			configPath := filepath.Join(projectPath, ".ntm", "config.toml")
+			registered, warning, err := registerAgentMailProject(projectPath, configPath)
+			if err != nil {
+				return err
+			}
+			if warning != "" {
+				output.PrintWarningf("Agent Mail: %s", warning)
+			} else if registered {
+				output.PrintSuccess("Registered project with Agent Mail")
+			}
+
+			return nil
 		},
 	}
 	projectInitCmd.Flags().BoolVar(&projectInitForce, "force", false, "overwrite .ntm/config.toml if it already exists")

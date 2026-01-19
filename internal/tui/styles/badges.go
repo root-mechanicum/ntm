@@ -683,19 +683,38 @@ func renderBadge(text string, bgColor, fgColor lipgloss.Color, opt BadgeOptions)
 	return style.Render(text)
 }
 
-// truncateBadgeText truncates text to maxLen runes, adding ellipsis if needed
-func truncateBadgeText(s string, maxLen int) string {
-	if maxLen <= 0 {
+// truncateBadgeText truncates text to maxWidth terminal columns, adding ellipsis if needed.
+// Uses lipgloss.Width() to properly handle ANSI codes and double-width runes.
+func truncateBadgeText(s string, maxWidth int) string {
+	if maxWidth <= 0 {
 		return ""
 	}
-	runes := []rune(s)
-	if len(runes) <= maxLen {
+	if lipgloss.Width(s) <= maxWidth {
 		return s
 	}
-	if maxLen == 1 {
+	if maxWidth == 1 {
 		return "…"
 	}
-	return string(runes[:maxLen-1]) + "…"
+
+	ellipsisWidth := lipgloss.Width("…")
+	targetWidth := maxWidth - ellipsisWidth
+	if targetWidth <= 0 {
+		return "…"
+	}
+
+	return truncateToWidth(s, targetWidth) + "…"
+}
+
+func truncateToWidth(s string, maxWidth int) string {
+	runes := []rune(s)
+	for len(runes) > 0 {
+		candidate := string(runes)
+		if lipgloss.Width(candidate) <= maxWidth {
+			return candidate
+		}
+		runes = runes[:len(runes)-1]
+	}
+	return ""
 }
 
 // BadgeGroup renders multiple badges in a horizontal group
