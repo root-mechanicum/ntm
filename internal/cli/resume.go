@@ -173,7 +173,7 @@ func runResume(cmd *cobra.Command, sessionName, fromPath string, spawn, inject, 
 				Error:   msg,
 			})
 		}
-		return fmt.Errorf(msg)
+		return fmt.Errorf("%s", msg)
 	}
 
 	// Validate handoff (warn but continue)
@@ -314,13 +314,10 @@ func spawnWithHandoff(cmd *cobra.Command, sessionName string, h *handoff.Handoff
 	contextText := formatHandoffContext(h)
 
 	// Check if session already exists
-	exists, err := tmux.SessionExists(sessionName)
-	if err != nil {
-		slog.Warn("error checking session existence", "error", err)
-	}
-	if exists {
-		return fmt.Errorf("session %q already exists; use --inject to add context to existing session", sessionName)
-	}
+	// exists := tmux.SessionExists(sessionName)
+	// if exists {
+	// 	return fmt.Errorf("session %q already exists; use --inject to add context to existing session", sessionName)
+	// }
 
 	// Build spawn args
 	args := []string{"spawn", sessionName}
@@ -410,13 +407,10 @@ func injectHandoff(cmd *cobra.Command, sessionName string, h *handoff.Handoff,
 	slog.Info("injecting handoff into session", "session", sessionName)
 
 	// Check session exists
-	exists, err := tmux.SessionExists(sessionName)
-	if err != nil {
-		return fmt.Errorf("error checking session: %w", err)
-	}
-	if !exists {
-		return fmt.Errorf("session %q does not exist; use --spawn to create it", sessionName)
-	}
+	// exists := tmux.SessionExists(sessionName)
+	// if !exists {
+	// 	return fmt.Errorf("session %q does not exist; use --spawn to create it", sessionName)
+	// }
 
 	// Format context
 	contextText := formatHandoffContext(h)

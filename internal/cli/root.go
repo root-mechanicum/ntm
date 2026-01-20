@@ -1279,6 +1279,7 @@ func init() {
 	rootCmd.Flags().StringVar(&robotInterruptTimeout, "interrupt-timeout", "10s", "Max wait for ready state after interrupt (e.g., 10s, 5000ms). Ignored with --interrupt-no-wait")
 
 	// Robot-restart-pane flag
+	rootCmd.Flags().StringVar(&robotRestartPane, "robot-restart-pane", "", "Restart pane process (kill and respawn). Required: SESSION. Example: ntm --robot-restart-pane=proj --panes=1,2")
 
 	// Robot-terse flag for ultra-compact output
 	rootCmd.Flags().BoolVar(&robotTerse, "robot-terse", false, "Single-line state: S:session|A:ready/total|W:working|I:idle|B:beads|M:mail|!:alerts. Minimal tokens")
@@ -1479,6 +1480,7 @@ func init() {
 		newRollbackCmd(),
 		newSessionPersistCmd(),
 		newHandoffCmd(),
+		newResumeCmd(),
 
 		// Utilities
 		newPaletteCmd(),
@@ -1523,6 +1525,7 @@ func init() {
 		newVersionCmd(),
 		newConfigCmd(),
 		newUpgradeCmd(),
+		newLevelCmd(),
 
 		// Tutorial
 		newTutorialCmd(),
