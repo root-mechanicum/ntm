@@ -439,12 +439,16 @@ func (m *WebhookManager) retryProcessor() {
 		now := time.Now()
 		var ready []Delivery
 		var notReady []Delivery
+		var nextRetry time.Time
 
 		for _, d := range m.retryQueue {
 			if d.NextRetry.Before(now) || d.NextRetry.Equal(now) {
 				ready = append(ready, d)
 			} else {
 				notReady = append(notReady, d)
+				if nextRetry.IsZero() || d.NextRetry.Before(nextRetry) {
+					nextRetry = d.NextRetry
+				}
 			}
 		}
 
@@ -457,11 +461,28 @@ func (m *WebhookManager) retryProcessor() {
 			m.processDelivery(&delivery)
 		}
 
-		// Sleep briefly before checking again
+		// If we processed items, check again immediately as new items might have been added
+		if len(ready) > 0 {
+			continue
+		}
+
+		// Calculate sleep duration
+		sleepDuration := 1 * time.Second // Default cap
+		if !nextRetry.IsZero() {
+			until := time.Until(nextRetry)
+			if until < sleepDuration {
+				sleepDuration = until
+			}
+		}
+		if sleepDuration < 5*time.Millisecond {
+			sleepDuration = 5 * time.Millisecond
+		}
+
+		// Sleep until next retry or shutdown
 		select {
 		case <-m.ctx.Done():
 			return
-		case <-time.After(100 * time.Millisecond):
+		case <-time.After(sleepDuration):
 		}
 	}
 }

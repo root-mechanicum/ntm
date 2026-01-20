@@ -17,35 +17,48 @@ import (
 
 // Config represents the main configuration
 type Config struct {
-	ProjectsBase    string                `toml:"projects_base"`
-	Theme           string                `toml:"theme"`        // UI Theme (mocha, macchiato, nord, latte, auto)
-	PaletteFile     string                `toml:"palette_file"` // Path to command_palette.md (optional)
-	SuggestionsEnabled bool              `toml:"suggestions_enabled"` // Show contextual CLI suggestions
-	Agents          AgentConfig           `toml:"agents"`
-	Palette         []PaletteCmd          `toml:"palette"`
-	PaletteState    PaletteState          `toml:"palette_state"`
-	Tmux            TmuxConfig            `toml:"tmux"`
-	AgentMail       AgentMailConfig       `toml:"agent_mail"`
-	Models          ModelsConfig          `toml:"models"`
-	Alerts          AlertsConfig          `toml:"alerts"`
-	Checkpoints     CheckpointsConfig     `toml:"checkpoints"`
-	Notifications   notify.Config         `toml:"notifications"`
-	Resilience      ResilienceConfig      `toml:"resilience"`
-	Health          HealthConfig          `toml:"health"`           // Health monitoring configuration
-	Scanner         ScannerConfig         `toml:"scanner"`          // UBS scanner configuration
-	CASS            CASSConfig            `toml:"cass"`             // CASS integration configuration
-	Accounts        AccountsConfig        `toml:"accounts"`         // Multi-account management
-	Rotation        RotationConfig        `toml:"rotation"`         // Account rotation configuration
-	GeminiSetup     GeminiSetupConfig     `toml:"gemini_setup"`     // Gemini post-spawn setup
-	ContextRotation ContextRotationConfig `toml:"context_rotation"` // Context window rotation
-	SessionRecovery SessionRecoveryConfig `toml:"recovery"`          // Smart session recovery
-	Cleanup         CleanupConfig         `toml:"cleanup"`           // Temp file cleanup configuration
-	FileReservation FileReservationConfig `toml:"file_reservation"` // Auto file reservation via Agent Mail
-	Memory          MemoryConfig          `toml:"memory"`           // CASS Memory (cm) integration
-	Assign          AssignConfig          `toml:"assign"`           // Assignment strategy configuration
+	ProjectsBase       string                `toml:"projects_base"`
+	Theme              string                `toml:"theme"`               // UI Theme (mocha, macchiato, nord, latte, auto)
+	PaletteFile        string                `toml:"palette_file"`        // Path to command_palette.md (optional)
+	SuggestionsEnabled bool                  `toml:"suggestions_enabled"` // Show contextual CLI suggestions
+	Agents             AgentConfig           `toml:"agents"`
+	Palette            []PaletteCmd          `toml:"palette"`
+	PaletteState       PaletteState          `toml:"palette_state"`
+	Tmux               TmuxConfig            `toml:"tmux"`
+	Robot              RobotConfig           `toml:"robot"`
+	AgentMail          AgentMailConfig       `toml:"agent_mail"`
+	Models             ModelsConfig          `toml:"models"`
+	Alerts             AlertsConfig          `toml:"alerts"`
+	Checkpoints        CheckpointsConfig     `toml:"checkpoints"`
+	Notifications      notify.Config         `toml:"notifications"`
+	Resilience         ResilienceConfig      `toml:"resilience"`
+	Health             HealthConfig          `toml:"health"`           // Health monitoring configuration
+	Scanner            ScannerConfig         `toml:"scanner"`          // UBS scanner configuration
+	CASS               CASSConfig            `toml:"cass"`             // CASS integration configuration
+	Accounts           AccountsConfig        `toml:"accounts"`         // Multi-account management
+	Rotation           RotationConfig        `toml:"rotation"`         // Account rotation configuration
+	GeminiSetup        GeminiSetupConfig     `toml:"gemini_setup"`     // Gemini post-spawn setup
+	ContextRotation    ContextRotationConfig `toml:"context_rotation"` // Context window rotation
+	SessionRecovery    SessionRecoveryConfig `toml:"recovery"`         // Smart session recovery
+	Cleanup            CleanupConfig         `toml:"cleanup"`          // Temp file cleanup configuration
+	FileReservation    FileReservationConfig `toml:"file_reservation"` // Auto file reservation via Agent Mail
+	Memory             MemoryConfig          `toml:"memory"`           // CASS Memory (cm) integration
+	Assign             AssignConfig          `toml:"assign"`           // Assignment strategy configuration
 
 	// Runtime-only fields (populated by project config merging)
 	ProjectDefaults map[string]int `toml:"-"`
+}
+
+// RobotConfig holds defaults for robot output behavior.
+type RobotConfig struct {
+	Verbosity string `toml:"verbosity"` // terse, default, or debug
+}
+
+// DefaultRobotConfig returns sensible robot defaults.
+func DefaultRobotConfig() RobotConfig {
+	return RobotConfig{
+		Verbosity: "default",
+	}
 }
 
 // CheckpointsConfig holds configuration for automatic checkpoints
@@ -570,12 +583,12 @@ type MemoryConfig struct {
 // DefaultMemoryConfig returns sensible defaults for memory integration.
 func DefaultMemoryConfig() MemoryConfig {
 	return MemoryConfig{
-		Enabled:             true,  // Enabled by default (when cm is available)
-		IncludeInRecovery:   true,  // Include in session recovery context
-		MaxRules:            10,    // Cap number of rules to inject
-		IncludeAntiPatterns: true,  // Include anti-patterns by default
-		IncludeHistory:      true,  // Include historical snippets
-		QueryTimeoutSeconds: 5,     // 5 second timeout for cm queries
+		Enabled:             true, // Enabled by default (when cm is available)
+		IncludeInRecovery:   true, // Include in session recovery context
+		MaxRules:            10,   // Cap number of rules to inject
+		IncludeAntiPatterns: true, // Include anti-patterns by default
+		IncludeHistory:      true, // Include historical snippets
+		QueryTimeoutSeconds: 5,    // 5 second timeout for cm queries
 	}
 }
 
@@ -899,13 +912,14 @@ func Default() *Config {
 	}
 
 	cfg := &Config{
-		ProjectsBase: projectsBase,
+		ProjectsBase:       projectsBase,
 		SuggestionsEnabled: true,
-		Agents:       DefaultAgentTemplates(),
+		Agents:             DefaultAgentTemplates(),
 		Tmux: TmuxConfig{
 			DefaultPanes: 10,
 			PaletteKey:   "F6",
 		},
+		Robot: DefaultRobotConfig(),
 		AgentMail: AgentMailConfig{
 			Enabled:      true,
 			URL:          DefaultAgentMailURL,
@@ -1382,6 +1396,15 @@ func Print(cfg *Config, w io.Writer) error {
 	fmt.Fprintln(w, "# Tmux-specific settings")
 	fmt.Fprintf(w, "default_panes = %d\n", cfg.Tmux.DefaultPanes)
 	fmt.Fprintf(w, "palette_key = %q\n", cfg.Tmux.PaletteKey)
+	fmt.Fprintln(w)
+
+	fmt.Fprintln(w, "[robot]")
+	fmt.Fprintln(w, "# Robot output defaults (JSON/TOON)")
+	if cfg.Robot.Verbosity != "" {
+		fmt.Fprintf(w, "verbosity = %q\n", cfg.Robot.Verbosity)
+	} else {
+		fmt.Fprintln(w, "# verbosity = \"default\"")
+	}
 	fmt.Fprintln(w)
 
 	fmt.Fprintln(w, "[agent_mail]")

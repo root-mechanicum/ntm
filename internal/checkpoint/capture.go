@@ -13,6 +13,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Dicklesworthstone/ntm/internal/assignment"
+	"github.com/Dicklesworthstone/ntm/internal/bv"
 	"github.com/Dicklesworthstone/ntm/internal/tmux"
 )
 
@@ -99,6 +101,26 @@ func (c *Capturer) Create(sessionName, name string, opts ...CheckpointOption) (*
 			fmt.Fprintf(os.Stderr, "Warning: failed to capture git state: %v\n", err)
 		} else {
 			cp.Git = gitState
+		}
+	}
+
+	// Capture assignment state if enabled (bd-32ck)
+	if options.captureAssignments {
+		assignments, err := c.captureAssignments(sessionName)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to capture assignments: %v\n", err)
+		} else if len(assignments) > 0 {
+			cp.Assignments = assignments
+		}
+	}
+
+	// Capture BV snapshot if enabled (bd-32ck)
+	if options.captureBVSnapshot && workingDir != "" {
+		bvSnapshot, err := c.captureBVSnapshot(workingDir)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to capture BV snapshot: %v\n", err)
+		} else if bvSnapshot != nil {
+			cp.BVSummary = bvSnapshot
 		}
 	}
 
@@ -424,4 +446,58 @@ func (c *Capturer) ParseCheckpointRef(sessionName, ref string) (*Checkpoint, err
 	default:
 		return nil, fmt.Errorf("ambiguous checkpoint reference %q matches %d checkpoints", ref, len(matches))
 	}
+}
+
+// captureAssignments captures bead-to-agent assignment state for a session (bd-32ck).
+func (c *Capturer) captureAssignments(sessionName string) ([]AssignmentSnapshot, error) {
+	store, err := assignment.LoadStore(sessionName)
+	if err != nil {
+		return nil, fmt.Errorf("loading assignment store: %w", err)
+	}
+
+	active := store.ListActive()
+	if len(active) == 0 {
+		return nil, nil
+	}
+
+	snapshots := make([]AssignmentSnapshot, 0, len(active))
+	for _, a := range active {
+		snapshots = append(snapshots, AssignmentSnapshot{
+			BeadID:    a.BeadID,
+			BeadTitle: a.BeadTitle,
+			Pane:      a.Pane,
+			AgentType: a.AgentType,
+			AgentName: a.AgentName,
+			Status:    string(a.Status),
+			AssignedAt: a.AssignedAt,
+		})
+	}
+
+	return snapshots, nil
+}
+
+// captureBVSnapshot captures BV triage summary at checkpoint time (bd-32ck).
+func (c *Capturer) captureBVSnapshot(workingDir string) (*BVSnapshot, error) {
+	quickRef, err := bv.GetTriageQuickRef(workingDir)
+	if err != nil {
+		return nil, fmt.Errorf("getting triage quick ref: %w", err)
+	}
+	if quickRef == nil {
+		return nil, nil
+	}
+
+	// Extract top pick IDs
+	var topPicks []string
+	for _, pick := range quickRef.TopPicks {
+		topPicks = append(topPicks, pick.ID)
+	}
+
+	return &BVSnapshot{
+		OpenCount:       quickRef.OpenCount,
+		ActionableCount: quickRef.ActionableCount,
+		BlockedCount:    quickRef.BlockedCount,
+		InProgressCount: quickRef.InProgressCount,
+		TopPicks:        topPicks,
+		CapturedAt:      time.Now(),
+	}, nil
 }

@@ -71,9 +71,9 @@ func runLock(session string, patterns []string, reason, ttlStr string, shared bo
 		return fmt.Errorf("TTL must be at least 1 minute")
 	}
 
-	wd, err := os.Getwd()
-	if err != nil {
-		return fmt.Errorf("getting working directory: %w", err)
+	wd := GetProjectRoot()
+	if wd == "" {
+		return fmt.Errorf("getting project root failed")
 	}
 
 	sessionAgent, err := agentmail.LoadSessionAgent(session, wd)

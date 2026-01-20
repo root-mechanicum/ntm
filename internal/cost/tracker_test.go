@@ -414,3 +414,425 @@ func TestCostTracker_GetSession_ReturnsCopy(t *testing.T) {
 		t.Error("GetSession should return a copy, not the original")
 	}
 }
+
+// =============================================================================
+// bd-25o0: Additional Cost Estimation Tests
+// =============================================================================
+
+func TestPerModelPricingComprehensive(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		model       string
+		inputPer1K  float64
+		outputPer1K float64
+	}{
+		// Claude models
+		{"claude-opus", 0.015, 0.075},
+		{"claude-opus-4", 0.015, 0.075},
+		{"claude-opus-4-5", 0.015, 0.075},
+		{"claude-sonnet", 0.003, 0.015},
+		{"claude-sonnet-4", 0.003, 0.015},
+		{"claude-haiku", 0.00025, 0.00125},
+		{"claude-haiku-3-5", 0.00025, 0.00125},
+		{"claude-3-opus", 0.015, 0.075},
+		{"claude-3-sonnet", 0.003, 0.015},
+		{"claude-3-haiku", 0.00025, 0.00125},
+		{"claude-3-5-sonnet", 0.003, 0.015},
+		{"claude-3-5-haiku", 0.00025, 0.00125},
+
+		// OpenAI models
+		{"gpt-4o", 0.005, 0.015},
+		{"gpt-4o-mini", 0.00015, 0.0006},
+		{"gpt-4-turbo", 0.01, 0.03},
+		{"gpt-4", 0.03, 0.06},
+		{"o1", 0.015, 0.06},
+		{"o1-mini", 0.003, 0.012},
+		{"o1-preview", 0.015, 0.06},
+
+		// Google models
+		{"gemini-pro", 0.00025, 0.0005},
+		{"gemini-pro-1.5", 0.00025, 0.0005},
+		{"gemini-ultra", 0.00125, 0.00375},
+		{"gemini-flash", 0.000075, 0.0003},
+		{"gemini-flash-1.5", 0.000075, 0.0003},
+		{"gemini-2.0-flash", 0.000075, 0.0003},
+
+		// Unknown model defaults
+		{"unknown-model", 0.003, 0.015},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.model, func(t *testing.T) {
+			t.Parallel()
+
+			pricing := GetModelPricing(tt.model)
+
+			t.Logf("COST_TEST: Pricing | Model=%s | InputPer1K=$%.5f | OutputPer1K=$%.5f",
+				tt.model, pricing.InputPer1K, pricing.OutputPer1K)
+
+			if pricing.InputPer1K != tt.inputPer1K {
+				t.Errorf("InputPer1K = %v, want %v", pricing.InputPer1K, tt.inputPer1K)
+			}
+			if pricing.OutputPer1K != tt.outputPer1K {
+				t.Errorf("OutputPer1K = %v, want %v", pricing.OutputPer1K, tt.outputPer1K)
+			}
+		})
+	}
+}
+
+func TestCostCalculationAccuracy(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		inputTokens  int
+		outputTokens int
+		model        string
+		expectedCost float64
+	}{
+		{
+			name:         "claude-opus 10k/5k tokens",
+			inputTokens:  10000,
+			outputTokens: 5000,
+			model:        "claude-opus",
+			// 10k * 0.015/1000 + 5k * 0.075/1000 = 0.15 + 0.375 = 0.525
+			expectedCost: 0.525,
+		},
+		{
+			name:         "claude-haiku 100k/50k tokens",
+			inputTokens:  100000,
+			outputTokens: 50000,
+			model:        "claude-haiku",
+			// 100k * 0.00025/1000 + 50k * 0.00125/1000 = 0.025 + 0.0625 = 0.0875
+			expectedCost: 0.0875,
+		},
+		{
+			name:         "gpt-4o 10k/10k tokens",
+			inputTokens:  10000,
+			outputTokens: 10000,
+			model:        "gpt-4o",
+			// 10k * 0.005/1000 + 10k * 0.015/1000 = 0.05 + 0.15 = 0.20
+			expectedCost: 0.20,
+		},
+		{
+			name:         "gemini-flash 100k/100k tokens",
+			inputTokens:  100000,
+			outputTokens: 100000,
+			model:        "gemini-flash",
+			// 100k * 0.000075/1000 + 100k * 0.0003/1000 = 0.0075 + 0.03 = 0.0375
+			expectedCost: 0.0375,
+		},
+		{
+			name:         "zero tokens",
+			inputTokens:  0,
+			outputTokens: 0,
+			model:        "claude-opus",
+			expectedCost: 0.0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			agent := &AgentCost{
+				InputTokens:  tt.inputTokens,
+				OutputTokens: tt.outputTokens,
+				Model:        tt.model,
+			}
+
+			cost := agent.Cost()
+
+			t.Logf("COST_TEST: %s | Tokens=%d/%d | Model=%s | Cost=$%.4f",
+				tt.name, tt.inputTokens, tt.outputTokens, tt.model, cost)
+
+			// Allow small floating point tolerance
+			diff := cost - tt.expectedCost
+			if diff < -0.0001 || diff > 0.0001 {
+				t.Errorf("Cost() = %.6f, want %.6f", cost, tt.expectedCost)
+			}
+		})
+	}
+}
+
+func TestCostAggregationMultiAgent(t *testing.T) {
+	t.Parallel()
+
+	tracker := NewCostTracker("")
+
+	// Record tokens for multiple agents with different models
+	agents := []struct {
+		pane   string
+		model  string
+		input  int
+		output int
+	}{
+		{"pane1", "claude-opus", 10000, 5000},     // $0.525
+		{"pane2", "claude-sonnet", 20000, 10000},  // $0.21
+		{"pane3", "claude-haiku", 100000, 50000},  // $0.0875
+		{"pane4", "gpt-4o", 10000, 5000},          // $0.125
+	}
+
+	for _, a := range agents {
+		tracker.RecordTokens("test-session", a.pane, a.model, a.input, a.output)
+	}
+
+	totalCost := tracker.GetSessionCost("test-session")
+
+	// Expected: 0.525 + 0.21 + 0.0875 + 0.125 = 0.9475
+	expectedTotal := 0.9475
+
+	t.Logf("COST_TEST: CostAggregation | AgentCount=%d | TotalCost=$%.4f | Expected=$%.4f",
+		len(agents), totalCost, expectedTotal)
+
+	diff := totalCost - expectedTotal
+	if diff < -0.001 || diff > 0.001 {
+		t.Errorf("TotalCost = %.6f, want ~%.6f", totalCost, expectedTotal)
+	}
+}
+
+func TestCostFormatting(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		cost     float64
+		expected string
+	}{
+		{0.00001, "$0.0000"},
+		{0.0001, "$0.0001"},
+		{0.001, "$0.0010"},
+		{0.005, "$0.0050"},
+		{0.01, "$0.010"},
+		{0.05, "$0.050"},
+		{0.10, "$0.100"},
+		{0.50, "$0.500"},
+		{1.00, "$1.00"},
+		{5.00, "$5.00"},
+		{10.00, "$10.00"},
+		{99.99, "$99.99"},
+		{100.00, "$100.00"},
+		{1000.50, "$1000.50"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.expected, func(t *testing.T) {
+			t.Parallel()
+
+			formatted := FormatCost(tt.cost)
+
+			t.Logf("COST_TEST: Format | Cost=%.6f | Formatted=%s", tt.cost, formatted)
+
+			if formatted != tt.expected {
+				t.Errorf("FormatCost(%.6f) = %q, want %q", tt.cost, formatted, tt.expected)
+			}
+		})
+	}
+}
+
+func TestPerAgentTracking(t *testing.T) {
+	t.Parallel()
+
+	tracker := NewCostTracker("")
+
+	// Record multiple interactions for the same agent
+	tracker.RecordTokens("session1", "pane1", "claude-opus", 1000, 500)
+	tracker.RecordTokens("session1", "pane1", "claude-opus", 2000, 1000)
+	tracker.RecordTokens("session1", "pane1", "claude-opus", 3000, 1500)
+
+	// Record for different agent
+	tracker.RecordTokens("session1", "pane2", "claude-sonnet", 5000, 2500)
+
+	session := tracker.GetSession("session1")
+
+	// Verify pane1 accumulated correctly
+	pane1 := session.Agents["pane1"]
+	expectedInput := 1000 + 2000 + 3000
+	expectedOutput := 500 + 1000 + 1500
+
+	t.Logf("COST_TEST: PerAgent | Pane1 Input=%d (want %d) | Output=%d (want %d)",
+		pane1.InputTokens, expectedInput, pane1.OutputTokens, expectedOutput)
+
+	if pane1.InputTokens != expectedInput {
+		t.Errorf("pane1 InputTokens = %d, want %d", pane1.InputTokens, expectedInput)
+	}
+	if pane1.OutputTokens != expectedOutput {
+		t.Errorf("pane1 OutputTokens = %d, want %d", pane1.OutputTokens, expectedOutput)
+	}
+
+	// Verify pane2 is separate
+	pane2 := session.Agents["pane2"]
+	t.Logf("COST_TEST: PerAgent | Pane2 Input=%d | Output=%d",
+		pane2.InputTokens, pane2.OutputTokens)
+
+	if pane2.InputTokens != 5000 {
+		t.Errorf("pane2 InputTokens = %d, want 5000", pane2.InputTokens)
+	}
+	if pane2.OutputTokens != 2500 {
+		t.Errorf("pane2 OutputTokens = %d, want 2500", pane2.OutputTokens)
+	}
+}
+
+func TestSessionTotals(t *testing.T) {
+	t.Parallel()
+
+	session := &SessionCost{
+		Agents: map[string]*AgentCost{
+			"pane1": {InputTokens: 10000, OutputTokens: 5000, Model: "claude-opus"},
+			"pane2": {InputTokens: 20000, OutputTokens: 10000, Model: "claude-sonnet"},
+			"pane3": {InputTokens: 50000, OutputTokens: 25000, Model: "claude-haiku"},
+		},
+	}
+
+	// Test TotalTokens
+	inputTotal, outputTotal := session.TotalTokens()
+	expectedInput := 10000 + 20000 + 50000
+	expectedOutput := 5000 + 10000 + 25000
+
+	t.Logf("COST_TEST: SessionTotals | InputTokens=%d (want %d) | OutputTokens=%d (want %d)",
+		inputTotal, expectedInput, outputTotal, expectedOutput)
+
+	if inputTotal != expectedInput {
+		t.Errorf("TotalTokens input = %d, want %d", inputTotal, expectedInput)
+	}
+	if outputTotal != expectedOutput {
+		t.Errorf("TotalTokens output = %d, want %d", outputTotal, expectedOutput)
+	}
+
+	// Test TotalCost
+	totalCost := session.TotalCost()
+	// pane1: 10k*0.015/1k + 5k*0.075/1k = 0.15 + 0.375 = 0.525
+	// pane2: 20k*0.003/1k + 10k*0.015/1k = 0.06 + 0.15 = 0.21
+	// pane3: 50k*0.00025/1k + 25k*0.00125/1k = 0.0125 + 0.03125 = 0.04375
+	expectedCost := 0.525 + 0.21 + 0.04375
+
+	t.Logf("COST_TEST: SessionTotals | TotalCost=$%.4f (want $%.4f)", totalCost, expectedCost)
+
+	diff := totalCost - expectedCost
+	if diff < -0.001 || diff > 0.001 {
+		t.Errorf("TotalCost = %.6f, want %.6f", totalCost, expectedCost)
+	}
+}
+
+func TestHistoricalStorage(t *testing.T) {
+	t.Parallel()
+
+	tmpDir := t.TempDir()
+
+	// Create tracker and record multiple sessions
+	tracker1 := NewCostTracker(tmpDir)
+	tracker1.RecordTokens("session1", "pane1", "claude-opus", 10000, 5000)
+	tracker1.RecordTokens("session2", "pane1", "claude-sonnet", 20000, 10000)
+	tracker1.RecordTokens("session3", "pane1", "gpt-4o", 15000, 7500)
+
+	// Save to disk
+	if err := tracker1.SaveToDir(tmpDir); err != nil {
+		t.Fatalf("SaveToDir failed: %v", err)
+	}
+
+	// Create new tracker and load
+	tracker2 := NewCostTracker(tmpDir)
+	if err := tracker2.LoadFromDir(tmpDir); err != nil {
+		t.Fatalf("LoadFromDir failed: %v", err)
+	}
+
+	// Verify all sessions were persisted
+	sessions := tracker2.GetAllSessions()
+	t.Logf("COST_TEST: HistoricalStorage | SessionCount=%d", len(sessions))
+
+	if len(sessions) != 3 {
+		t.Errorf("Expected 3 sessions, got %d", len(sessions))
+	}
+
+	// Verify cost data integrity
+	for _, sessionName := range []string{"session1", "session2", "session3"} {
+		s := tracker2.GetSession(sessionName)
+		if s == nil {
+			t.Errorf("Session %s not found after load", sessionName)
+			continue
+		}
+		if len(s.Agents) != 1 {
+			t.Errorf("Session %s has %d agents, want 1", sessionName, len(s.Agents))
+		}
+	}
+
+	// Verify specific session data
+	s1 := tracker2.GetSession("session1")
+	if s1.Agents["pane1"].InputTokens != 10000 {
+		t.Errorf("session1 input tokens not preserved: got %d, want 10000",
+			s1.Agents["pane1"].InputTokens)
+	}
+}
+
+func TestEdgeCases(t *testing.T) {
+	t.Parallel()
+
+	t.Run("very large token counts", func(t *testing.T) {
+		t.Parallel()
+
+		agent := &AgentCost{
+			InputTokens:  10000000,  // 10M tokens
+			OutputTokens: 5000000,   // 5M tokens
+			Model:        "claude-opus",
+		}
+
+		cost := agent.Cost()
+		// 10M * 0.015/1k + 5M * 0.075/1k = 150 + 375 = 525
+		expectedCost := 525.0
+
+		t.Logf("COST_TEST: LargeTokens | Tokens=%d/%d | Cost=$%.2f",
+			agent.InputTokens, agent.OutputTokens, cost)
+
+		if cost != expectedCost {
+			t.Errorf("Large token cost = %.2f, want %.2f", cost, expectedCost)
+		}
+	})
+
+	t.Run("empty session", func(t *testing.T) {
+		t.Parallel()
+
+		session := &SessionCost{Agents: map[string]*AgentCost{}}
+		cost := session.TotalCost()
+		input, output := session.TotalTokens()
+
+		t.Logf("COST_TEST: EmptySession | Cost=$%.4f | Input=%d | Output=%d",
+			cost, input, output)
+
+		if cost != 0 {
+			t.Errorf("Empty session cost = %f, want 0", cost)
+		}
+		if input != 0 || output != 0 {
+			t.Errorf("Empty session tokens = %d/%d, want 0/0", input, output)
+		}
+	})
+
+	t.Run("mixed input only output only", func(t *testing.T) {
+		t.Parallel()
+
+		tracker := NewCostTracker("")
+		// Input only
+		tracker.RecordPrompt("session1", "pane1", "claude-opus", "Hello world test prompt")
+		// Output only
+		tracker.RecordResponse("session1", "pane2", "claude-opus", "Hello world test response")
+
+		session := tracker.GetSession("session1")
+		pane1 := session.Agents["pane1"]
+		pane2 := session.Agents["pane2"]
+
+		t.Logf("COST_TEST: MixedIO | Pane1(input-only) in=%d out=%d | Pane2(output-only) in=%d out=%d",
+			pane1.InputTokens, pane1.OutputTokens, pane2.InputTokens, pane2.OutputTokens)
+
+		if pane1.InputTokens == 0 {
+			t.Error("pane1 should have input tokens")
+		}
+		if pane1.OutputTokens != 0 {
+			t.Error("pane1 should have no output tokens")
+		}
+		if pane2.InputTokens != 0 {
+			t.Error("pane2 should have no input tokens")
+		}
+		if pane2.OutputTokens == 0 {
+			t.Error("pane2 should have output tokens")
+		}
+	})
+}

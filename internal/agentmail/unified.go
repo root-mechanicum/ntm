@@ -19,17 +19,40 @@ type UnifiedMessage struct {
 	Timestamp time.Time `json:"timestamp"`
 }
 
+type agentMailClient interface {
+	IsAvailable() bool
+	FetchInbox(ctx context.Context, opts FetchInboxOptions) ([]InboxMessage, error)
+	SendMessage(ctx context.Context, opts SendMessageOptions) (*SendResult, error)
+	MarkMessageRead(ctx context.Context, projectKey, agentName string, messageID int) error
+	AcknowledgeMessage(ctx context.Context, projectKey, agentName string, messageID int) error
+}
+
+type bdMessageClient interface {
+	Send(ctx context.Context, to, body string) error
+	Inbox(ctx context.Context, unreadOnly, urgentOnly bool) ([]bd.Message, error)
+	Read(ctx context.Context, id string) (*bd.Message, error)
+	Ack(ctx context.Context, id string) error
+}
+
 type UnifiedMessenger struct {
-	amClient   *Client
-	bdClient   *bd.MessageClient
+	amClient   agentMailClient
+	bdClient   bdMessageClient
 	projectKey string
 	agentName  string
 }
 
 func NewUnifiedMessenger(am *Client, bd *bd.MessageClient, projectKey, agentName string) *UnifiedMessenger {
+	var amClient agentMailClient
+	if am != nil {
+		amClient = am
+	}
+	var bdClient bdMessageClient
+	if bd != nil {
+		bdClient = bd
+	}
 	return &UnifiedMessenger{
-		amClient:   am,
-		bdClient:   bd,
+		amClient:   amClient,
+		bdClient:   bdClient,
 		projectKey: projectKey,
 		agentName:  agentName,
 	}

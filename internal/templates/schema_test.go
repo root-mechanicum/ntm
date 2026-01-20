@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -444,4 +445,201 @@ func TestGetBuiltinSessionTemplate(t *testing.T) {
 	if got != nil {
 		t.Error("expected nil for nonexistent template")
 	}
+}
+
+func TestParseSessionTemplate_EnvExpansion(t *testing.T) {
+	t.Setenv("NTM_TEMPLATE_NAME", "env-template")
+	t.Setenv("NTM_TEMPLATE_DESC", "env description")
+
+	content := []byte(`apiVersion: v1
+kind: SessionTemplate
+metadata:
+  name: ${NTM_TEMPLATE_NAME}
+  description: ${NTM_TEMPLATE_DESC:-default}
+spec:
+  agents:
+    claude:
+      count: 1
+`)
+
+	tmpl, err := ParseSessionTemplate(content)
+	if err != nil {
+		t.Fatalf("ParseSessionTemplate failed: %v", err)
+	}
+
+	if tmpl.Metadata.Name != "env-template" {
+		t.Errorf("expected name to be expanded, got %q", tmpl.Metadata.Name)
+	}
+	if tmpl.Metadata.Description != "env description" {
+		t.Errorf("expected description to be expanded, got %q", tmpl.Metadata.Description)
+	}
+}
+
+func TestParseSessionTemplateRaw_NoEnvExpansion(t *testing.T) {
+	t.Setenv("NTM_TEMPLATE_NAME", "env-template")
+
+	content := []byte(`apiVersion: v1
+kind: SessionTemplate
+metadata:
+  name: ${NTM_TEMPLATE_NAME}
+spec:
+  agents:
+    claude:
+      count: 1
+`)
+
+	tmpl, err := ParseSessionTemplateRaw(content)
+	if err != nil {
+		t.Fatalf("ParseSessionTemplateRaw failed: %v", err)
+	}
+	if tmpl.Metadata.Name != "${NTM_TEMPLATE_NAME}" {
+		t.Errorf("expected raw env placeholder, got %q", tmpl.Metadata.Name)
+	}
+}
+
+func TestSessionTemplateLoader_LoadFromUserDir(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", tmpDir)
+
+	userDir := filepath.Join(tmpDir, "ntm", "templates")
+	if err := os.MkdirAll(userDir, 0755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+
+	templateContent := `apiVersion: v1
+kind: SessionTemplate
+metadata:
+  name: user-template
+spec:
+  agents:
+    claude:
+      count: 1
+`
+	if err := os.WriteFile(filepath.Join(userDir, "user-template.yaml"), []byte(templateContent), 0644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	loader := NewSessionTemplateLoaderWithProject(tmpDir)
+	tmpl, err := loader.Load("user-template")
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+	if tmpl.Metadata.Source != "user" {
+		t.Errorf("expected source 'user', got %q", tmpl.Metadata.Source)
+	}
+}
+
+func TestAgentsSpecValidate_Errors(t *testing.T) {
+	tests := []struct {
+		name string
+		spec AgentsSpec
+		err  error
+	}{
+		{name: "no agents", spec: AgentsSpec{}, err: ErrNoAgents},
+		{name: "negative count", spec: AgentsSpec{Claude: &AgentTypeSpec{Count: -1}}, err: ErrInvalidAgentCount},
+		{
+			name: "conflicting count and variants",
+			spec: AgentsSpec{Claude: &AgentTypeSpec{Count: 1, Variants: []AgentVariantSpec{{Count: 1, Model: "opus"}}}},
+			err:  ErrConflictingAgents,
+		},
+		{
+			name: "variant count invalid",
+			spec: AgentsSpec{Claude: &AgentTypeSpec{Variants: []AgentVariantSpec{{Count: 0, Model: "opus"}}}},
+			err:  ErrInvalidAgentCount,
+		},
+		{
+			name: "persona negative count",
+			spec: AgentsSpec{Personas: []PersonaSpec{{Name: "architect", Count: -2}}},
+			err:  ErrInvalidAgentCount,
+		},
+		{
+			name: "total mismatch",
+			spec: AgentsSpec{Claude: &AgentTypeSpec{Count: 1}, Total: intPtr(2)},
+			err:  ErrTotalMismatch,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			err := tc.spec.Validate()
+			if err == nil {
+				t.Fatalf("expected error, got nil")
+			}
+			if !errors.Is(err, tc.err) {
+				t.Fatalf("expected error %v, got %v", tc.err, err)
+			}
+		})
+	}
+}
+
+func TestPromptsSpecValidate_InvalidDelay(t *testing.T) {
+	spec := PromptsSpec{Delay: "not-a-duration"}
+	if err := spec.Validate(); err == nil || !errors.Is(err, ErrInvalidDuration) {
+		t.Fatalf("expected ErrInvalidDuration, got %v", err)
+	}
+}
+
+func TestFileReservationsSpecValidate_Errors(t *testing.T) {
+	spec := FileReservationsSpec{TTL: "bad"}
+	if err := spec.Validate(); err == nil || !errors.Is(err, ErrInvalidDuration) {
+		t.Fatalf("expected ErrInvalidDuration, got %v", err)
+	}
+
+	spec = FileReservationsSpec{Patterns: []string{""}}
+	if err := spec.Validate(); err == nil || !errors.Is(err, ErrInvalidPattern) {
+		t.Fatalf("expected ErrInvalidPattern, got %v", err)
+	}
+}
+
+func TestSessionOptionsSpecValidate_InvalidDurations(t *testing.T) {
+	spec := SessionOptionsSpec{
+		Stagger:    &StaggerSpec{Interval: "bad"},
+		Checkpoint: &CheckpointSpec{Interval: "nope"},
+	}
+	if err := spec.Validate(); err == nil || !errors.Is(err, ErrInvalidDuration) {
+		t.Fatalf("expected ErrInvalidDuration, got %v", err)
+	}
+}
+
+func TestEnvironmentSpecValidate_Errors(t *testing.T) {
+	spec := EnvironmentSpec{
+		PreSpawn: []HookSpec{{Command: ""}},
+	}
+	if err := spec.Validate(); err == nil || !strings.Contains(err.Error(), "command is required") {
+		t.Fatalf("expected missing command error, got %v", err)
+	}
+
+	spec = EnvironmentSpec{
+		PostSpawn: []HookSpec{{Command: "echo ok", Timeout: "nope"}},
+	}
+	if err := spec.Validate(); err == nil || !errors.Is(err, ErrInvalidDuration) {
+		t.Fatalf("expected ErrInvalidDuration, got %v", err)
+	}
+}
+
+func TestSessionTemplateValidate_InvalidName(t *testing.T) {
+	tmpl := &SessionTemplate{
+		APIVersion: "v1",
+		Kind:       "SessionTemplate",
+		Metadata: SessionTemplateMetadata{
+			Name: "1invalid",
+		},
+		Spec: SessionTemplateSpec{
+			Agents: AgentsSpec{
+				Claude: &AgentTypeSpec{Count: 1},
+			},
+		},
+	}
+
+	err := tmpl.Validate()
+	if err == nil {
+		t.Fatal("expected validation error, got nil")
+	}
+	if !strings.Contains(err.Error(), ErrInvalidName.Error()) {
+		t.Fatalf("expected ErrInvalidName in error, got %v", err)
+	}
+}
+
+func intPtr(v int) *int {
+	return &v
 }

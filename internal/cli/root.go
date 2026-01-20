@@ -103,8 +103,9 @@ Shell Integration:
 		PrintProfilingIfEnabled()
 	},
 	Run: func(cmd *cobra.Command, args []string) {
-		// Resolve robot output format: CLI flag > env var > default (auto)
+		// Resolve robot output format and verbosity: CLI flag > env var > config > default
 		resolveRobotFormat()
+		resolveRobotVerbosity(cfg)
 
 		// Handle robot flags for AI agent integration
 		if robotHelp {
@@ -244,7 +245,7 @@ Shell Integration:
 			return
 		}
 		if robotMail {
-			projectKey, _ := os.Getwd()
+			projectKey := GetProjectRoot()
 			sessionName := ""
 			if len(args) > 0 {
 				sessionName = args[0]
@@ -597,15 +598,15 @@ Shell Integration:
 				os.Exit(1)
 			}
 			opts := robot.SpawnOptions{
-				Session:      robotSpawn,
-				CCCount:      robotSpawnCC,
-				CodCount:     robotSpawnCod,
-				GmiCount:     robotSpawnGmi,
-				Preset:       robotSpawnPreset,
-				NoUserPane:   robotSpawnNoUser,
-				WorkingDir:   robotSpawnDir,
-				WaitReady:    robotSpawnWait,
-				ReadyTimeout: int(spawnTimeout.Seconds()),
+				Session:        robotSpawn,
+				CCCount:        robotSpawnCC,
+				CodCount:       robotSpawnCod,
+				GmiCount:       robotSpawnGmi,
+				Preset:         robotSpawnPreset,
+				NoUserPane:     robotSpawnNoUser,
+				WorkingDir:     robotSpawnDir,
+				WaitReady:      robotSpawnWait,
+				ReadyTimeout:   int(spawnTimeout.Seconds()),
 				DryRun:         robotRestoreDry,
 				Safety:         robotSpawnSafety,
 				AssignWork:     robotSpawnAssignWork,
@@ -958,16 +959,16 @@ var (
 	robotStatus       bool
 	robotVersion      bool
 	robotCapabilities bool
-	robotPlan      bool
-	robotSnapshot  bool   // unified state query
-	robotSince     string // ISO8601 timestamp for delta snapshot
-	robotTail      string // session name for tail
-	robotLines     int    // number of lines to capture
-	robotPanes     string // comma-separated pane filter
-	robotGraph     bool   // bv insights passthrough
-	robotBeadLimit int    // limit for ready/in-progress beads in snapshot
-	robotDashboard bool   // dashboard summary output
-	robotContext   string // session name for context usage
+	robotPlan         bool
+	robotSnapshot     bool   // unified state query
+	robotSince        string // ISO8601 timestamp for delta snapshot
+	robotTail         string // session name for tail
+	robotLines        int    // number of lines to capture
+	robotPanes        string // comma-separated pane filter
+	robotGraph        bool   // bv insights passthrough
+	robotBeadLimit    int    // limit for ready/in-progress beads in snapshot
+	robotDashboard    bool   // dashboard summary output
+	robotContext      string // session name for context usage
 
 	// Robot-send flags
 	robotSend        string // session name for send
@@ -1035,7 +1036,8 @@ var (
 	robotTerse bool // single-line encoded state
 
 	// Robot-format flag for output serialization format
-	robotFormat string // json, toon, or auto
+	robotFormat    string // json, toon, or auto
+	robotVerbosity string // terse, default, or debug
 
 	// Robot-markdown flags for token-efficient markdown output
 	robotMarkdown          bool   // markdown output mode
@@ -1184,12 +1186,12 @@ var (
 	robotAttentionLimit int  // max attention items to return
 
 	// BV File robot flags for file-based analysis
-	robotFileBeads         string  // beads that touched a file path
-	robotFileHotspots      bool    // files touched by most beads
-	robotFileRelations     string  // files that co-change with given file
-	robotFileBeadsLimit    int     // max beads to return per file
-	robotHotspotsLimit     int     // max hotspots to return
-	robotRelationsLimit    int     // max related files to return
+	robotFileBeads          string  // beads that touched a file path
+	robotFileHotspots       bool    // files touched by most beads
+	robotFileRelations      string  // files that co-change with given file
+	robotFileBeadsLimit     int     // max beads to return per file
+	robotHotspotsLimit      int     // max hotspots to return
+	robotRelationsLimit     int     // max related files to return
 	robotRelationsThreshold float64 // correlation threshold (0.0-1.0)
 
 	// Robot-restart-pane flag
@@ -1227,6 +1229,7 @@ func init() {
 	rootCmd.Flags().BoolVar(&robotDashboard, "robot-dashboard", false, "Get dashboard summary as markdown (or JSON with --json). Token-efficient overview")
 	rootCmd.Flags().StringVar(&robotContext, "robot-context", "", "Get context window usage for all agents in a session. Required: SESSION. Example: ntm --robot-context=myproject")
 	rootCmd.Flags().IntVar(&robotBeadLimit, "bead-limit", 5, "Max beads per category in snapshot. Optional with --robot-snapshot, --robot-status. Example: --bead-limit=10")
+	rootCmd.Flags().StringVar(&robotVerbosity, "robot-verbosity", "", "Robot verbosity profile for JSON/TOON: terse, default, or debug. Env: NTM_ROBOT_VERBOSITY")
 
 	// BV Analysis robot flags for advanced analysis modes
 	rootCmd.Flags().StringVar(&robotForecast, "robot-forecast", "", "Get ETA predictions. Use 'all' or specific ID. Example: ntm --robot-forecast=br-123")
@@ -1524,6 +1527,7 @@ func init() {
 		newBindCmd(),
 		newDepsCmd(),
 		newKillCmd(),
+		newRespawnCmd(),
 		newScanCmd(),
 		newBugsCmd(),
 		newCassCmd(),
@@ -2011,6 +2015,35 @@ func resolveRobotFormat() {
 	} else {
 		robot.OutputFormat = robot.FormatAuto
 	}
+}
+
+// resolveRobotVerbosity determines the robot verbosity profile from CLI flag, env var, or config.
+// Priority: --robot-verbosity flag > NTM_ROBOT_VERBOSITY env var > config.robot.verbosity > default
+func resolveRobotVerbosity(cfg *config.Config) {
+	verbosityStr := robotVerbosity
+
+	// Fall back to environment variable if flag not set
+	if verbosityStr == "" {
+		verbosityStr = os.Getenv("NTM_ROBOT_VERBOSITY")
+	}
+
+	// Fall back to config if available
+	if verbosityStr == "" && cfg != nil {
+		verbosityStr = cfg.Robot.Verbosity
+	}
+
+	if verbosityStr == "" {
+		robot.OutputVerbosity = robot.VerbosityDefault
+		return
+	}
+
+	verbosity, err := robot.ParseRobotVerbosity(verbosityStr)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: %v, using default verbosity\n", err)
+		robot.OutputVerbosity = robot.VerbosityDefault
+		return
+	}
+	robot.OutputVerbosity = verbosity
 }
 
 // canSkipConfigLoading returns true if we can skip Phase 2 config loading.

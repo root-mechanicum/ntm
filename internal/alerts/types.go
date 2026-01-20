@@ -39,6 +39,13 @@ const (
 	AlertRotationComplete AlertType = "rotation_complete"
 	// AlertRotationFailed indicates a context rotation failed
 	AlertRotationFailed AlertType = "rotation_failed"
+
+	// AlertCompactionTriggered indicates proactive compaction was triggered
+	AlertCompactionTriggered AlertType = "compaction_triggered"
+	// AlertCompactionComplete indicates compaction completed successfully
+	AlertCompactionComplete AlertType = "compaction_complete"
+	// AlertCompactionFailed indicates compaction failed
+	AlertCompactionFailed AlertType = "compaction_failed"
 )
 
 // Severity indicates the urgency of an alert

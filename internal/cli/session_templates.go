@@ -29,14 +29,14 @@ type SessionTemplateInfo struct {
 
 // SessionTemplateShowResult is the JSON output for session-templates show command.
 type SessionTemplateShowResult struct {
-	Name        string                    `json:"name"`
-	Description string                    `json:"description"`
-	Source      string                    `json:"source"`
-	Tags        []string                  `json:"tags,omitempty"`
-	Agents      *templates.AgentsSpec     `json:"agents"`
-	Prompts     *templates.PromptsSpec    `json:"prompts,omitempty"`
-	CASS        *templates.CASSSpec       `json:"cass,omitempty"`
-	Beads       *templates.BeadsSpec      `json:"beads,omitempty"`
+	Name        string                        `json:"name"`
+	Description string                        `json:"description"`
+	Source      string                        `json:"source"`
+	Tags        []string                      `json:"tags,omitempty"`
+	Agents      *templates.AgentsSpec         `json:"agents"`
+	Prompts     *templates.PromptsSpec        `json:"prompts,omitempty"`
+	CASS        *templates.CASSSpec           `json:"cass,omitempty"`
+	Beads       *templates.BeadsSpec          `json:"beads,omitempty"`
 	Options     *templates.SessionOptionsSpec `json:"options,omitempty"`
 }
 
@@ -96,9 +96,7 @@ func runSessionTemplatesList() error {
 	tmpls, err := loader.List()
 	if err != nil {
 		if jsonOutput {
-			return json.NewEncoder(os.Stdout).Encode(map[string]interface{}{
-				"error": err.Error(),
-			})
+			return json.NewEncoder(os.Stdout).Encode(sessionTemplateErrorResponse(err, ""))
 		}
 		return err
 	}
@@ -193,9 +191,13 @@ func runSessionTemplatesShow(name string) error {
 	tmpl, err := loader.Load(name)
 	if err != nil {
 		if jsonOutput {
-			return json.NewEncoder(os.Stdout).Encode(map[string]interface{}{
-				"error": err.Error(),
-			})
+			return json.NewEncoder(os.Stdout).Encode(sessionTemplateErrorResponse(err, name))
+		}
+		return err
+	}
+	if err := tmpl.Validate(); err != nil {
+		if jsonOutput {
+			return json.NewEncoder(os.Stdout).Encode(sessionTemplateErrorResponse(err, name))
 		}
 		return err
 	}
@@ -311,4 +313,45 @@ func runSessionTemplatesShow(name string) error {
 	}
 
 	return nil
+}
+
+func sessionTemplateErrorResponse(err error, name string) map[string]interface{} {
+	resp := map[string]interface{}{
+		"error": err.Error(),
+	}
+	if suggestions := sessionTemplateSuggestions(err, name); len(suggestions) > 0 {
+		resp["suggestions"] = suggestions
+	}
+	return resp
+}
+
+func sessionTemplateSuggestions(err error, name string) []string {
+	if err == nil {
+		return nil
+	}
+
+	errStr := err.Error()
+	var suggestions []string
+
+	if strings.Contains(errStr, "session template not found") {
+		suggestions = append(suggestions, "Run `ntm session-templates list` to see available templates")
+		suggestions = append(suggestions, "Check ~/.config/ntm/templates or .ntm/templates for custom templates")
+		if name != "" {
+			suggestions = append(suggestions, fmt.Sprintf("Check spelling for template name %q", name))
+		}
+	}
+
+	if strings.Contains(errStr, "validation failed") {
+		suggestions = append(suggestions, "Fix validation errors in the template YAML")
+		suggestions = append(suggestions, "Ensure metadata.name uses only letters, numbers, '-' or '_'")
+		if name != "" {
+			suggestions = append(suggestions, fmt.Sprintf("Rename metadata.name to a valid value like %q", name))
+		}
+	}
+
+	if len(suggestions) == 0 {
+		suggestions = append(suggestions, "Run `ntm session-templates list` to see available templates")
+	}
+
+	return suggestions
 }

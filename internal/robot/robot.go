@@ -1452,6 +1452,12 @@ func detectAgentType(title string) string {
 	return "unknown"
 }
 
+// DetectAgentType detects the agent type from a pane title.
+// Returns one of: "claude", "codex", "gemini", "cursor", "windsurf", "aider", or "unknown".
+func DetectAgentType(title string) string {
+	return detectAgentType(title)
+}
+
 // containsShortForm checks if title contains the short form as a word boundary pattern
 // It matches patterns like "__cc_" or "__cc__" to avoid false positives
 func containsShortForm(title, short string) bool {
@@ -1531,7 +1537,7 @@ func detectModel(agentType, title string) string {
 // Despite the name (kept for backward compatibility), this now supports
 // multiple formats: json, toon, or auto (default).
 func encodeJSON(v interface{}) error {
-	return Output(v, OutputFormat)
+	return Output(applyVerbosity(v, OutputVerbosity), OutputFormat)
 }
 
 // TailOutput is the structured output for --robot-tail
@@ -3452,7 +3458,7 @@ func getAgentMailSummary() *AgentMailSummary {
 	if err != nil {
 		return nil
 	}
-	
+
 	projectKey := cwd
 	if root, err := git.FindProjectRoot(cwd); err == nil {
 		projectKey = root

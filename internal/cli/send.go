@@ -27,6 +27,7 @@ import (
 	"github.com/Dicklesworthstone/ntm/internal/output"
 	"github.com/Dicklesworthstone/ntm/internal/prompt"
 	"github.com/Dicklesworthstone/ntm/internal/robot"
+	sessionPkg "github.com/Dicklesworthstone/ntm/internal/session"
 	"github.com/Dicklesworthstone/ntm/internal/templates"
 	"github.com/Dicklesworthstone/ntm/internal/tmux"
 	"github.com/Dicklesworthstone/ntm/internal/tui/theme"
@@ -616,6 +617,16 @@ func runSendInternal(opts SendOptions) error {
 			entry.SetError(histErr)
 		}
 		_ = history.Append(entry)
+
+		// Also persist to session-specific storage for restart resilience
+		promptEntry := sessionPkg.PromptEntry{
+			Session:  session,
+			Content:  prompt,
+			Targets:  intsToStrings(histTargets),
+			Source:   "cli",
+			Template: templateName,
+		}
+		_ = sessionPkg.SavePrompt(promptEntry)
 	}()
 
 	outputError := func(err error) error {

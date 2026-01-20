@@ -3,6 +3,8 @@ package cli
 import (
 	"testing"
 	"time"
+
+	"github.com/Dicklesworthstone/ntm/internal/ratelimit"
 )
 
 func TestOptionalDurationValue_Set(t *testing.T) {
@@ -347,5 +349,154 @@ func TestStaggerDisabledNoDelay(t *testing.T) {
 		if promptDelay != 0 {
 			t.Errorf("agent %d with stagger disabled: delay = %v, want 0", agentIdx, promptDelay)
 		}
+	}
+}
+
+func TestResolveEffectiveStaggerMode(t *testing.T) {
+	tests := []struct {
+		name string
+		opts SpawnOptions
+		want string
+	}{
+		{
+			name: "explicit smart overrides legacy flags",
+			opts: SpawnOptions{
+				StaggerMode:    "smart",
+				StaggerEnabled: true,
+				Stagger:        90 * time.Second,
+			},
+			want: "smart",
+		},
+		{
+			name: "explicit fixed mode",
+			opts: SpawnOptions{
+				StaggerMode: "fixed",
+			},
+			want: "fixed",
+		},
+		{
+			name: "legacy fallback when mode none and legacy enabled",
+			opts: SpawnOptions{
+				StaggerMode:    "none",
+				StaggerEnabled: true,
+				Stagger:        90 * time.Second,
+			},
+			want: "legacy",
+		},
+		{
+			name: "legacy fallback when mode empty and legacy enabled",
+			opts: SpawnOptions{
+				StaggerMode:    "",
+				StaggerEnabled: true,
+				Stagger:        90 * time.Second,
+			},
+			want: "legacy",
+		},
+		{
+			name: "none stays none when legacy disabled",
+			opts: SpawnOptions{
+				StaggerMode:    "none",
+				StaggerEnabled: false,
+				Stagger:        90 * time.Second,
+			},
+			want: "none",
+		},
+		{
+			name: "empty stays empty when legacy disabled",
+			opts: SpawnOptions{
+				StaggerMode:    "",
+				StaggerEnabled: false,
+				Stagger:        90 * time.Second,
+			},
+			want: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := resolveEffectiveStaggerMode(tt.opts); got != tt.want {
+				t.Errorf("resolveEffectiveStaggerMode() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestResolveStaggerInterval_LegacyAndFixed(t *testing.T) {
+	opts := SpawnOptions{
+		Stagger:      90 * time.Second,
+		StaggerDelay: 20 * time.Second,
+	}
+
+	if got := resolveStaggerInterval("legacy", opts, nil); got != opts.Stagger {
+		t.Errorf("legacy interval = %v, want %v", got, opts.Stagger)
+	}
+
+	if got := resolveStaggerInterval("fixed", opts, nil); got != opts.StaggerDelay {
+		t.Errorf("fixed interval = %v, want %v", got, opts.StaggerDelay)
+	}
+}
+
+func TestResolveStaggerInterval_SmartUsesRateLimitTracker(t *testing.T) {
+	tracker := ratelimit.NewRateLimitTracker("")
+	tracker.RecordRateLimit("anthropic", "spawn")
+
+	opts := SpawnOptions{
+		Stagger:      90 * time.Second,
+		StaggerDelay: 20 * time.Second,
+	}
+
+	expected := tracker.GetOptimalDelay("anthropic")
+	got := resolveStaggerInterval("smart", opts, tracker)
+
+	if got != expected {
+		t.Errorf("smart interval = %v, want %v", got, expected)
+	}
+	if got == opts.StaggerDelay || got == opts.Stagger {
+		t.Errorf("smart interval should come from tracker, got %v", got)
+	}
+}
+
+func TestResolveEffectiveStaggerMode_LegacyRequiresPositiveDuration(t *testing.T) {
+	opts := SpawnOptions{
+		StaggerMode:    "none",
+		StaggerEnabled: true,
+		Stagger:        0,
+	}
+
+	if got := resolveEffectiveStaggerMode(opts); got != "none" {
+		t.Errorf("resolveEffectiveStaggerMode() = %q, want %q", got, "none")
+	}
+}
+
+func TestResolveStaggerInterval_SmartFallbackWhenTrackerNil(t *testing.T) {
+	opts := SpawnOptions{
+		Stagger:      45 * time.Second,
+		StaggerDelay: 20 * time.Second,
+	}
+
+	if got := resolveStaggerInterval("smart", opts, nil); got != opts.Stagger {
+		t.Errorf("smart interval without tracker = %v, want %v", got, opts.Stagger)
+	}
+}
+
+func TestSmartStaggerPromptDelayUsesTracker(t *testing.T) {
+	opts := SpawnOptions{
+		StaggerMode: "smart",
+		Stagger:     90 * time.Second,
+	}
+	tracker := ratelimit.NewRateLimitTracker("")
+	tracker.RecordRateLimit("anthropic", "spawn")
+
+	mode := resolveEffectiveStaggerMode(opts)
+	if mode != "smart" {
+		t.Fatalf("resolveEffectiveStaggerMode() = %q, want %q", mode, "smart")
+	}
+
+	interval := resolveStaggerInterval(mode, opts, tracker)
+	agentIdx := 3
+	got := time.Duration(agentIdx) * interval
+	want := time.Duration(agentIdx) * tracker.GetOptimalDelay("anthropic")
+	if got != want {
+		t.Errorf("smart prompt delay = %v, want %v", got, want)
 	}
 }

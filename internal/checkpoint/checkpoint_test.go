@@ -1023,3 +1023,301 @@ func TestStorage_EmptyScrollback(t *testing.T) {
 		t.Errorf("expected empty content, got %q", loaded)
 	}
 }
+
+// bd-32ck: Tests for assignment and BV snapshot checkpoint fields
+
+func TestCheckpointOptions_Assignments(t *testing.T) {
+	// Test default options have assignments enabled
+	opts := defaultOptions()
+	if !opts.captureAssignments {
+		t.Error("defaultOptions().captureAssignments should be true")
+	}
+
+	// Test WithAssignments(false)
+	opts = checkpointOptions{captureAssignments: true}
+	WithAssignments(false)(&opts)
+	if opts.captureAssignments {
+		t.Error("WithAssignments(false) should set captureAssignments to false")
+	}
+
+	// Test WithAssignments(true)
+	opts = checkpointOptions{captureAssignments: false}
+	WithAssignments(true)(&opts)
+	if !opts.captureAssignments {
+		t.Error("WithAssignments(true) should set captureAssignments to true")
+	}
+}
+
+func TestCheckpointOptions_BVSnapshot(t *testing.T) {
+	// Test default options have BV snapshot enabled
+	opts := defaultOptions()
+	if !opts.captureBVSnapshot {
+		t.Error("defaultOptions().captureBVSnapshot should be true")
+	}
+
+	// Test WithBVSnapshot(false)
+	opts = checkpointOptions{captureBVSnapshot: true}
+	WithBVSnapshot(false)(&opts)
+	if opts.captureBVSnapshot {
+		t.Error("WithBVSnapshot(false) should set captureBVSnapshot to false")
+	}
+
+	// Test WithBVSnapshot(true)
+	opts = checkpointOptions{captureBVSnapshot: false}
+	WithBVSnapshot(true)(&opts)
+	if !opts.captureBVSnapshot {
+		t.Error("WithBVSnapshot(true) should set captureBVSnapshot to true")
+	}
+}
+
+func TestCheckpoint_WithAssignments(t *testing.T) {
+	tmpDir := t.TempDir()
+	storage := NewStorageWithDir(tmpDir)
+
+	// Create checkpoint with assignments
+	assignedAt := time.Date(2025, 12, 10, 12, 0, 0, 0, time.UTC)
+	cp := &Checkpoint{
+		ID:          "20251210-120000-assign",
+		Name:        "test-assign",
+		SessionName: "myproject",
+		WorkingDir:  "/tmp/myproject",
+		CreatedAt:   time.Now(),
+		Session:     SessionState{Panes: []PaneState{}},
+		Assignments: []AssignmentSnapshot{
+			{
+				BeadID:     "bd-1234",
+				BeadTitle:  "Fix the widget",
+				Pane:       1,
+				AgentType:  "claude",
+				AgentName:  "BlueLake",
+				Status:     "working",
+				AssignedAt: assignedAt,
+			},
+			{
+				BeadID:     "bd-5678",
+				BeadTitle:  "Add feature X",
+				Pane:       2,
+				AgentType:  "codex",
+				Status:     "assigned",
+				AssignedAt: assignedAt,
+			},
+		},
+	}
+
+	// Save checkpoint
+	if err := storage.Save(cp); err != nil {
+		t.Fatalf("Save() failed: %v", err)
+	}
+
+	// Load checkpoint
+	loaded, err := storage.Load(cp.SessionName, cp.ID)
+	if err != nil {
+		t.Fatalf("Load() failed: %v", err)
+	}
+
+	// Verify assignments were preserved
+	if len(loaded.Assignments) != 2 {
+		t.Fatalf("len(Assignments) = %d, want 2", len(loaded.Assignments))
+	}
+
+	a0 := loaded.Assignments[0]
+	if a0.BeadID != "bd-1234" {
+		t.Errorf("Assignments[0].BeadID = %q, want bd-1234", a0.BeadID)
+	}
+	if a0.BeadTitle != "Fix the widget" {
+		t.Errorf("Assignments[0].BeadTitle = %q, want 'Fix the widget'", a0.BeadTitle)
+	}
+	if a0.Pane != 1 {
+		t.Errorf("Assignments[0].Pane = %d, want 1", a0.Pane)
+	}
+	if a0.AgentType != "claude" {
+		t.Errorf("Assignments[0].AgentType = %q, want claude", a0.AgentType)
+	}
+	if a0.AgentName != "BlueLake" {
+		t.Errorf("Assignments[0].AgentName = %q, want BlueLake", a0.AgentName)
+	}
+	if a0.Status != "working" {
+		t.Errorf("Assignments[0].Status = %q, want working", a0.Status)
+	}
+
+	a1 := loaded.Assignments[1]
+	if a1.BeadID != "bd-5678" {
+		t.Errorf("Assignments[1].BeadID = %q, want bd-5678", a1.BeadID)
+	}
+	if a1.AgentName != "" {
+		t.Errorf("Assignments[1].AgentName = %q, want empty", a1.AgentName)
+	}
+}
+
+func TestCheckpoint_WithBVSnapshot(t *testing.T) {
+	tmpDir := t.TempDir()
+	storage := NewStorageWithDir(tmpDir)
+
+	// Create checkpoint with BV snapshot
+	capturedAt := time.Date(2025, 12, 10, 12, 0, 0, 0, time.UTC)
+	cp := &Checkpoint{
+		ID:          "20251210-120000-bv",
+		Name:        "test-bv",
+		SessionName: "myproject",
+		WorkingDir:  "/tmp/myproject",
+		CreatedAt:   time.Now(),
+		Session:     SessionState{Panes: []PaneState{}},
+		BVSummary: &BVSnapshot{
+			OpenCount:       15,
+			ActionableCount: 8,
+			BlockedCount:    5,
+			InProgressCount: 2,
+			TopPicks:        []string{"bd-1234", "bd-5678", "bd-9abc"},
+			CapturedAt:      capturedAt,
+		},
+	}
+
+	// Save checkpoint
+	if err := storage.Save(cp); err != nil {
+		t.Fatalf("Save() failed: %v", err)
+	}
+
+	// Load checkpoint
+	loaded, err := storage.Load(cp.SessionName, cp.ID)
+	if err != nil {
+		t.Fatalf("Load() failed: %v", err)
+	}
+
+	// Verify BV snapshot was preserved
+	if loaded.BVSummary == nil {
+		t.Fatal("BVSummary should not be nil")
+	}
+
+	bv := loaded.BVSummary
+	if bv.OpenCount != 15 {
+		t.Errorf("BVSummary.OpenCount = %d, want 15", bv.OpenCount)
+	}
+	if bv.ActionableCount != 8 {
+		t.Errorf("BVSummary.ActionableCount = %d, want 8", bv.ActionableCount)
+	}
+	if bv.BlockedCount != 5 {
+		t.Errorf("BVSummary.BlockedCount = %d, want 5", bv.BlockedCount)
+	}
+	if bv.InProgressCount != 2 {
+		t.Errorf("BVSummary.InProgressCount = %d, want 2", bv.InProgressCount)
+	}
+	if len(bv.TopPicks) != 3 {
+		t.Fatalf("len(TopPicks) = %d, want 3", len(bv.TopPicks))
+	}
+	if bv.TopPicks[0] != "bd-1234" {
+		t.Errorf("TopPicks[0] = %q, want bd-1234", bv.TopPicks[0])
+	}
+}
+
+func TestCheckpoint_BackwardCompatibility_NoAssignments(t *testing.T) {
+	tmpDir := t.TempDir()
+	storage := NewStorageWithDir(tmpDir)
+
+	// Create checkpoint WITHOUT assignments or BV snapshot (simulates old checkpoint)
+	cp := &Checkpoint{
+		ID:          "20251210-120000-old",
+		Name:        "old-checkpoint",
+		SessionName: "myproject",
+		WorkingDir:  "/tmp/myproject",
+		CreatedAt:   time.Now(),
+		Session:     SessionState{Panes: []PaneState{}},
+		Git: GitState{
+			Branch: "main",
+			Commit: "abc123",
+		},
+		// Note: Assignments and BVSummary are not set (nil/empty)
+	}
+
+	// Save checkpoint
+	if err := storage.Save(cp); err != nil {
+		t.Fatalf("Save() failed: %v", err)
+	}
+
+	// Load checkpoint
+	loaded, err := storage.Load(cp.SessionName, cp.ID)
+	if err != nil {
+		t.Fatalf("Load() failed: %v", err)
+	}
+
+	// Verify other fields work and new fields are nil/empty
+	if loaded.Git.Branch != "main" {
+		t.Errorf("Git.Branch = %q, want main", loaded.Git.Branch)
+	}
+	if len(loaded.Assignments) != 0 {
+		t.Errorf("len(Assignments) = %d, want 0", len(loaded.Assignments))
+	}
+	if loaded.BVSummary != nil {
+		t.Errorf("BVSummary should be nil for old checkpoints")
+	}
+}
+
+func TestCheckpoint_WithBothAssignmentsAndBVSnapshot(t *testing.T) {
+	tmpDir := t.TempDir()
+	storage := NewStorageWithDir(tmpDir)
+
+	// Create checkpoint with both assignments and BV snapshot
+	now := time.Now()
+	cp := &Checkpoint{
+		ID:          "20251210-120000-full",
+		Name:        "full-checkpoint",
+		SessionName: "myproject",
+		WorkingDir:  "/tmp/myproject",
+		CreatedAt:   now,
+		Session:     SessionState{Panes: []PaneState{}},
+		Git: GitState{
+			Branch:  "feature/test",
+			Commit:  "def456",
+			IsDirty: true,
+		},
+		PaneCount: 3,
+		Assignments: []AssignmentSnapshot{
+			{
+				BeadID:     "bd-abc",
+				BeadTitle:  "Task A",
+				Pane:       0,
+				AgentType:  "gemini",
+				Status:     "working",
+				AssignedAt: now,
+			},
+		},
+		BVSummary: &BVSnapshot{
+			OpenCount:       10,
+			ActionableCount: 5,
+			BlockedCount:    3,
+			InProgressCount: 2,
+			TopPicks:        []string{"bd-abc"},
+			CapturedAt:      now,
+		},
+	}
+
+	// Save checkpoint
+	if err := storage.Save(cp); err != nil {
+		t.Fatalf("Save() failed: %v", err)
+	}
+
+	// Load checkpoint
+	loaded, err := storage.Load(cp.SessionName, cp.ID)
+	if err != nil {
+		t.Fatalf("Load() failed: %v", err)
+	}
+
+	// Verify all fields
+	if loaded.Git.Branch != "feature/test" {
+		t.Errorf("Git.Branch = %q, want feature/test", loaded.Git.Branch)
+	}
+	if loaded.PaneCount != 3 {
+		t.Errorf("PaneCount = %d, want 3", loaded.PaneCount)
+	}
+	if len(loaded.Assignments) != 1 {
+		t.Fatalf("len(Assignments) = %d, want 1", len(loaded.Assignments))
+	}
+	if loaded.Assignments[0].AgentType != "gemini" {
+		t.Errorf("Assignments[0].AgentType = %q, want gemini", loaded.Assignments[0].AgentType)
+	}
+	if loaded.BVSummary == nil {
+		t.Fatal("BVSummary should not be nil")
+	}
+	if loaded.BVSummary.ActionableCount != 5 {
+		t.Errorf("BVSummary.ActionableCount = %d, want 5", loaded.BVSummary.ActionableCount)
+	}
+}

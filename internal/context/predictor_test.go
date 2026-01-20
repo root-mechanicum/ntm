@@ -248,13 +248,13 @@ func TestShouldWarnThresholds(t *testing.T) {
 			name:          "high usage slow growth - warn only",
 			currentTokens: 160000,
 			modelLimit:    200000,
-			tokensPerMin:  2000,
+			tokensPerMin:  3000, // Increased to get minutes < 15 (40000/3000 = 13.3 min)
 			expectWarn:    true,
 			expectCompact: false,
 		},
 		{
 			name:          "moderate usage very fast growth - warn and compact",
-			currentTokens: 150000,
+			currentTokens: 152000, // Increased to get usage > 0.75 (152000/200000 = 0.76)
 			modelLimit:    200000,
 			tokensPerMin:  10000,
 			expectWarn:    true,
@@ -575,7 +575,7 @@ func TestSamplesOutsideWindow(t *testing.T) {
 	}
 }
 
-func TestEdgeCases(t *testing.T) {
+func TestPredictorEdgeCases(t *testing.T) {
 	t.Parallel()
 
 	t.Run("zero model limit", func(t *testing.T) {

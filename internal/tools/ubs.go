@@ -188,7 +188,7 @@ func (a *UBSAdapter) Scan(ctx context.Context, path string) (*UBSScanResult, err
 
 	output := stdout.Bytes()
 	if !json.Valid(output) {
-		return &UBSScanResult{}, nil
+		return nil, fmt.Errorf("ubs returned invalid JSON: %s", string(output))
 	}
 
 	var result UBSScanResult

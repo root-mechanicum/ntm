@@ -95,6 +95,29 @@ func (v *optionalDurationValue) NoOptDefVal() string {
 	return v.defaultDuration.String()
 }
 
+func resolveEffectiveStaggerMode(opts SpawnOptions) string {
+	effective := opts.StaggerMode
+	if effective == "" || effective == "none" {
+		if opts.StaggerEnabled && opts.Stagger > 0 {
+			return "legacy"
+		}
+	}
+	return effective
+}
+
+func resolveStaggerInterval(mode string, opts SpawnOptions, tracker *ratelimit.RateLimitTracker) time.Duration {
+	interval := opts.Stagger
+	switch mode {
+	case "fixed":
+		interval = opts.StaggerDelay
+	case "smart":
+		if tracker != nil {
+			interval = tracker.GetOptimalDelay("anthropic")
+		}
+	}
+	return interval
+}
+
 // SpawnOptions configures session creation and agent spawning
 type SpawnOptions struct {
 	Session     string
@@ -191,6 +214,28 @@ type RecoveryCheckpoint struct {
 	CreatedAt   time.Time `json:"created_at"`
 	PaneCount   int       `json:"pane_count"`
 	HasGitPatch bool      `json:"has_git_patch"`
+	Assignments *RecoveryAssignmentSummary `json:"assignments_summary,omitempty"`
+	BVSummary   *RecoveryBVSummary         `json:"bv_summary,omitempty"`
+}
+
+// RecoveryAssignmentSummary captures assignment status counts from a checkpoint.
+type RecoveryAssignmentSummary struct {
+	Total       int `json:"total"`
+	Assigned    int `json:"assigned,omitempty"`
+	Working     int `json:"working,omitempty"`
+	Completed   int `json:"completed,omitempty"`
+	Failed      int `json:"failed,omitempty"`
+	Reassigned  int `json:"reassigned,omitempty"`
+}
+
+// RecoveryBVSummary captures BV snapshot counts from a checkpoint.
+type RecoveryBVSummary struct {
+	OpenCount       int      `json:"open_count"`
+	ActionableCount int      `json:"actionable_count"`
+	BlockedCount    int      `json:"blocked_count"`
+	InProgressCount int      `json:"in_progress_count"`
+	TopPicks        []string `json:"top_picks,omitempty"`
+	CapturedAt      time.Time `json:"captured_at"`
 }
 
 // RecoverySession represents a previous session for recovery.
@@ -856,21 +901,11 @@ func spawnSessionLogic(opts SpawnOptions) error {
 	}
 
 	// Determine effective stagger mode (new mode takes precedence over legacy)
-	effectiveStaggerMode := opts.StaggerMode
-	if effectiveStaggerMode == "" || effectiveStaggerMode == "none" {
-		if opts.StaggerEnabled && opts.Stagger > 0 {
-			effectiveStaggerMode = "legacy" // Use legacy duration-based stagger
-		}
-	}
+	effectiveStaggerMode := resolveEffectiveStaggerMode(opts)
 
 	// Spawn state for dashboard display (only used when stagger is enabled)
 	var spawnState *SpawnState
-	staggerInterval := opts.Stagger
-	if effectiveStaggerMode == "fixed" {
-		staggerInterval = opts.StaggerDelay
-	} else if effectiveStaggerMode == "smart" && rateLimitTracker != nil {
-		staggerInterval = rateLimitTracker.GetOptimalDelay("anthropic") // Default to Anthropic timing
-	}
+	staggerInterval := resolveStaggerInterval(effectiveStaggerMode, opts, rateLimitTracker)
 	if effectiveStaggerMode != "none" && effectiveStaggerMode != "" && opts.Prompt != "" {
 		spawnState = NewSpawnState(spawnCtx.BatchID, int(staggerInterval.Seconds()), len(opts.Agents))
 	}
@@ -2118,6 +2153,19 @@ func loadRecoveryCheckpoint(sessionName string) (*RecoveryCheckpoint, error) {
 		return nil, nil
 	}
 
+	assignSummary := summarizeCheckpointAssignments(cp.Assignments)
+	var bvSummary *RecoveryBVSummary
+	if cp.BVSummary != nil {
+		bvSummary = &RecoveryBVSummary{
+			OpenCount:       cp.BVSummary.OpenCount,
+			ActionableCount: cp.BVSummary.ActionableCount,
+			BlockedCount:    cp.BVSummary.BlockedCount,
+			InProgressCount: cp.BVSummary.InProgressCount,
+			TopPicks:        append([]string{}, cp.BVSummary.TopPicks...),
+			CapturedAt:      cp.BVSummary.CapturedAt,
+		}
+	}
+
 	return &RecoveryCheckpoint{
 		ID:          cp.ID,
 		Name:        cp.Name,
@@ -2125,7 +2173,39 @@ func loadRecoveryCheckpoint(sessionName string) (*RecoveryCheckpoint, error) {
 		CreatedAt:   cp.CreatedAt,
 		PaneCount:   cp.PaneCount,
 		HasGitPatch: cp.HasGitPatch(),
+		Assignments: assignSummary,
+		BVSummary:   bvSummary,
 	}, nil
+}
+
+func summarizeCheckpointAssignments(assignments []checkpoint.AssignmentSnapshot) *RecoveryAssignmentSummary {
+	if len(assignments) == 0 {
+		return nil
+	}
+
+	summary := &RecoveryAssignmentSummary{
+		Total: len(assignments),
+	}
+
+	for _, a := range assignments {
+		switch strings.ToLower(a.Status) {
+		case "assigned":
+			summary.Assigned++
+		case "working":
+			summary.Working++
+		case "completed":
+			summary.Completed++
+		case "failed":
+			summary.Failed++
+		case "reassigned":
+			summary.Reassigned++
+		}
+	}
+
+	if summary.Total == 0 {
+		return nil
+	}
+	return summary
 }
 
 // estimateRecoveryTokens estimates the token count of a recovery context.
@@ -2140,6 +2220,12 @@ func estimateRecoveryTokens(rc *RecoveryContext) int {
 	// Count checkpoint
 	if rc.Checkpoint != nil {
 		chars += len(rc.Checkpoint.Name) + len(rc.Checkpoint.Description)
+		if rc.Checkpoint.Assignments != nil {
+			chars += 64
+		}
+		if rc.Checkpoint.BVSummary != nil {
+			chars += 64
+		}
 	}
 
 	// Count beads
@@ -2244,6 +2330,13 @@ func generateRecoverySummary(rc *RecoveryContext) string {
 	if len(rc.FileReservations) > 0 {
 		parts = append(parts, fmt.Sprintf("%d file reservation(s)", len(rc.FileReservations)))
 	}
+	if rc.Checkpoint != nil && rc.Checkpoint.Assignments != nil && rc.Checkpoint.Assignments.Total > 0 {
+		parts = append(parts, fmt.Sprintf("%d assignment(s)", rc.Checkpoint.Assignments.Total))
+	}
+	if rc.Checkpoint != nil && rc.Checkpoint.BVSummary != nil {
+		parts = append(parts, fmt.Sprintf("%d ready / %d blocked bead(s)",
+			rc.Checkpoint.BVSummary.ActionableCount, rc.Checkpoint.BVSummary.BlockedCount))
+	}
 	if rc.ReservationTransfer != nil {
 		if rc.ReservationTransfer.Success {
 			parts = append(parts, fmt.Sprintf("reservations transferred (%d paths)", len(rc.ReservationTransfer.GrantedPaths)))
@@ -2313,6 +2406,17 @@ func FormatRecoveryPrompt(rc *RecoveryContext, agentType AgentType) string {
 				rc.Checkpoint.Description))
 			if rc.Checkpoint.HasGitPatch {
 				sb.WriteString("- Uncommitted changes: preserved in checkpoint\n")
+			}
+			if rc.Checkpoint.Assignments != nil && rc.Checkpoint.Assignments.Total > 0 {
+				sb.WriteString(fmt.Sprintf("- Assignment summary: %d working, %d assigned, %d failed\n",
+					rc.Checkpoint.Assignments.Working,
+					rc.Checkpoint.Assignments.Assigned,
+					rc.Checkpoint.Assignments.Failed))
+			}
+			if rc.Checkpoint.BVSummary != nil {
+				sb.WriteString(fmt.Sprintf("- Beads summary: %d ready, %d blocked\n",
+					rc.Checkpoint.BVSummary.ActionableCount,
+					rc.Checkpoint.BVSummary.BlockedCount))
 			}
 		}
 

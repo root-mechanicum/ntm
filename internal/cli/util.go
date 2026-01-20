@@ -14,6 +14,7 @@ import (
 
 	"github.com/Dicklesworthstone/ntm/internal/cass"
 	"github.com/Dicklesworthstone/ntm/internal/config"
+	"github.com/Dicklesworthstone/ntm/internal/git"
 	"github.com/Dicklesworthstone/ntm/internal/palette"
 	"github.com/Dicklesworthstone/ntm/internal/tmux"
 )
@@ -323,4 +324,17 @@ func ResolveCassContext(query, dir string) (string, error) {
 	}
 
 	return sb.String(), nil
+}
+
+// GetProjectRoot returns the git root of the current working directory,
+// or the cwd itself if no git root is found or on error.
+func GetProjectRoot() string {
+	wd, err := os.Getwd()
+	if err != nil {
+		return ""
+	}
+	if root, err := git.FindProjectRoot(wd); err == nil && root != "" {
+		return root
+	}
+	return wd
 }

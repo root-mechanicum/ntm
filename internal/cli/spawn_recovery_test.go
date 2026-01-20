@@ -235,6 +235,31 @@ func TestRecoveryContext_FormatPrompt(t *testing.T) {
 			},
 		},
 		{
+			name: "checkpoint with assignment and bv summary",
+			rc: &RecoveryContext{
+				Checkpoint: &RecoveryCheckpoint{
+					Name:        "summary-checkpoint",
+					Description: "Checkpoint with summary",
+					Assignments: &RecoveryAssignmentSummary{
+						Total:    2,
+						Working:  1,
+						Assigned: 1,
+					},
+					BVSummary: &RecoveryBVSummary{
+						ActionableCount: 3,
+						BlockedCount:    1,
+					},
+				},
+			},
+			expectEmpty: false,
+			mustContain: []string{
+				"Assignment summary",
+				"Beads summary",
+				"3 ready",
+				"1 blocked",
+			},
+		},
+		{
 			name: "beads included",
 			rc: &RecoveryContext{
 				Beads: []RecoveryBead{

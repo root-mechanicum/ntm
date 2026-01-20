@@ -16,11 +16,11 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/Dicklesworthstone/ntm/internal/agentmail"
-	"github.com/Dicklesworthstone/ntm/internal/config"
 	"github.com/Dicklesworthstone/ntm/internal/assign"
 	"github.com/Dicklesworthstone/ntm/internal/assignment"
 	"github.com/Dicklesworthstone/ntm/internal/bv"
 	"github.com/Dicklesworthstone/ntm/internal/completion"
+	"github.com/Dicklesworthstone/ntm/internal/config"
 	"github.com/Dicklesworthstone/ntm/internal/robot"
 	"github.com/Dicklesworthstone/ntm/internal/tmux"
 	"github.com/Dicklesworthstone/ntm/internal/tui/theme"
@@ -551,8 +551,8 @@ type SkippedItem struct {
 // AssignSummaryEnhanced contains summary statistics
 type AssignSummaryEnhanced struct {
 	TotalBeadCount    int `json:"total_bead_count"`
-	ActionableCount   int `json:"actionable_count"`               // Beads with no blockers
-	BlockedCount      int `json:"blocked_count"`                  // Beads blocked by dependencies
+	ActionableCount   int `json:"actionable_count"` // Beads with no blockers
+	BlockedCount      int `json:"blocked_count"`    // Beads blocked by dependencies
 	AssignedCount     int `json:"assigned_count"`
 	SkippedCount      int `json:"skipped_count"`
 	IdleAgents        int `json:"idle_agent_count"`
@@ -1286,7 +1286,7 @@ func getAssignOutputEnhanced(opts *AssignCommandOptions) (*AssignOutputEnhanced,
 		Assignments: make([]AssignmentItem, 0),
 		Skipped:     allSkipped, // Blocked + cyclic beads
 		Summary: AssignSummaryEnhanced{
-			TotalBeadCount:        len(readyBeads) + len(blockedBeads) + cycleWarnings,
+			TotalBeadCount:    len(readyBeads) + len(blockedBeads) + cycleWarnings,
 			ActionableCount:   len(readyBeads),
 			BlockedCount:      len(blockedBeads),
 			IdleAgents:        len(idleAgents),
@@ -2346,7 +2346,7 @@ func runClearSpecificBeads(cmd *cobra.Command, session string, clearBeads string
 		assignments := store.GetAll()
 		var foundAssignment *assignment.Assignment
 		for _, a := range assignments {
-			if a.BeadID == beadID && a.Status != "completed" {
+			if a.BeadID == beadID && (a.Status != assignment.StatusCompleted || assignForce) {
 				foundAssignment = &a
 				break
 			}
@@ -2359,10 +2359,11 @@ func runClearSpecificBeads(cmd *cobra.Command, session string, clearBeads string
 			result.PreviousPane = foundAssignment.Pane
 			result.PreviousAgent = foundAssignment.AgentName
 			result.PreviousAgentType = foundAssignment.AgentType
+			result.PreviousStatus = string(foundAssignment.Status)
 			result.AssignmentFound = true
 
 			// Release file reservations via Agent Mail
-			releasedFiles, releaseErr := releaseFileReservations(session, beadID, foundAssignment.AgentName)
+			releasedFiles, releaseErr := releaseReservations(session, beadID, foundAssignment.AgentName)
 			if releaseErr != nil && assignVerbose {
 				fmt.Fprintf(os.Stderr, "[CLEAR] Warning: could not release file reservations for %s: %v\n", beadID, releaseErr)
 			}
@@ -2487,7 +2488,7 @@ func runClearPaneAssignments(cmd *cobra.Command, session string, pane int) error
 	assignments := store.GetAll()
 	var paneAssignments []assignment.Assignment
 	for _, a := range assignments {
-		if a.Pane == pane && a.Status != "completed" {
+		if a.Pane == pane && (a.Status != assignment.StatusCompleted || assignForce) {
 			paneAssignments = append(paneAssignments, a)
 		}
 	}
@@ -2509,7 +2510,7 @@ func runClearPaneAssignments(cmd *cobra.Command, session string, pane int) error
 		}
 
 		// Release file reservations
-		releasedFiles, releaseErr := releaseFileReservations(session, a.BeadID, a.AgentName)
+		releasedFiles, releaseErr := releaseReservations(session, a.BeadID, a.AgentName)
 		if releaseErr != nil && assignVerbose {
 			fmt.Fprintf(os.Stderr, "[CLEAR] Warning: could not release file reservations for %s: %v\n", a.BeadID, releaseErr)
 		}
@@ -3584,14 +3585,14 @@ type AutoReassignOptions struct {
 
 // AutoReassignResult contains the result of an auto-reassignment operation
 type AutoReassignResult struct {
-	TriggerBeadID  string          `json:"trigger_bead_id"`
-	NewlyUnblocked []UnblockedBead `json:"newly_unblocked"`
+	TriggerBeadID  string           `json:"trigger_bead_id"`
+	NewlyUnblocked []UnblockedBead  `json:"newly_unblocked"`
 	Assignments    []AssignmentItem `json:"assignments"`
-	Skipped        []SkippedItem   `json:"skipped"`
-	IdleAgents     int             `json:"idle_agents"`
-	Errors         []string        `json:"errors,omitempty"`
-	CyclesDetected [][]string      `json:"cycles_detected,omitempty"`
-	CompletionTime time.Time       `json:"completion_time"`
+	Skipped        []SkippedItem    `json:"skipped"`
+	IdleAgents     int              `json:"idle_agents"`
+	Errors         []string         `json:"errors,omitempty"`
+	CyclesDetected [][]string       `json:"cycles_detected,omitempty"`
+	CompletionTime time.Time        `json:"completion_time"`
 }
 
 // PerformAutoReassignment handles automatic reassignment when a bead completes.

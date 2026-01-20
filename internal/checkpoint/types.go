@@ -31,6 +31,49 @@ type Checkpoint struct {
 	Git GitState `json:"git,omitempty"`
 	// PaneCount is the number of panes captured
 	PaneCount int `json:"pane_count"`
+
+	// Assignments contains bead-to-agent assignment state at checkpoint time (bd-32ck)
+	// This field is optional for backward compatibility with older checkpoints.
+	Assignments []AssignmentSnapshot `json:"assignments,omitempty"`
+
+	// BVSummary contains BV triage summary at checkpoint time (bd-32ck)
+	// This field is optional for backward compatibility with older checkpoints.
+	BVSummary *BVSnapshot `json:"bv_summary,omitempty"`
+}
+
+// AssignmentSnapshot captures bead assignment state for checkpointing.
+// This is a simplified view of assignment.Assignment for checkpoint storage.
+type AssignmentSnapshot struct {
+	// BeadID is the assigned bead identifier
+	BeadID string `json:"bead_id"`
+	// BeadTitle is the bead title for display
+	BeadTitle string `json:"bead_title"`
+	// Pane is the pane index where the agent is working
+	Pane int `json:"pane"`
+	// AgentType is the agent type (cc, cod, gmi)
+	AgentType string `json:"agent_type"`
+	// AgentName is the Agent Mail name if registered
+	AgentName string `json:"agent_name,omitempty"`
+	// Status is the assignment status (assigned, working, completed, failed)
+	Status string `json:"status"`
+	// AssignedAt is when the bead was assigned
+	AssignedAt time.Time `json:"assigned_at"`
+}
+
+// BVSnapshot captures BV triage state at checkpoint time.
+type BVSnapshot struct {
+	// OpenCount is the number of open beads
+	OpenCount int `json:"open_count"`
+	// ActionableCount is beads ready for work (unblocked)
+	ActionableCount int `json:"actionable_count"`
+	// BlockedCount is beads blocked by dependencies
+	BlockedCount int `json:"blocked_count"`
+	// InProgressCount is beads currently being worked
+	InProgressCount int `json:"in_progress_count"`
+	// TopPicks contains IDs of top recommended beads
+	TopPicks []string `json:"top_picks,omitempty"`
+	// CapturedAt is when the BV snapshot was taken
+	CapturedAt time.Time `json:"captured_at"`
 }
 
 // SessionState captures the tmux session layout and agents.
@@ -120,6 +163,8 @@ type checkpointOptions struct {
 	scrollbackLines     int
 	scrollbackCompress  bool
 	scrollbackMaxSizeMB int
+	captureAssignments  bool // bd-32ck: capture bead-to-agent assignments
+	captureBVSnapshot   bool // bd-32ck: capture BV triage summary
 }
 
 // WithDescription sets the checkpoint description.
@@ -158,11 +203,27 @@ func WithScrollbackMaxSizeMB(sizeMB int) CheckpointOption {
 	}
 }
 
+// WithAssignments enables/disables capturing bead-to-agent assignments (bd-32ck).
+func WithAssignments(capture bool) CheckpointOption {
+	return func(o *checkpointOptions) {
+		o.captureAssignments = capture
+	}
+}
+
+// WithBVSnapshot enables/disables capturing BV triage summary (bd-32ck).
+func WithBVSnapshot(capture bool) CheckpointOption {
+	return func(o *checkpointOptions) {
+		o.captureBVSnapshot = capture
+	}
+}
+
 func defaultOptions() checkpointOptions {
 	return checkpointOptions{
 		captureGit:          true,
 		scrollbackLines:     5000,
 		scrollbackCompress:  true,
 		scrollbackMaxSizeMB: 10,
+		captureAssignments:  true, // bd-32ck: enabled by default
+		captureBVSnapshot:   true, // bd-32ck: enabled by default
 	}
 }

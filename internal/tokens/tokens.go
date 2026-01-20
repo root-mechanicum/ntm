@@ -18,11 +18,17 @@ import (
 // The 3.5 chars/token heuristic is based on empirical observations across
 // multiple tokenizers (GPT, Claude, etc.) for typical English code and prose.
 func EstimateTokens(text string) int {
-	if text == "" {
+	return EstimateTokensFromLength(len(text))
+}
+
+// EstimateTokensFromLength provides a rough token count estimate from character count.
+// Uses ~3.5 characters per token heuristic.
+func EstimateTokensFromLength(length int) int {
+	if length <= 0 {
 		return 0
 	}
 	// ~3.5 chars per token for typical English text/code
-	count := int(float64(len(text)) / 3.5)
+	count := int(float64(length) / 3.5)
 	if count == 0 {
 		return 1
 	}

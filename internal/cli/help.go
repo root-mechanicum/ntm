@@ -118,6 +118,7 @@ func PrintStunningHelp(w io.Writer) {
 			commands: []commandHelp{
 				{"deps", "cad", "", "Check agent CLI dependencies"},
 				{"kill", "knt", "[-f] <session>", "Kill a session"},
+				{"respawn", "", "<session> [--panes]", "Restart worker agents"},
 				{"init", "", "[path]", "Initialize NTM for a project"},
 				{"shell", "", "<zsh|bash|fish>", "Generate shell integration"},
 				{"config", "", "[show|edit|path]", "Manage configuration"},

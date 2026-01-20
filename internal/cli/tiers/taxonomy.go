@@ -136,6 +136,18 @@ var Registry = map[string]CommandInfo{
 			"ntm kill -f myproject",
 		},
 	},
+	"respawn": {
+		Name:        "respawn",
+		Tier:        TierApprentice,
+		Alias:       "restart",
+		Category:    CategoryUtilities,
+		Description: "Restart worker agents in a session",
+		Examples: []string{
+			"ntm respawn myproject",
+			"ntm respawn myproject --panes=1,2",
+			"ntm respawn myproject --type=cc",
+		},
+	},
 	"version": {
 		Name:        "version",
 		Tier:        TierApprentice,

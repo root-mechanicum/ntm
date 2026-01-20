@@ -95,12 +95,15 @@ Examples:
 
 			if jsonOutput {
 				return json.NewEncoder(os.Stdout).Encode(map[string]interface{}{
-					"id":          cp.ID,
-					"session":     session,
-					"created_at":  cp.CreatedAt,
-					"description": cp.Description,
-					"pane_count":  cp.PaneCount,
-					"has_git":     cp.Git.Commit != "",
+					"id":                cp.ID,
+					"session":           session,
+					"created_at":        cp.CreatedAt,
+					"description":       cp.Description,
+					"pane_count":        cp.PaneCount,
+					"has_git":           cp.Git.Commit != "",
+					"assignments_count": len(cp.Assignments),
+					"assignments":       cp.Assignments,
+					"bv_summary":        cp.BVSummary,
 				})
 			}
 
@@ -121,6 +124,14 @@ Examples:
 			}
 			if cp.Description != "" {
 				fmt.Printf("  Description: %s\n", cp.Description)
+			}
+			if summary := summarizeAssignmentCounts(cp.Assignments); summary.total > 0 {
+				fmt.Printf("  Assignments: %d total (%d working, %d assigned, %d failed)\n",
+					summary.total, summary.working, summary.assigned, summary.failed)
+			}
+			if cp.BVSummary != nil {
+				fmt.Printf("  Beads: %d ready, %d blocked, %d in progress\n",
+					cp.BVSummary.ActionableCount, cp.BVSummary.BlockedCount, cp.BVSummary.InProgressCount)
 			}
 
 			return nil
@@ -354,6 +365,21 @@ Examples:
 				} else {
 					fmt.Printf("    Status: %sclean%s\n", colorize(t.Success), "\033[0m")
 				}
+			}
+
+			if summary := summarizeAssignmentCounts(cp.Assignments); summary.total > 0 {
+				fmt.Println()
+				fmt.Printf("  %sAssignments:%s\n", "\033[1m", "\033[0m")
+				fmt.Printf("    Total: %d (working=%d, assigned=%d, failed=%d)\n",
+					summary.total, summary.working, summary.assigned, summary.failed)
+			}
+
+			if cp.BVSummary != nil {
+				fmt.Println()
+				fmt.Printf("  %sBV Summary:%s\n", "\033[1m", "\033[0m")
+				fmt.Printf("    Ready: %d\n", cp.BVSummary.ActionableCount)
+				fmt.Printf("    Blocked: %d\n", cp.BVSummary.BlockedCount)
+				fmt.Printf("    In Progress: %d\n", cp.BVSummary.InProgressCount)
 			}
 
 			return nil
@@ -757,6 +783,29 @@ Examples:
 	cmd.Flags().BoolVar(&allowOverwrite, "overwrite", false, "overwrite existing checkpoint")
 
 	return cmd
+}
+
+func summarizeAssignmentCounts(assignments []checkpoint.AssignmentSnapshot) assignmentSummary {
+	var summary assignmentSummary
+	summary.total = len(assignments)
+	for _, a := range assignments {
+		switch a.Status {
+		case "working":
+			summary.working++
+		case "assigned":
+			summary.assigned++
+		case "failed":
+			summary.failed++
+		}
+	}
+	return summary
+}
+
+type assignmentSummary struct {
+	total    int
+	working  int
+	assigned int
+	failed   int
 }
 
 // formatAge returns a human-readable age string.

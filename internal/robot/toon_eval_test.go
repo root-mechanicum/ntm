@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"testing"
 	"time"
+
+	"github.com/Dicklesworthstone/ntm/internal/tokens"
 )
 
 // TestToonVsJSONTokenEfficiency evaluates TOON vs JSON token counts on representative payloads.
@@ -75,8 +77,8 @@ func TestToonVsJSONTokenEfficiency(t *testing.T) {
 		toonBytes := len(toonOutput)
 
 		// Estimate tokens (using ~3.5 chars per token as industry standard)
-		jsonTokens := estimateTokens(jsonOutput)
-		toonTokens := estimateTokens(toonOutput)
+		jsonTokens := tokens.EstimateTokens(jsonOutput)
+		toonTokens := tokens.EstimateTokens(toonOutput)
 
 		// Calculate savings
 		byteSavings := float64(jsonBytes-toonBytes) / float64(jsonBytes) * 100
@@ -114,17 +116,6 @@ func TestToonVsJSONTokenEfficiency(t *testing.T) {
 	} else {
 		t.Log("RECOMMENDATION: TOON savings marginal (<10%). Keep JSON as default.")
 	}
-}
-
-// estimateTokens provides a rough token count estimate.
-// Uses ~3.5 chars per token as a reasonable approximation for mixed text/code.
-func estimateTokens(s string) int {
-	// A more accurate estimate accounts for:
-	// - Whitespace is often part of tokens
-	// - JSON syntax chars tend to merge with adjacent tokens
-	// - Numbers and identifiers vary
-	// Using 3.5 chars/token as middle ground
-	return (len(s) * 10) / 35
 }
 
 // Sample payload generators

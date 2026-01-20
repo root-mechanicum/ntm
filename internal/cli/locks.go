@@ -80,9 +80,9 @@ type LocksResult struct {
 }
 
 func runLocks(session string, allAgents bool) error {
-	wd, err := os.Getwd()
-	if err != nil {
-		return fmt.Errorf("getting working directory: %w", err)
+	wd := GetProjectRoot()
+	if wd == "" {
+		return fmt.Errorf("getting project root failed")
 	}
 
 	sessionAgent, err := agentmail.LoadSessionAgent(session, wd)
@@ -271,9 +271,9 @@ type ForceReleaseResult struct {
 }
 
 func runForceRelease(session string, reservationID int, note string, notify, skipConfirm bool) error {
-	wd, err := os.Getwd()
-	if err != nil {
-		return fmt.Errorf("getting working directory: %w", err)
+	wd := GetProjectRoot()
+	if wd == "" {
+		return fmt.Errorf("getting project root failed")
 	}
 
 	sessionAgent, err := agentmail.LoadSessionAgent(session, wd)

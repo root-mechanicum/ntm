@@ -54,9 +54,9 @@ func runUnlock(session string, patterns []string, all bool) error {
 		return fmt.Errorf("specify patterns to release or use --all")
 	}
 
-	wd, err := os.Getwd()
-	if err != nil {
-		return fmt.Errorf("getting working directory: %w", err)
+	wd := GetProjectRoot()
+	if wd == "" {
+		return fmt.Errorf("getting project root failed")
 	}
 
 	sessionAgent, err := agentmail.LoadSessionAgent(session, wd)
