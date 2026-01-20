@@ -63,7 +63,11 @@ jobs:
       - name: OpenAPI drift check
         run: |
           bun run gen:openapi
-          git diff --exit-code docs/openapi.json docs/parity_matrix.json
+          # Strip generated_at timestamp before comparing (changes on every run)
+          jq 'del(.generated_at)' docs/parity_matrix.json > /tmp/parity_new.json
+          git show HEAD:docs/parity_matrix.json | jq 'del(.generated_at)' > /tmp/parity_old.json
+          diff /tmp/parity_old.json /tmp/parity_new.json
+          git diff --exit-code docs/openapi.json
 
       - name: Validate OpenAPI
         run: bun run lint:openapi
