@@ -540,7 +540,7 @@ type AssignSummaryEnhanced struct {
 	BlockedCount      int `json:"blocked_count"`                  // Beads blocked by dependencies
 	AssignedCount     int `json:"assigned_count"`
 	SkippedCount      int `json:"skipped_count"`
-	IdleAgentCount    int `json:"idle_agent_count"`
+	IdleAgents        int `json:"idle_agent_count"`
 	CycleWarningCount int `json:"cycle_warning_count,omitempty"` // Beads in dependency cycles
 }
 
@@ -553,20 +553,42 @@ type AssignError struct {
 
 // AssignEnvelope is the standard JSON envelope for assign operations.
 type AssignEnvelope[T any] struct {
-	Command    string      `json:"command"`
-	Subcommand string      `json:"subcommand,omitempty"`
-	Session    string      `json:"session"`
-	Timestamp  string      `json:"timestamp"`
-	Success    bool        `json:"success"`
-	Data       *T          `json:"data"`
-	Warnings   []string    `json:"warnings"`
-	Error      *AssignError `json:"error"`
+	Command    string       `json:"command"`
+	Subcommand string       `json:"subcommand,omitempty"`
+	Session    string       `json:"session"`
+	Timestamp  string       `json:"timestamp"`
+	Success    bool         `json:"success"`
+	Data       *T           `json:"data,omitempty"`
+	Warnings   []string     `json:"warnings"`
+	Error      *AssignError `json:"error,omitempty"`
+}
+
+// DirectAssignItem represents a single direct assignment in JSON output.
+type DirectAssignItem struct {
+	BeadID       string   `json:"bead_id"`
+	BeadTitle    string   `json:"bead_title"`
+	Pane         int      `json:"pane"`
+	AgentType    string   `json:"agent_type"`
+	Status       string   `json:"status"`
+	Prompt       string   `json:"prompt"`
+	PromptSent   bool     `json:"prompt_sent"`
+	AssignedAt   string   `json:"assigned_at"`
+	PaneWasBusy  bool     `json:"pane_was_busy,omitempty"`
+	DepsIgnored  bool     `json:"deps_ignored,omitempty"`
+	BlockedByIDs []string `json:"blocked_by_ids,omitempty"`
+}
+
+// DirectAssignFileReservations holds file reservation details for direct assignment.
+type DirectAssignFileReservations struct {
+	Requested []string `json:"requested"`
+	Granted   []string `json:"granted"`
+	Denied    []string `json:"denied"`
 }
 
 // DirectAssignData holds the data for a direct pane assignment.
 type DirectAssignData struct {
-	Assignment       *AssignmentItem `json:"assignment"`
-	FileReservations []string        `json:"file_reservations"`
+	Assignment       *DirectAssignItem             `json:"assignment"`
+	FileReservations *DirectAssignFileReservations `json:"file_reservations,omitempty"`
 }
 
 // getAssignOutput builds the assignment output without printing
@@ -907,7 +929,7 @@ func displayAssignOutput(output *robot.AssignOutput) {
 	fmt.Printf("Strategy: %s\n", output.Strategy)
 	fmt.Printf("Agents: %d total, %d idle, %d working\n",
 		output.Summary.TotalAgents,
-		output.Summary.IdleAgents,
+		output.Summary.IdleAgentCount,
 		output.Summary.WorkingAgents)
 	fmt.Printf("Beads: %d ready\n", output.Summary.ReadyBeads)
 
@@ -1249,10 +1271,10 @@ func getAssignOutputEnhanced(opts *AssignCommandOptions) (*AssignOutputEnhanced,
 		Assignments: make([]AssignmentItem, 0),
 		Skipped:     allSkipped, // Blocked + cyclic beads
 		Summary: AssignSummaryEnhanced{
-			TotalBeads:        len(readyBeads) + len(blockedBeads) + cycleWarnings,
+			TotalBeadCount:        len(readyBeads) + len(blockedBeads) + cycleWarnings,
 			ActionableCount:   len(readyBeads),
 			BlockedCount:      len(blockedBeads),
-			IdleAgents:        len(idleAgents),
+			IdleAgentCount:        len(idleAgents),
 			CycleWarningCount: cycleWarnings,
 		},
 		Errors: triageErrors, // Add any triage errors collected before result was initialized
@@ -1520,7 +1542,7 @@ func displayAssignOutputEnhanced(out *AssignOutputEnhanced, verbose bool) {
 	// Summary
 	fmt.Println()
 	fmt.Printf("Strategy: %s\n", out.Strategy)
-	fmt.Printf("Idle Agents: %d | Actionable Beads: %d", out.Summary.IdleAgents, out.Summary.ActionableCount)
+	fmt.Printf("Idle Agents: %d | Actionable Beads: %d", out.Summary.IdleAgentCount, out.Summary.ActionableCount)
 	if out.Summary.BlockedCount > 0 {
 		fmt.Printf(" | Blocked: %d", out.Summary.BlockedCount)
 	}
@@ -1547,9 +1569,9 @@ func displayAssignOutputEnhanced(out *AssignOutputEnhanced, verbose bool) {
 	} else {
 		fmt.Println()
 		fmt.Println(subtitleStyle.Render("No assignments to recommend."))
-		if out.Summary.IdleAgents == 0 {
+		if out.Summary.IdleAgentCount == 0 {
 			fmt.Println(subtitleStyle.Render("  Reason: No idle agents available"))
-		} else if out.Summary.TotalBeads == 0 {
+		} else if out.Summary.TotalBeadCount == 0 {
 			fmt.Println(subtitleStyle.Render("  Reason: No ready beads to assign"))
 		}
 	}
@@ -1891,29 +1913,11 @@ type RetryData struct {
 }
 
 // RetryError represents an error in the retry envelope.
-type RetryError struct {
-	Code    string                 `json:"code"`
-	Message string                 `json:"message"`
-	Details map[string]interface{} `json:"details,omitempty"`
-}
-
-// RetryEnvelope is the standard JSON envelope for retry operations.
-type RetryEnvelope struct {
-	Command    string      `json:"command"`
-	Subcommand string      `json:"subcommand"`
-	Session    string      `json:"session"`
-	Timestamp  string      `json:"timestamp"`
-	Success    bool        `json:"success"`
-	Data       *RetryData  `json:"data,omitempty"`
-	Warnings   []string    `json:"warnings"`
-	Error      *RetryError `json:"error,omitempty"`
-}
-
 var releaseReservations = releaseFileReservations
 
 // makeRetryEnvelope creates a standard RetryEnvelope for JSON output.
-func makeRetryEnvelope(session string, success bool, data *RetryData, errCode, errMsg string, warnings []string) RetryEnvelope {
-	envelope := RetryEnvelope{
+func makeRetryEnvelope(session string, success bool, data *RetryData, errCode, errMsg string, warnings []string) AssignEnvelope[RetryData] {
+	envelope := AssignEnvelope[RetryData]{
 		Command:    "assign",
 		Subcommand: "retry",
 		Session:    session,
@@ -1926,7 +1930,7 @@ func makeRetryEnvelope(session string, success bool, data *RetryData, errCode, e
 		envelope.Warnings = []string{}
 	}
 	if errCode != "" {
-		envelope.Error = &RetryError{
+		envelope.Error = &AssignError{
 			Code:    errCode,
 			Message: errMsg,
 		}
@@ -2773,15 +2777,15 @@ func runReassignment(cmd *cobra.Command, session string) error {
 }
 
 // makeReassignErrorEnvelope creates a standard error envelope for reassignment operations
-func makeReassignErrorEnvelope(session, code, message string, details map[string]interface{}) ReassignEnvelope {
-	return ReassignEnvelope{
+func makeReassignErrorEnvelope(session, code, message string, details map[string]interface{}) AssignEnvelope[ReassignData] {
+	return AssignEnvelope[ReassignData]{
 		Command:    "assign",
 		Subcommand: "reassign",
 		Session:    session,
 		Timestamp:  time.Now().UTC().Format(time.RFC3339),
 		Success:    false,
 		Warnings:   []string{},
-		Error: &ReassignError{
+		Error: &AssignError{
 			Code:    code,
 			Message: message,
 			Details: details,
@@ -3586,7 +3590,7 @@ func PerformAutoReassignment(completedBeadID string, opts *AutoReassignOptions) 
 		return result, nil
 	}
 
-	result.IdleAgents = len(idleAgents)
+	result.IdleAgentCount = len(idleAgents)
 
 	if len(idleAgents) == 0 {
 		// No idle agents - mark all unblocked beads as skipped

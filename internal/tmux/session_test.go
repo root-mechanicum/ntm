@@ -50,7 +50,7 @@ func TestParseAgentFromTitle(t *testing.T) {
 		{"proj__cod_5_sonnet", AgentCodex, "sonnet", nil},
 		{"proj__gmi_6_flash", AgentGemini, "flash", nil},
 		{"proj__cc_7_opus[foo,bar]", AgentClaude, "opus", []string{"foo", "bar"}},
-		{"proj__foo_1", AgentUser, "", nil},
+		{"proj__foo_1", AgentType("foo"), "", nil},
 		{"plain-title", AgentUser, "", nil},
 	}
 
@@ -859,7 +859,7 @@ func TestAgentType_ProfileName(t *testing.T) {
 		{AgentCodex, "Codex"},
 		{AgentGemini, "Gemini"},
 		{AgentUser, "User"},
-		{AgentType("unknown"), "unknown"},
+		{AgentType("unknown"), "Unknown"},
 	}
 
 	for _, tt := range tests {

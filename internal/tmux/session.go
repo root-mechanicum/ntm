@@ -29,10 +29,13 @@ var sessionNameRegex = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
 type AgentType string
 
 const (
-	AgentClaude AgentType = "cc"
-	AgentCodex  AgentType = "cod"
-	AgentGemini AgentType = "gmi"
-	AgentUser   AgentType = "user"
+	AgentClaude   AgentType = "cc"
+	AgentCodex    AgentType = "cod"
+	AgentGemini   AgentType = "gmi"
+	AgentCursor   AgentType = "cursor"
+	AgentWindsurf AgentType = "windsurf"
+	AgentAider    AgentType = "aider"
+	AgentUser     AgentType = "user"
 )
 
 // FieldSeparator is used to separate fields in tmux format strings.
@@ -49,9 +52,19 @@ func (a AgentType) ProfileName() string {
 		return "Codex"
 	case AgentGemini:
 		return "Gemini"
+	case AgentCursor:
+		return "Cursor"
+	case AgentWindsurf:
+		return "Windsurf"
+	case AgentAider:
+		return "Aider"
 	case AgentUser:
 		return "User"
 	default:
+		// Capitalize first letter for unknown types
+		if len(a) > 0 {
+			return strings.ToUpper(string(a)[:1]) + string(a)[1:]
+		}
 		return string(a)
 	}
 }
@@ -91,7 +104,7 @@ func parseAgentFromTitle(title string) (AgentType, string, []string) {
 		return AgentUser, "", nil
 	}
 
-	// matches[1] = type (cc, cod, gmi)
+	// matches[1] = type (cc, cod, gmi, cursor, etc.)
 	// matches[2] = variant (may be empty)
 	// matches[3] = tags string (may be empty, may be absent if regex didn't capture)
 	agentType := AgentType(matches[1])
@@ -101,13 +114,11 @@ func parseAgentFromTitle(title string) (AgentType, string, []string) {
 		tags = parseTags(matches[3])
 	}
 
-	// Validate agent type
-	switch agentType {
-	case AgentClaude, AgentCodex, AgentGemini:
+	// Allow any non-empty agent type that matched the regex
+	if agentType != "" {
 		return agentType, variant, tags
-	default:
-		return AgentUser, "", nil
 	}
+	return AgentUser, "", nil
 }
 
 // parseTags parses a comma-separated tag string into a slice.

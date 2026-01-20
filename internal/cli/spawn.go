@@ -1471,6 +1471,8 @@ func spawnSessionLogic(opts SpawnOptions) error {
 				if err := os.MkdirAll(logDir, 0755); err == nil {
 					logPath := filepath.Join(logDir, fmt.Sprintf("%s-monitor.log", opts.Session))
 					if logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644); err == nil {
+						// Ensure file is closed after spawn
+						defer logFile.Close()
 						cmd.Stdout = logFile
 						cmd.Stderr = logFile
 					}
@@ -2078,7 +2080,7 @@ func estimateRecoveryTokens(rc *RecoveryContext) int {
 	}
 
 	// Count CM memories
-	if rc.CMMemories != nil {
+	if rc.CMMemories != nil && (len(rc.CMMemories.Rules) > 0 || len(rc.CMMemories.AntiPatterns) > 0) {
 		for _, r := range rc.CMMemories.Rules {
 			chars += len(r.ID) + len(r.Content) + len(r.Category)
 		}

@@ -522,7 +522,10 @@ func runPolicyEdit(cmd *cobra.Command, args []string) error {
 	}
 
 	// Open in editor
-	editCmd := exec.Command(editor, policyPath)
+	editCmd, err := buildEditorCommand(policyPath)
+	if err != nil {
+		return err
+	}
 	editCmd.Stdin = os.Stdin
 	editCmd.Stdout = os.Stdout
 	editCmd.Stderr = os.Stderr

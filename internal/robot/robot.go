@@ -709,7 +709,15 @@ func PrintMail(sessionName, projectKey string) error {
 		if panes, err := tmux.GetPanes(sessionName); err == nil {
 			paneInfos := parseNTMPanes(panes)
 			agentsByType := groupAgentsByType(agents)
-			for _, paneType := range []string{"cc", "cod", "gmi"} {
+
+			// Collect and sort all pane types found
+			var paneTypes []string
+			for t := range paneInfos {
+				paneTypes = append(paneTypes, t)
+			}
+			sort.Strings(paneTypes)
+
+			for _, paneType := range paneTypes {
 				mapping := assignAgentsToPanes(paneInfos[paneType], agentsByType[paneType])
 				for _, pane := range paneInfos[paneType] {
 					entry := AgentMailAgent{Pane: pane.Label}
@@ -847,14 +855,10 @@ type ntmPaneInfo struct {
 	Variant   string
 }
 
-var ntmPaneTitleRE = regexp.MustCompile(`^.+__(cc|cod|gmi)_(\d+)(?:_([A-Za-z0-9._/@:+-]+))?(?:\[[^\]]*\])?$`)
+var ntmPaneTitleRE = regexp.MustCompile(`^.+__([a-zA-Z0-9]+)_(\d+)(?:_([A-Za-z0-9._/@:+-]+))?(?:\[[^\]]*\])?$`)
 
 func parseNTMPanes(panes []tmux.Pane) map[string][]ntmPaneInfo {
-	out := map[string][]ntmPaneInfo{
-		"cc":  {},
-		"cod": {},
-		"gmi": {},
-	}
+	out := make(map[string][]ntmPaneInfo)
 
 	for _, p := range panes {
 		matches := ntmPaneTitleRE.FindStringSubmatch(strings.TrimSpace(p.Title))
@@ -884,11 +888,8 @@ func parseNTMPanes(panes []tmux.Pane) map[string][]ntmPaneInfo {
 }
 
 func groupAgentsByType(agents []agentmail.Agent) map[string][]agentmail.Agent {
-	out := map[string][]agentmail.Agent{
-		"cc":  {},
-		"cod": {},
-		"gmi": {},
-	}
+	out := make(map[string][]agentmail.Agent)
+
 	for _, a := range agents {
 		if a.Program == "" || a.Program == "ntm" {
 			continue
@@ -915,8 +916,14 @@ func agentTypeFromProgram(program string) string {
 		return "cod"
 	case strings.Contains(p, "gemini"):
 		return "gmi"
+	case strings.Contains(p, "cursor"):
+		return "cursor"
+	case strings.Contains(p, "windsurf"):
+		return "windsurf"
+	case strings.Contains(p, "aider"):
+		return "aider"
 	default:
-		return ""
+		return p
 	}
 }
 
@@ -1704,7 +1711,7 @@ func buildSnapshotAgentMail() *SnapshotAgentMail {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	// Ensure project exists; if this fails, degrade gracefully.
+	// Ensure project exists
 	if _, err := client.EnsureProject(ctx, cwd); err != nil {
 		return &SnapshotAgentMail{
 			Available: true,
@@ -1895,11 +1902,21 @@ func PrintSnapshot(cfg *config.Config) error {
 		return encodeJSON(output)
 	}
 
-	// Agent Mail summary (best-effort, graceful degradation). Populate early so we can attach
-	// per-pane PendingMail hints during snapshot construction.
-	output.AgentMail = buildSnapshotAgentMail()
-	if output.AgentMail != nil && output.AgentMail.Available {
-		output.MailUnread = output.AgentMail.TotalUnread
+	// Fetch Agent Mail data early
+	var mailAgents []agentmail.Agent
+	var mailStats map[string]SnapshotAgentMailStats
+	var projectKey string
+
+	cwd, err := os.Getwd()
+	if err == nil {
+		projectKey = cwd
+		// Build initial mail summary without pane mapping
+		if summary, agents, stats := fetchAgentMailData(projectKey); summary != nil {
+			output.AgentMail = summary
+			output.MailUnread = summary.TotalUnread
+			mailAgents = agents
+			mailStats = stats
+		}
 	}
 
 	// Get all sessions
@@ -1923,6 +1940,9 @@ func PrintSnapshot(cfg *config.Config) error {
 			continue
 		}
 
+		// Resolve agent mapping for this session
+		agentMapping := resolveAgentsForSession(panes, mailAgents)
+
 		for _, pane := range panes {
 			// Capture output for state detection and enhanced type detection
 			captured := ""
@@ -1945,11 +1965,18 @@ func PrintSnapshot(cfg *config.Config) error {
 				PendingMail:      0,
 			}
 
-			// Best-effort mapping: if the pane title matches an Agent Mail identity, attach its
-			// unread count as a PendingMail hint.
-			if output.AgentMail != nil && output.AgentMail.Agents != nil {
-				if stats, ok := output.AgentMail.Agents[pane.Title]; ok {
+			// Map pending mail if available
+			if agentName, ok := agentMapping[pane.Title]; ok {
+				if stats, ok := mailStats[agentName]; ok {
 					agent.PendingMail = stats.Unread
+					
+					// Update the mail summary with the pane ID
+					if output.AgentMail != nil && output.AgentMail.Agents != nil {
+						if s, exists := output.AgentMail.Agents[agentName]; exists {
+							s.Pane = agent.Pane
+							output.AgentMail.Agents[agentName] = s
+						}
+					}
 				}
 			}
 
@@ -3028,7 +3055,7 @@ func PrintRecipes() error {
 }
 
 // TerseState represents the ultra-compact state for token-constrained scenarios.
-// Format: S:session|A:active/total|W:working|I:idle|E:errors|C:ctx%|B:Rn/In/Bn|M:mail|!:Nc,Nw
+// Format: S:session|A:active/total|W:working|I:idle|E:errors|C:ctx%|B:Rn/In/Bn|M:mail|!:
 type TerseState struct {
 	Session        string `json:"session"`
 	ActiveAgents   int    `json:"active_agents"`
@@ -3046,7 +3073,7 @@ type TerseState struct {
 }
 
 // String returns the ultra-compact string representation.
-// Format: S:session|A:5/8|W:3|I:2|E:0|C:78%|B:R3/I2/B1|M:4|!:
+// Format: S:session|A:active/total|W:working|I:idle|E:errors|C:ctx%|B:Rn/In/Bn|M:mail|!:
 func (t TerseState) String() string {
 	// Build alerts string (only include if non-zero)
 	alertStr := ""
@@ -3367,6 +3394,105 @@ func countInbox(ctx context.Context, client *agentmail.Client, projectKey, agent
 		return 0
 	}
 	return len(msgs)
+}
+
+// fetchAgentMailData retrieves Agent Mail state for the project.
+// Returns the summary, raw agent list, and per-agent stats map.
+func fetchAgentMailData(projectKey string) (*SnapshotAgentMail, []agentmail.Agent, map[string]SnapshotAgentMailStats) {
+	client := agentmail.NewClient(agentmail.WithProjectKey(projectKey))
+
+	if !client.IsAvailable() {
+		return nil, nil, nil
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	// Ensure project exists
+	if _, err := client.EnsureProject(ctx, projectKey); err != nil {
+		return &SnapshotAgentMail{
+			Available: true,
+			Reason:    fmt.Sprintf("ensure_project failed: %v", err),
+			Project:   projectKey,
+		}, nil, nil
+	}
+
+	agents, err := client.ListProjectAgents(ctx, projectKey)
+	if err != nil {
+		return &SnapshotAgentMail{
+			Available: true,
+			Reason:    fmt.Sprintf("list_agents failed: %v", err),
+			Project:   projectKey,
+		}, nil, nil
+	}
+
+	summary := &SnapshotAgentMail{
+		Available: true,
+		Project:   projectKey,
+		Agents:    make(map[string]SnapshotAgentMailStats),
+	}
+	statsMap := make(map[string]SnapshotAgentMailStats)
+
+	threadSet := make(map[string]struct{})
+	for _, agent := range agents {
+		if agent.Name == "HumanOverseer" {
+			continue
+		}
+
+		inbox, err := client.FetchInbox(ctx, agentmail.FetchInboxOptions{
+			ProjectKey:    projectKey,
+			AgentName:     agent.Name,
+			Limit:         25,
+			IncludeBodies: false,
+		})
+		if err != nil {
+			continue
+		}
+		unread := len(inbox)
+		pendingAck := 0
+		for _, msg := range inbox {
+			if msg.AckRequired {
+				pendingAck++
+			}
+			threadKey := ""
+			if msg.ThreadID != nil && *msg.ThreadID != "" {
+				threadKey = *msg.ThreadID
+			} else {
+				threadKey = fmt.Sprintf("%d", msg.ID)
+			}
+			threadSet[threadKey] = struct{}{}
+		}
+		summary.TotalUnread += unread
+		stats := SnapshotAgentMailStats{
+			Unread:     unread,
+			PendingAck: pendingAck,
+		}
+		summary.Agents[agent.Name] = stats
+		statsMap[agent.Name] = stats
+	}
+
+	if len(threadSet) > 0 {
+		summary.ThreadsKnown = len(threadSet)
+	}
+
+	return summary, agents, statsMap
+}
+
+// resolveAgentsForSession maps pane titles to agent names for a specific session.
+func resolveAgentsForSession(panes []tmux.Pane, mailAgents []agentmail.Agent) map[string]string {
+	mapping := make(map[string]string)
+	agentNames := make(map[string]bool)
+	for _, a := range mailAgents {
+		agentNames[a.Name] = true
+	}
+
+	for _, p := range panes {
+		// Exact match: pane title matches agent name
+		if agentNames[p.Title] {
+			mapping[p.Title] = p.Title
+		}
+	}
+	return mapping
 }
 
 // ContextOutput is the structured output for --robot-context

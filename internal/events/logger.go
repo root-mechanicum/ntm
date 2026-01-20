@@ -180,6 +180,7 @@ func (l *Logger) rotateOldEntries() error {
 
 	// Buffer for writing to temp file
 	writer := bufio.NewWriter(tmpFile)
+	defer tmpFile.Close()
 
 	for scanner.Scan() {
 		line := scanner.Bytes()

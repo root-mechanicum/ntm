@@ -148,7 +148,7 @@ func TestParseAgentFromTitle_EdgeCases(t *testing.T) {
 		wantTags    []string
 	}{
 		{"invalid_format", AgentUser, "", nil},
-		{"session__invalid_1", AgentUser, "", nil}, // valid regex but invalid type
+		{"session__invalid_1", AgentType("invalid"), "", nil}, // valid regex but invalid type
 		{"session__cc_1", AgentClaude, "", nil},
 		{"session__cc_1_variant", AgentClaude, "variant", nil},
 		{"session__cod_2_gpt4", AgentCodex, "gpt4", nil},
