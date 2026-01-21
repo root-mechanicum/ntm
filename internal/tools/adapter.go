@@ -39,11 +39,12 @@ const (
 	ToolGIIL ToolName = "giil" // Get Image from Internet Link - cloud photo downloader
 	ToolUBS  ToolName = "ubs"  // Ultimate Bug Scanner - code review and bug detection
 	ToolCAAM ToolName = "caam" // CAAM - Coding Agent Account Manager for rate limit recovery
+	ToolRCH  ToolName = "rch"  // RCH - Remote Compilation Helper for build offloading
 )
 
 // AllTools returns a list of all supported tools
 func AllTools() []ToolName {
-	return []ToolName{ToolBV, ToolBD, ToolAM, ToolCM, ToolCASS, ToolS2P, ToolJFP, ToolDCG, ToolSLB, ToolACFS, ToolRU, ToolMS, ToolXF, ToolGIIL, ToolUBS, ToolCAAM}
+	return []ToolName{ToolBV, ToolBD, ToolAM, ToolCM, ToolCASS, ToolS2P, ToolJFP, ToolDCG, ToolSLB, ToolACFS, ToolRU, ToolMS, ToolXF, ToolGIIL, ToolUBS, ToolCAAM, ToolRCH}
 }
 
 // HealthStatus represents the health state of a tool
