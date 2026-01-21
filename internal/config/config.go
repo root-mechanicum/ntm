@@ -683,6 +683,7 @@ type IntegrationsConfig struct {
 	DCG  DCGConfig  `toml:"dcg"`
 	CAAM CAAMConfig `toml:"caam"` // CAAM (Coding Agent Account Manager) integration
 	RCH  RCHConfig  `toml:"rch"`  // RCH (Remote Compilation Helper) integration
+	Caut CautConfig `toml:"caut"` // caut (Cloud API Usage Tracker) integration
 }
 
 // DCGConfig holds configuration for the DCG (destructive_commit_guard) integration.
@@ -733,6 +734,7 @@ func DefaultIntegrationsConfig() IntegrationsConfig {
 		},
 		CAAM: DefaultCAAMConfig(),
 		RCH:  DefaultRCHConfig(),
+		Caut: DefaultCautConfig(),
 	}
 }
 
@@ -788,6 +790,31 @@ func DefaultRCHConfig() RCHConfig {
 		FallbackLocal:   true,   // Fallback to local if remote fails
 		ShowLocation:    true,   // Show where build ran
 		PreferredWorker: "auto", // Auto-select best worker
+	}
+}
+
+// CautConfig holds configuration for caut (Cloud API Usage Tracker) integration.
+// caut tracks API usage, quotas, and spending across cloud providers.
+type CautConfig struct {
+	Enabled          bool     `toml:"enabled"`            // Enable caut usage tracking integration
+	BinaryPath       string   `toml:"binary_path"`        // Path to caut binary (optional, defaults to PATH lookup)
+	PollInterval     int      `toml:"poll_interval"`      // Polling interval in seconds
+	AlertThreshold   int      `toml:"alert_threshold"`    // Alert threshold (percentage of quota)
+	Providers        []string `toml:"providers"`          // Providers to track (empty = all available)
+	PerAgentTracking bool     `toml:"per_agent_tracking"` // Enable per-agent usage attribution
+	Currency         string   `toml:"currency"`           // Cost display currency
+}
+
+// DefaultCautConfig returns sensible defaults for caut integration.
+func DefaultCautConfig() CautConfig {
+	return CautConfig{
+		Enabled:          true,   // Enabled by default (when caut is available)
+		BinaryPath:       "",     // Default to PATH lookup
+		PollInterval:     60,     // Poll every 60 seconds
+		AlertThreshold:   80,     // Alert at 80% quota usage
+		Providers:        nil,    // Track all available providers
+		PerAgentTracking: true,   // Enable per-agent tracking if supported
+		Currency:         "USD",  // Default to USD
 	}
 }
 
