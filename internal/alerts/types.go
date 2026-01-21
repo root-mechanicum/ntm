@@ -46,6 +46,11 @@ const (
 	AlertCompactionComplete AlertType = "compaction_complete"
 	// AlertCompactionFailed indicates compaction failed
 	AlertCompactionFailed AlertType = "compaction_failed"
+
+	// AlertQuotaWarning indicates API usage approaching quota threshold
+	AlertQuotaWarning AlertType = "quota_warning"
+	// AlertQuotaCritical indicates API usage at or exceeding quota
+	AlertQuotaCritical AlertType = "quota_critical"
 )
 
 // Severity indicates the urgency of an alert
