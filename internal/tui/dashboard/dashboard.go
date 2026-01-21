@@ -610,6 +610,7 @@ func New(session, projectDir string) Model {
 		mailInboxRefreshInterval:   MailInboxRefreshInterval,
 		paneOutputLines:            50,
 		paneOutputCaptureBudget:    20,
+		paneOutputCaptureCursor:    0,
 		paneOutputCache:            make(map[string]string),
 		paneOutputLastCaptured:     make(map[string]time.Time),
 		renderedOutputCache:        make(map[string]string),
@@ -1126,7 +1127,7 @@ func (m *Model) fetchAgentMailInboxes() tea.Cmd {
 	}
 }
 
-// fetchAgentMailInboxDetails fetches message bodies for a single pane's agent.
+// fetchAgentMailInboxDetails fetches message bodies for a single agent.
 func (m *Model) fetchAgentMailInboxDetails(pane tmux.Pane) tea.Cmd {
 	gen := m.nextGen(refreshAgentMailInbox)
 	projectKey := m.projectDir
@@ -2252,15 +2253,33 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.Err == nil {
 			m.agentMailInbox = msg.Inboxes
 			m.agentMailAgents = msg.AgentMap
-			// Calculate totals from summary
+
+			// Build index lookup for current panes
+			paneIndexByID := make(map[string]int)
+			for _, p := range m.panes {
+				paneIndexByID[p.ID] = p.Index
+			}
+
+			// Calculate totals and update per-pane status
 			unread := 0
 			urgent := 0
-			for _, msgs := range msg.Inboxes {
-				unread += len(msgs)
+			for paneID, msgs := range msg.Inboxes {
+				paneUnread := len(msgs)
+				paneUrgent := 0
 				for _, mm := range msgs {
 					if strings.EqualFold(mm.Importance, "urgent") {
-						urgent++
+						paneUrgent++
 					}
+				}
+				unread += paneUnread
+				urgent += paneUrgent
+
+				// Update pane status
+				if idx, ok := paneIndexByID[paneID]; ok {
+					ps := m.paneStatus[idx]
+					ps.MailUnread = paneUnread
+					ps.MailUrgent = paneUrgent
+					m.paneStatus[idx] = ps
 				}
 			}
 			m.agentMailUnread = unread
@@ -2398,6 +2417,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case key.Matches(msg, dashKeys.MailRefresh):
 			// Refresh Agent Mail data
 			return m, m.fetchAgentMailStatus()
+
+		case key.Matches(msg, dashKeys.InboxToggle):
+			if m.cursor >= 0 && m.cursor < len(m.panes) {
+				p := m.panes[m.cursor]
+				return m, m.fetchAgentMailInboxDetails(p)
+			}
 
 		case key.Matches(msg, dashKeys.Checkpoint):
 			// Create a new checkpoint for the session
@@ -3159,8 +3184,8 @@ func formatTokenDisplay(used, limit int) string {
 	return fmt.Sprintf("%s / %s", formatTokens(used), formatTokens(limit))
 }
 
-// formatDuration formats a duration for display (e.g., "2m", "45s")
-func formatDuration(d time.Duration) string {
+// formatRelativeTime formats a duration for display (e.g., "2m", "45s")
+func formatRelativeTime(d time.Duration) string {
 	if d < time.Minute {
 		return fmt.Sprintf("%ds", int(d.Seconds()))
 	}
@@ -3170,294 +3195,120 @@ func formatDuration(d time.Duration) string {
 	return fmt.Sprintf("%dh", int(d.Hours()))
 }
 
-func (m Model) renderPaneGrid() string {
-	t := m.theme
-	ic := m.icons
-
-	var lines []string
-
-	// Calculate adaptive card dimensions based on terminal width
-	// Uses beads_viewer-inspired algorithm with min/max constraints
-	const (
-		minCardWidth = 22 // Minimum usable card width
-		maxCardWidth = 45 // Maximum card width for readability
-		cardGap      = 2  // Gap between cards
-	)
-
-	availableWidth := m.width - 4 // Account for margins
-	cardWidth, cardsPerRow := styles.AdaptiveCardDimensions(availableWidth, minCardWidth, maxCardWidth, cardGap)
-
-	// In grid mode (used below Split threshold), show more detail when card width allows it.
-	showExtendedInfo := cardWidth >= 24
-
-	rows := BuildPaneTableRows(m.panes, m.agentStatuses, m.paneStatus, &m.beadsSummary, m.fileChanges, m.animTick, t)
-	if summary := activitySummaryLine(rows, t); summary != "" {
-		lines = append(lines, "  "+summary)
-	}
-	contextRanks := m.computeContextRanks()
-
-	var cards []string
-
-	for i, p := range m.panes {
-		row := rows[i]
-		isSelected := i == m.cursor
-
-		// Determine card colors based on agent type
-		var borderColor, iconColor lipgloss.Color
-		var agentIcon string
-
-		switch p.Type {
-		case tmux.AgentClaude:
-			borderColor = t.Claude
-			iconColor = t.Claude
-			agentIcon = ic.Claude
-		case tmux.AgentCodex:
-			borderColor = t.Codex
-			iconColor = t.Codex
-			agentIcon = ic.Codex
-		case tmux.AgentGemini:
-			borderColor = t.Gemini
-			iconColor = t.Gemini
-			agentIcon = ic.Gemini
-		default:
-			borderColor = t.Green
-			iconColor = t.Green
-			agentIcon = ic.User
-		}
-
-		// Selection highlight
-		if isSelected {
-			borderColor = t.Pink
-		}
-
-		// Pulse border for active/working panes (if not selected)
-		if !isSelected && row.Status == "working" && m.animTick > 0 {
-			borderColor = styles.Pulse(string(borderColor), m.animTick)
-		}
-
-		// Build card content
-		var cardContent strings.Builder
-
-		// Header line with icon and title
-		statusIcon := "•"
-		statusColor := t.Overlay
-		switch row.Status {
-		case "working":
-			statusIcon = WorkingSpinnerFrame(m.animTick)
-			statusColor = t.Green
-		case "idle":
-			statusIcon = "○"
-			statusColor = t.Yellow
-		case "error":
-			statusIcon = "✗"
-			statusColor = t.Red
-		case "compacted":
-			statusIcon = "⚠"
-			statusColor = t.Peach
-		case "rate_limited":
-			statusIcon = "⏳"
-			statusColor = t.Maroon
-		}
-		statusStyled := lipgloss.NewStyle().Foreground(statusColor).Bold(true).Render(statusIcon)
-
-		iconStyled := lipgloss.NewStyle().Foreground(iconColor).Bold(true).Render(agentIcon)
-		// Show profile name as primary identifier
-		profileName := p.Type.ProfileName()
-		profileStyled := lipgloss.NewStyle().Foreground(t.Text).Bold(true).Render(profileName)
-		cardContent.WriteString(statusStyled + " " + iconStyled + " " + profileStyled + "\n")
-
-		// Index badge + compact badges
-		numBadge := lipgloss.NewStyle().
-			Foreground(t.Overlay).
-			Render(fmt.Sprintf("#%d", p.Index))
-
-		var line2Parts []string
-		line2Parts = append(line2Parts, numBadge)
-		if p.Variant != "" {
-			label := layout.TruncateWidthDefault(p.Variant, 12)
-			modelBadge := styles.TextBadge(label, iconColor, t.Base, styles.BadgeOptions{
-				Style:    styles.BadgeStyleCompact,
-				Bold:     false,
-				ShowIcon: false,
-			})
-			line2Parts = append(line2Parts, modelBadge)
-		}
-		if showExtendedInfo {
-			if rank, ok := contextRanks[p.Index]; ok && rank > 0 {
-				rankBadge := styles.TextBadge(fmt.Sprintf("rank%d", rank), t.Mauve, t.Base, styles.BadgeOptions{
-					Style:    styles.BadgeStyleCompact,
-					Bold:     false,
-					ShowIcon: false,
-				})
-				line2Parts = append(line2Parts, rankBadge)
-			}
-		}
-		cardContent.WriteString(strings.Join(line2Parts, " ") + "\n")
-
-		// Bead + activity badges (best-effort)
-		if row.CurrentBead != "" {
-			beadID := row.CurrentBead
-			if parts := strings.SplitN(row.CurrentBead, ": ", 2); len(parts) > 0 {
-				beadID = parts[0]
-			}
-			beadBadge := styles.TextBadge(beadID, t.Mauve, t.Base, styles.BadgeOptions{
-				Style:    styles.BadgeStyleCompact,
-				Bold:     false,
-				ShowIcon: false,
-			})
-			cardContent.WriteString(beadBadge + "\n")
-		}
-
-		var activityBadges []string
-		if badge := activityBadge(row.Status, t); badge != "" {
-			activityBadges = append(activityBadges, badge)
-		}
-		if row.FileChanges > 0 {
-			activityBadges = append(activityBadges, styles.TextBadge(fmt.Sprintf("Δ%d", row.FileChanges), t.Blue, t.Base, styles.BadgeOptions{
-				Style:    styles.BadgeStyleCompact,
-				Bold:     false,
-				ShowIcon: false,
-			}))
-		}
-		if row.TokenVelocity > 0 && showExtendedInfo {
-			activityBadges = append(activityBadges, styles.TokenVelocityBadge(row.TokenVelocity, styles.BadgeOptions{
-				Style:    styles.BadgeStyleCompact,
-				Bold:     false,
-				ShowIcon: true,
-			}))
-		}
-		if len(activityBadges) > 0 {
-			cardContent.WriteString(strings.Join(activityBadges, " ") + "\n")
-		}
-
-		// Health badges - show warning/error status and restart count
-		if ps, ok := m.paneStatus[p.Index]; ok {
-			var healthBadges []string
-
-			// Health status badge
-			if ps.HealthStatus == "warning" {
-				healthBadges = append(healthBadges, styles.TextBadge("⚠ WARN", t.Yellow, t.Base, styles.BadgeOptions{
-					Style:    styles.BadgeStyleCompact,
-					Bold:     true,
-					ShowIcon: false,
-				}))
-			} else if ps.HealthStatus == "error" {
-				healthBadges = append(healthBadges, styles.TextBadge("✗ ERR", t.Red, t.Base, styles.BadgeOptions{
-					Style:    styles.BadgeStyleCompact,
-					Bold:     true,
-					ShowIcon: false,
-				}))
-			}
-
-			// Restart count badge
-			if ps.RestartCount > 0 {
-				healthBadges = append(healthBadges, styles.TextBadge(fmt.Sprintf("↻%d", ps.RestartCount), t.Peach, t.Base, styles.BadgeOptions{
-					Style:    styles.BadgeStyleCompact,
-					Bold:     false,
-					ShowIcon: false,
-				}))
-			}
-
-			// Show first health issue as tooltip
-			if len(ps.HealthIssues) > 0 && showExtendedInfo {
-				issueStyle := lipgloss.NewStyle().Foreground(t.Overlay).Italic(true)
-				issue := layout.TruncateWidthDefault(ps.HealthIssues[0], maxInt(cardWidth-4, 10))
-				healthBadges = append(healthBadges, issueStyle.Render(issue))
-			}
-
-			if len(healthBadges) > 0 {
-				cardContent.WriteString(strings.Join(healthBadges, " ") + "\n")
-			}
-		}
-
-		// Size info - on wide displays show more detail
-		sizeStyle := lipgloss.NewStyle().Foreground(t.Subtext)
-		if showExtendedInfo {
-			cardContent.WriteString(sizeStyle.Render(fmt.Sprintf("%dx%d cols×rows", p.Width, p.Height)) + "\n")
-		} else {
-			cardContent.WriteString(sizeStyle.Render(fmt.Sprintf("%dx%d", p.Width, p.Height)) + "\n")
-		}
-
-		// Command running (if any) - only when there is room
-		if p.Command != "" && showExtendedInfo {
-			cmdStyle := lipgloss.NewStyle().Foreground(t.Overlay).Italic(true)
-			cmd := layout.TruncateWidthDefault(p.Command, maxInt(cardWidth-4, 8))
-			cardContent.WriteString(cmdStyle.Render(cmd))
-		}
-
-		// Context usage bar (best-effort; show in grid when available)
-		if ps, ok := m.paneStatus[p.Index]; ok && ps.ContextLimit > 0 {
-			cardContent.WriteString("\n")
-			// Show token counts in extended view (e.g., "142.5K / 200K")
-			if showExtendedInfo && ps.ContextTokens > 0 {
-				tokenInfo := formatTokenDisplay(ps.ContextTokens, ps.ContextLimit)
-				tokenStyle := lipgloss.NewStyle().Foreground(t.Subtext)
-				cardContent.WriteString(tokenStyle.Render(tokenInfo) + "\n")
-			}
-			contextBar := m.renderContextBar(ps.ContextPercent, cardWidth-4)
-			cardContent.WriteString(contextBar)
-		}
-
-		// Rotation in-progress indicator
-		if ps, ok := m.paneStatus[p.Index]; ok && ps.IsRotating {
-			cardContent.WriteString("\n")
-			rotateIcon := styles.Shimmer("🔄", m.animTick, string(t.Blue), string(t.Sapphire), string(t.Blue))
-			rotateStyle := lipgloss.NewStyle().Foreground(t.Blue).Bold(true)
-			cardContent.WriteString(rotateIcon + rotateStyle.Render(" Rotating..."))
-		} else if ps, ok := m.paneStatus[p.Index]; ok && ps.RotatedAt != nil {
-			// Show "rotated Xm ago" indicator for recently rotated agents
-			elapsed := time.Since(*ps.RotatedAt)
-			if elapsed < 5*time.Minute {
-				cardContent.WriteString("\n")
-				rotatedStyle := lipgloss.NewStyle().Foreground(t.Overlay).Italic(true)
-				cardContent.WriteString(rotatedStyle.Render(fmt.Sprintf("↻ rotated %s ago", formatDuration(elapsed))))
-			}
-		}
-
-		// Compaction indicator
-		if ps, ok := m.paneStatus[p.Index]; ok && ps.LastCompaction != nil {
-			cardContent.WriteString("\n")
-			compactStyle := lipgloss.NewStyle().Foreground(t.Warning).Bold(true)
-			indicator := "⚠ compacted"
-			if ps.RecoverySent {
-				indicator = "↻ recovering"
-			}
-			cardContent.WriteString(compactStyle.Render(indicator))
-		}
-
-		// Create card box
-		cardStyle := lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(borderColor).
-			Width(cardWidth).
-			Padding(0, 1)
-
-		if isSelected {
-			// Add glow effect for selected card
-			cardStyle = cardStyle.
-				Background(t.Surface0)
-		}
-
-		cards = append(cards, cardStyle.Render(cardContent.String()))
+// formatDuration formats a duration for display (e.g., "1m 30s", "45s").
+func formatDuration(d time.Duration) string {
+	if d <= 0 {
+		return "now"
 	}
 
-	// Arrange cards in rows
-	for i := 0; i < len(cards); i += cardsPerRow {
-		end := i + cardsPerRow
-		if end > len(cards) {
-			end = len(cards)
-		}
-		row := lipgloss.JoinHorizontal(lipgloss.Top, cards[i:end]...)
-		lines = append(lines, "  "+row)
-	}
+	d = d.Round(time.Second)
+	minutes := int(d.Minutes())
+	seconds := int(d.Seconds()) % 60
 
-	return strings.Join(lines, "\n")
+	if minutes > 0 {
+		return fmt.Sprintf("%dm %02ds", minutes, seconds)
+	}
+	return fmt.Sprintf("%ds", seconds)
 }
 
-// renderQuickActions renders actionable buttons for common operations.
-// Only shows in TierWide and above to avoid cluttering narrow terminals.
+func (m Model) renderDiagnosticsBar(width int) string {
+	t := m.theme
+
+	labelStyle := lipgloss.NewStyle().Foreground(t.Subtext).Bold(true)
+	valueStyle := lipgloss.NewStyle().Foreground(t.Text)
+	warnStyle := lipgloss.NewStyle().Foreground(t.Warning)
+	errStyle := lipgloss.NewStyle().Foreground(t.Error)
+
+	sessionPart := valueStyle.Render("ok")
+	if m.fetchingSession {
+		elapsed := time.Since(m.lastPaneFetch).Round(100 * time.Millisecond)
+		sessionPart = warnStyle.Render("fetching " + elapsed.String())
+	} else if m.sessionFetchLatency > 0 {
+		sessionPart = valueStyle.Render(m.sessionFetchLatency.Round(time.Millisecond).String())
+	}
+	if m.err != nil {
+		sessionPart = errStyle.Render("error")
+	}
+
+	statusPart := valueStyle.Render("ok")
+	if m.fetchingContext {
+		elapsed := time.Since(m.lastContextFetch).Round(100 * time.Millisecond)
+		statusPart = warnStyle.Render("fetching " + elapsed.String())
+	} else if m.statusFetchLatency > 0 {
+		statusPart = valueStyle.Render(m.statusFetchLatency.Round(time.Millisecond).String())
+	}
+	if m.statusFetchErr != nil {
+		statusPart = errStyle.Render("error")
+	}
+
+	parts := []string{
+		labelStyle.Render("diag"),
+		labelStyle.Render("tmux") + ":" + sessionPart,
+		labelStyle.Render("status") + ":" + statusPart,
+	}
+	if width >= 120 {
+		age := func(src refreshSource) string {
+			t := m.lastUpdated[src]
+			if t.IsZero() {
+				return "n/a"
+			}
+			return formatAgeShort(time.Since(t))
+		}
+		agePart := valueStyle.Render(fmt.Sprintf("panes %s, status %s, beads %s", age(refreshSession), age(refreshStatus), age(refreshBeads)))
+		parts = append(parts, labelStyle.Render("age")+":"+agePart)
+	}
+
+	box := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(t.Surface1).
+		Padding(0, 1).
+		Width(width)
+
+	return box.Render(strings.Join(parts, "  "))
+}
+
+func hintForSessionFetchError(err error) string {
+	if err == nil {
+		return ""
+	}
+
+	if errors.Is(err, context.DeadlineExceeded) {
+		return "tmux is responding slowly. Press r to retry, p to pause auto-refresh, or try running ntm outside of tmux"
+	}
+
+	msg := err.Error()
+	switch {
+	case strings.Contains(msg, "tmux is not installed"):
+		return "Install tmux, then run: ntm deps -v"
+	case strings.Contains(msg, "executable file not found"):
+		return "Install tmux, then run: ntm deps -v"
+	case strings.Contains(msg, "no server running"):
+		return "Start tmux or create a session with: ntm spawn <name>"
+	case strings.Contains(msg, "failed to connect to server"):
+		return "Start tmux or create a session with: ntm spawn <name>"
+	case strings.Contains(msg, "can't find session"), strings.Contains(msg, "session not found"):
+		return "Session may have ended. Create a new one with: ntm spawn <name>"
+	}
+
+	return "Press r to retry"
+}
+
+func formatAgeShort(d time.Duration) string {
+	if d < 0 {
+		d = 0
+	}
+	d = d.Round(time.Second)
+	switch {
+	case d < time.Minute:
+		return fmt.Sprintf("%ds", int(d.Seconds()))
+	case d < time.Hour:
+		return fmt.Sprintf("%dm", int(d.Minutes()))
+	default:
+		return fmt.Sprintf("%dh", int(d.Hours()))
+	}
+}
+
 func (m Model) renderQuickActions() string {
-	// Only show in wide modes (TierWide = 200+ cols)
 	if m.tier < layout.TierWide {
 		return ""
 	}
@@ -3799,126 +3650,306 @@ func formatPaneLabel(session string, pane tmux.Pane) string {
 	return label
 }
 
-func formatRelativeTime(d time.Duration) string {
-	if d < 0 {
-		d = 0
-	}
-	if d < 5*time.Second {
-		return "just now"
-	}
-
-	d = d.Round(time.Second)
-	if d < time.Minute {
-		return fmt.Sprintf("%ds ago", int(d.Seconds()))
-	}
-	if d < time.Hour {
-		return fmt.Sprintf("%dm ago", int(d.Minutes()))
-	}
-
-	hours := int(d.Hours())
-	if hours < 48 {
-		return fmt.Sprintf("%dh ago", hours)
-	}
-
-	days := hours / 24
-	return fmt.Sprintf("%dd ago", days)
-}
-
-func formatAgeShort(d time.Duration) string {
-	if d < 0 {
-		d = 0
-	}
-	d = d.Round(time.Second)
-	switch {
-	case d < time.Minute:
-		return fmt.Sprintf("%ds", int(d.Seconds()))
-	case d < time.Hour:
-		return fmt.Sprintf("%dm", int(d.Minutes()))
-	default:
-		return fmt.Sprintf("%dh", int(d.Hours()))
-	}
-}
-
-func (m Model) renderDiagnosticsBar(width int) string {
+func (m Model) renderPaneGrid() string {
 	t := m.theme
+	ic := m.icons
 
-	labelStyle := lipgloss.NewStyle().Foreground(t.Subtext).Bold(true)
-	valueStyle := lipgloss.NewStyle().Foreground(t.Text)
-	warnStyle := lipgloss.NewStyle().Foreground(t.Warning)
-	errStyle := lipgloss.NewStyle().Foreground(t.Error)
+	var lines []string
 
-	sessionPart := valueStyle.Render("ok")
-	if m.fetchingSession {
-		elapsed := time.Since(m.lastPaneFetch).Round(100 * time.Millisecond)
-		sessionPart = warnStyle.Render("fetching " + elapsed.String())
-	} else if m.sessionFetchLatency > 0 {
-		sessionPart = valueStyle.Render(m.sessionFetchLatency.Round(time.Millisecond).String())
-	}
-	if m.err != nil {
-		sessionPart = errStyle.Render("error")
-	}
+	// Calculate adaptive card dimensions based on terminal width
+	// Uses beads_viewer-inspired algorithm with min/max constraints
+	const (
+		minCardWidth = 22 // Minimum usable card width
+		maxCardWidth = 45 // Maximum card width for readability
+		cardGap      = 2  // Gap between cards
+	)
 
-	statusPart := valueStyle.Render("ok")
-	if m.fetchingContext {
-		elapsed := time.Since(m.lastContextFetch).Round(100 * time.Millisecond)
-		statusPart = warnStyle.Render("fetching " + elapsed.String())
-	} else if m.statusFetchLatency > 0 {
-		statusPart = valueStyle.Render(m.statusFetchLatency.Round(time.Millisecond).String())
-	}
-	if m.statusFetchErr != nil {
-		statusPart = errStyle.Render("error")
-	}
+	availableWidth := m.width - 4 // Account for margins
+	cardWidth, cardsPerRow := styles.AdaptiveCardDimensions(availableWidth, minCardWidth, maxCardWidth, cardGap)
 
-	parts := []string{
-		labelStyle.Render("diag"),
-		labelStyle.Render("tmux") + ":" + sessionPart,
-		labelStyle.Render("status") + ":" + statusPart,
+	// In grid mode (used below Split threshold), show more detail when card width allows it.
+	showExtendedInfo := cardWidth >= 24
+
+	rows := BuildPaneTableRows(m.panes, m.agentStatuses, m.paneStatus, &m.beadsSummary, m.fileChanges, m.animTick, t)
+	if summary := activitySummaryLine(rows, t); summary != "" {
+		lines = append(lines, "  "+summary)
 	}
-	if width >= 120 {
-		age := func(src refreshSource) string {
-			t := m.lastUpdated[src]
-			if t.IsZero() {
-				return "n/a"
-			}
-			return formatAgeShort(time.Since(t))
+	contextRanks := m.computeContextRanks()
+
+	var cards []string
+
+	for i, p := range m.panes {
+		row := rows[i]
+		isSelected := i == m.cursor
+
+		// Determine card colors based on agent type
+		var borderColor, iconColor lipgloss.Color
+		var agentIcon string
+
+		switch p.Type {
+		case tmux.AgentClaude:
+			borderColor = t.Claude
+			iconColor = t.Claude
+			agentIcon = ic.Claude
+		case tmux.AgentCodex:
+			borderColor = t.Codex
+			iconColor = t.Codex
+			agentIcon = ic.Codex
+		case tmux.AgentGemini:
+			borderColor = t.Gemini
+			iconColor = t.Gemini
+			agentIcon = ic.Gemini
+		default:
+			borderColor = t.Green
+			iconColor = t.Green
+			agentIcon = ic.User
 		}
-		agePart := valueStyle.Render(fmt.Sprintf("panes %s, status %s, beads %s", age(refreshSession), age(refreshStatus), age(refreshBeads)))
-		parts = append(parts, labelStyle.Render("age")+":"+agePart)
+
+		// Selection highlight
+		if isSelected {
+			borderColor = t.Pink
+		}
+
+		// Pulse border for active/working panes (if not selected)
+		if !isSelected && row.Status == "working" && m.animTick > 0 {
+			borderColor = styles.Pulse(string(borderColor), m.animTick)
+		}
+
+		// Build card content
+		var cardContent strings.Builder
+
+		// Header line with icon and title
+		statusIcon := "•"
+		statusColor := t.Overlay
+		switch row.Status {
+		case "working":
+			statusIcon = WorkingSpinnerFrame(m.animTick)
+			statusColor = t.Green
+		case "idle":
+			statusIcon = "○"
+			statusColor = t.Yellow
+		case "error":
+			statusIcon = "✗"
+			statusColor = t.Red
+		case "compacted":
+			statusIcon = "⚠"
+			statusColor = t.Peach
+		case "rate_limited":
+			statusIcon = "⏳"
+			statusColor = t.Maroon
+		}
+		statusStyled := lipgloss.NewStyle().Foreground(statusColor).Bold(true).Render(statusIcon)
+
+		iconStyled := lipgloss.NewStyle().Foreground(iconColor).Bold(true).Render(agentIcon)
+		// Show profile name as primary identifier
+		profileName := p.Type.ProfileName()
+		profileStyled := lipgloss.NewStyle().Foreground(t.Text).Bold(true).Render(profileName)
+		cardContent.WriteString(statusStyled + " " + iconStyled + " " + profileStyled + "\n")
+
+		// Index badge + compact badges
+		numBadge := lipgloss.NewStyle().
+			Foreground(t.Overlay).
+			Render(fmt.Sprintf("#%d", p.Index))
+
+		var line2Parts []string
+		line2Parts = append(line2Parts, numBadge)
+		if p.Variant != "" {
+			label := layout.TruncateWidthDefault(p.Variant, 12)
+			modelBadge := styles.TextBadge(label, iconColor, t.Base, styles.BadgeOptions{
+				Style:    styles.BadgeStyleCompact,
+				Bold:     false,
+				ShowIcon: false,
+			})
+			line2Parts = append(line2Parts, modelBadge)
+		}
+		if showExtendedInfo {
+			if rank, ok := contextRanks[p.Index]; ok && rank > 0 {
+				rankBadge := styles.TextBadge(fmt.Sprintf("rank%d", rank), t.Mauve, t.Base, styles.BadgeOptions{
+					Style:    styles.BadgeStyleCompact,
+					Bold:     false,
+					ShowIcon: false,
+				})
+				line2Parts = append(line2Parts, rankBadge)
+			}
+		}
+		cardContent.WriteString(strings.Join(line2Parts, " ") + "\n")
+
+		// Bead + activity badges (best-effort)
+		if row.CurrentBead != "" {
+			beadID := row.CurrentBead
+			if parts := strings.SplitN(row.CurrentBead, ": ", 2); len(parts) > 0 {
+				beadID = parts[0]
+			}
+			beadBadge := styles.TextBadge(beadID, t.Mauve, t.Base, styles.BadgeOptions{
+				Style:    styles.BadgeStyleCompact,
+				Bold:     false,
+				ShowIcon: false,
+			})
+			cardContent.WriteString(beadBadge + "\n")
+		}
+
+		var activityBadges []string
+		if badge := activityBadge(row.Status, t); badge != "" {
+			activityBadges = append(activityBadges, badge)
+		}
+		if row.FileChanges > 0 {
+			activityBadges = append(activityBadges, styles.TextBadge(fmt.Sprintf("Δ%d", row.FileChanges), t.Blue, t.Base, styles.BadgeOptions{
+				Style:    styles.BadgeStyleCompact,
+				Bold:     false,
+				ShowIcon: false,
+			}))
+		}
+		if row.TokenVelocity > 0 && showExtendedInfo {
+			activityBadges = append(activityBadges, styles.TokenVelocityBadge(row.TokenVelocity, styles.BadgeOptions{
+				Style:    styles.BadgeStyleCompact,
+				Bold:     false,
+				ShowIcon: true,
+			}))
+		}
+		if len(activityBadges) > 0 {
+			cardContent.WriteString(strings.Join(activityBadges, " ") + "\n")
+		}
+
+		// Mail badges
+		if ps, ok := m.paneStatus[p.Index]; ok && ps.MailUnread > 0 {
+			label := fmt.Sprintf("✉ %d new", ps.MailUnread)
+			if ps.MailUrgent > 0 {
+				label = fmt.Sprintf("✉ %d new (%d urgent)", ps.MailUnread, ps.MailUrgent)
+			}
+
+			style := t.Green
+			if ps.MailUrgent > 0 {
+				style = t.Red
+			}
+
+			mailBadge := styles.TextBadge(label, style, t.Base, styles.BadgeOptions{
+				Style:    styles.BadgeStyleCompact,
+				Bold:     ps.MailUrgent > 0,
+				ShowIcon: false,
+			})
+			cardContent.WriteString(mailBadge + "\n")
+		}
+
+		// Health badges - show warning/error status and restart count
+		if ps, ok := m.paneStatus[p.Index]; ok {
+			// Health status badge
+			if ps.HealthStatus == "warning" {
+				healthBadge := styles.TextBadge("⚠ WARN", t.Yellow, t.Base, styles.BadgeOptions{
+					Style:    styles.BadgeStyleCompact,
+					Bold:     true,
+					ShowIcon: false,
+				})
+				cardContent.WriteString(healthBadge + "\n")
+			} else if ps.HealthStatus == "error" {
+				healthBadge := styles.TextBadge("✗ ERR", t.Red, t.Base, styles.BadgeOptions{
+					Style:    styles.BadgeStyleCompact,
+					Bold:     true,
+					ShowIcon: false,
+				})
+				cardContent.WriteString(healthBadge + "\n")
+			}
+
+			// Restart count badge
+			if ps.RestartCount > 0 {
+				restartBadge := styles.TextBadge(fmt.Sprintf("↻%d", ps.RestartCount), t.Peach, t.Base, styles.BadgeOptions{
+					Style:    styles.BadgeStyleCompact,
+					Bold:     false,
+					ShowIcon: false,
+				})
+				cardContent.WriteString(restartBadge + "\n")
+			}
+
+			// Show first health issue as tooltip
+			if len(ps.HealthIssues) > 0 && showExtendedInfo {
+				issueStyle := lipgloss.NewStyle().Foreground(t.Overlay).Italic(true)
+				issue := layout.TruncateWidthDefault(ps.HealthIssues[0], maxInt(cardWidth-4, 10))
+				healthBadge := issueStyle.Render(issue)
+				cardContent.WriteString(healthBadge + "\n")
+			}
+		}
+
+		// Size info - on wide displays show more detail
+		sizeStyle := lipgloss.NewStyle().Foreground(t.Subtext)
+		if showExtendedInfo {
+			cardContent.WriteString(sizeStyle.Render(fmt.Sprintf("%dx%d cols×rows", p.Width, p.Height)) + "\n")
+		} else {
+			cardContent.WriteString(sizeStyle.Render(fmt.Sprintf("%dx%d", p.Width, p.Height)) + "\n")
+		}
+
+		// Command running (if any) - only when there is room
+		if p.Command != "" && showExtendedInfo {
+			cmdStyle := lipgloss.NewStyle().Foreground(t.Overlay).Italic(true)
+			cmd := layout.TruncateWidthDefault(p.Command, maxInt(cardWidth-4, 8))
+			cardContent.WriteString(cmdStyle.Render(cmd))
+		}
+
+		// Context usage bar (best-effort; show in grid when available)
+		if ps, ok := m.paneStatus[p.Index]; ok && ps.ContextLimit > 0 {
+			cardContent.WriteString("\n")
+			// Show token counts in extended view (e.g., "142.5K / 200K")
+			if showExtendedInfo && ps.ContextTokens > 0 {
+				tokenInfo := formatTokenDisplay(ps.ContextTokens, ps.ContextLimit)
+				tokenStyle := lipgloss.NewStyle().Foreground(t.Subtext)
+				cardContent.WriteString(tokenStyle.Render(tokenInfo) + "\n")
+			}
+			contextBar := m.renderContextBar(ps.ContextPercent, cardWidth-4)
+			cardContent.WriteString(contextBar)
+		}
+
+		// Rotation in-progress indicator
+		if ps, ok := m.paneStatus[p.Index]; ok && ps.IsRotating {
+			cardContent.WriteString("\n")
+			rotateIcon := styles.Shimmer("🔄", m.animTick, string(t.Blue), string(t.Sapphire), string(t.Blue))
+			rotateStyle := lipgloss.NewStyle().Foreground(t.Blue).Bold(true)
+			cardContent.WriteString(rotateIcon + rotateStyle.Render(" Rotating..."))
+		} else if ps, ok := m.paneStatus[p.Index]; ok && ps.RotatedAt != nil {
+			// Show "rotated Xm ago" indicator for recently rotated agents
+			elapsed := time.Since(*ps.RotatedAt)
+			if elapsed < 5*time.Minute {
+				cardContent.WriteString("\n")
+				rotatedStyle := lipgloss.NewStyle().Foreground(t.Overlay).Italic(true)
+				cardContent.WriteString(rotatedStyle.Render(fmt.Sprintf("↻ rotated %s ago", formatRelativeTime(elapsed))))
+			}
+		}
+
+		// Compaction indicator
+		if ps, ok := m.paneStatus[p.Index]; ok && ps.LastCompaction != nil {
+			cardContent.WriteString("\n")
+			compactStyle := lipgloss.NewStyle().Foreground(t.Warning).Bold(true)
+			indicator := "⚠ compacted"
+			if ps.RecoverySent {
+				indicator = "↻ recovering"
+			}
+			cardContent.WriteString(compactStyle.Render(indicator))
+		}
+
+		// Create card box
+		cardStyle := lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(borderColor).
+			Width(cardWidth).
+			Padding(0, 1)
+
+		if isSelected {
+			// Add glow effect for selected card
+			cardStyle = cardStyle.
+				Background(t.Surface0)
+		}
+
+		cards = append(cards, cardStyle.Render(cardContent.String()))
 	}
 
-	box := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(t.Surface1).
-		Padding(0, 1).
-		Width(width)
-
-	return box.Render(strings.Join(parts, "  "))
-}
-
-func hintForSessionFetchError(err error) string {
-	if err == nil {
-		return ""
+	// Arrange cards in rows
+	for i := 0; i < len(cards); i += cardsPerRow {
+		end := i + cardsPerRow
+		if end > len(cards) {
+			end = len(cards)
+		}
+		row := lipgloss.JoinHorizontal(lipgloss.Top, cards[i:end]...)
+		lines = append(lines, "  "+row)
 	}
 
-	if errors.Is(err, context.DeadlineExceeded) {
-		return "tmux is responding slowly. Press r to retry, p to pause auto-refresh, or try running ntm outside of tmux"
-	}
-
-	msg := err.Error()
-	switch {
-	case strings.Contains(msg, "tmux is not installed"):
-		return "Install tmux, then run: ntm deps -v"
-	case strings.Contains(msg, "executable file not found"):
-		return "Install tmux, then run: ntm deps -v"
-	case strings.Contains(msg, "no server running"):
-		return "Start tmux or create a session with: ntm spawn <name>"
-	case strings.Contains(msg, "failed to connect to server"):
-		return "Start tmux or create a session with: ntm spawn <name>"
-	case strings.Contains(msg, "can't find session"), strings.Contains(msg, "session not found"):
-		return "Session may have ended. Create a new one with: ntm spawn <name>"
-	}
-
-	return "Press r to retry"
+	return strings.Join(lines, "\n")
 }
 
 func maxInt(a, b int) int {
@@ -4823,6 +4854,36 @@ func (m Model) renderPaneDetail(width int) string {
 			} else {
 				lines = append(lines, layout.TruncateWidthDefault(st.LastOutput, 500))
 			}
+		}
+	}
+
+	// Inbox
+	if msgs, ok := m.agentMailInbox[p.ID]; ok && len(msgs) > 0 {
+		lines = append(lines, "")
+		lines = append(lines, lipgloss.NewStyle().Bold(true).Foreground(t.Lavender).Render("Inbox"))
+		lines = append(lines, "")
+
+		count := 0
+		for _, msg := range msgs {
+			if count >= 5 {
+				break
+			}
+			icon := "•"
+			style := t.Text
+			if strings.EqualFold(msg.Importance, "urgent") {
+				icon = "!"
+				style = t.Red
+			} else if msg.ReadAt == nil {
+				icon = "*"
+				style = t.Green
+			}
+
+			subject := layout.TruncateWidthDefault(msg.Subject, width-4)
+			lines = append(lines, lipgloss.NewStyle().Foreground(style).Render(fmt.Sprintf("  %s %s", icon, subject)))
+			count++
+		}
+		if len(msgs) > 5 {
+			lines = append(lines, lipgloss.NewStyle().Foreground(t.Subtext).Render(fmt.Sprintf("  ...and %d more", len(msgs)-5)))
 		}
 	}
 

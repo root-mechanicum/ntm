@@ -3,6 +3,7 @@ package handoff
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/Dicklesworthstone/ntm/internal/agentmail"
 )
@@ -364,11 +365,11 @@ func TestSplitReservationPaths(t *testing.T) {
 	t.Logf("HANDOFF_TEST: SplitReservationPaths | Testing path splitting logic")
 
 	tests := []struct {
-		name              string
-		reservations      []ReservationSnapshot
-		wantExclusiveLen  int
-		wantSharedLen     int
-		wantRequestedLen  int
+		name             string
+		reservations     []ReservationSnapshot
+		wantExclusiveLen int
+		wantSharedLen    int
+		wantRequestedLen int
 	}{
 		{
 			name:             "empty input",

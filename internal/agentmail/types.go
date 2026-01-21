@@ -58,15 +58,16 @@ type FileReservation struct {
 
 // InboxMessage represents a message in an agent's inbox.
 type InboxMessage struct {
-	ID          int       `json:"id"`
-	Subject     string    `json:"subject"`
-	From        string    `json:"from"`
-	CreatedTS   time.Time `json:"created_ts"`
-	ThreadID    *string   `json:"thread_id,omitempty"`
-	Importance  string    `json:"importance"`
-	AckRequired bool      `json:"ack_required"`
-	Kind        string    `json:"kind"`
-	BodyMD      string    `json:"body_md,omitempty"` // Only if include_bodies=true
+	ID          int        `json:"id"`
+	Subject     string     `json:"subject"`
+	From        string     `json:"from"`
+	CreatedTS   time.Time  `json:"created_ts"`
+	ThreadID    *string    `json:"thread_id,omitempty"`
+	Importance  string     `json:"importance"`
+	AckRequired bool       `json:"ack_required"`
+	Kind        string     `json:"kind"`
+	BodyMD      string     `json:"body_md,omitempty"` // Only if include_bodies=true
+	ReadAt      *time.Time `json:"read_at,omitempty"`
 }
 
 // ContactLink represents a contact relationship between agents.

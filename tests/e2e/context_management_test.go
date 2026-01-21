@@ -819,9 +819,10 @@ func TestCompactorAgentCapabilities(t *testing.T) {
 	for _, agentType := range agentTypes {
 		caps := ntmctx.GetAgentCapabilities(agentType)
 		logger.Log("Agent type %s capabilities:", agentType)
-		logger.Log("  Has builtin: %v", caps.HasBuiltin)
-		logger.Log("  Builtin command: %s", caps.BuiltinCommand)
-		logger.Log("  Accepts prompt: %v", caps.AcceptsPrompt)
+		logger.Log("  Supports builtin: %v", caps.SupportsBuiltinCompact)
+		logger.Log("  Builtin command: %s", caps.BuiltinCompactCommand)
+		logger.Log("  Supports history clear: %v", caps.SupportsHistoryClear)
+		logger.Log("  History clear command: %s", caps.HistoryClearCommand)
 
 		commands := compactor.GetCompactionCommands(agentType)
 		logger.Log("  Compaction commands: %d available", len(commands))
