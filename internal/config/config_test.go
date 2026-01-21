@@ -2282,3 +2282,207 @@ alert_threshold = 90
 		t.Errorf("Expected 90%% threshold, got %d", cfg.Integrations.CAAM.AlertThreshold)
 	}
 }
+
+func TestDefaultProcessTriageConfig(t *testing.T) {
+	cfg := DefaultProcessTriageConfig()
+
+	if !cfg.Enabled {
+		t.Error("Expected ProcessTriage to be enabled by default")
+	}
+	if cfg.BinaryPath != "" {
+		t.Errorf("Expected empty binary path (PATH lookup), got %q", cfg.BinaryPath)
+	}
+	if cfg.CheckInterval != 30 {
+		t.Errorf("Expected 30s check interval, got %d", cfg.CheckInterval)
+	}
+	if cfg.IdleThreshold != 300 {
+		t.Errorf("Expected 300s idle threshold, got %d", cfg.IdleThreshold)
+	}
+	if cfg.StuckThreshold != 600 {
+		t.Errorf("Expected 600s stuck threshold, got %d", cfg.StuckThreshold)
+	}
+	if cfg.OnStuck != "alert" {
+		t.Errorf("Expected 'alert' on_stuck action, got %q", cfg.OnStuck)
+	}
+	if !cfg.UseRanoData {
+		t.Error("Expected UseRanoData to be enabled by default")
+	}
+}
+
+func TestProcessTriageInIntegrationsConfig(t *testing.T) {
+	cfg := DefaultIntegrationsConfig()
+
+	// Verify ProcessTriage config is properly nested
+	if !cfg.ProcessTriage.Enabled {
+		t.Error("Expected ProcessTriage integration to be enabled by default")
+	}
+	if cfg.ProcessTriage.CheckInterval != 30 {
+		t.Errorf("Expected 30s check interval, got %d", cfg.ProcessTriage.CheckInterval)
+	}
+	if cfg.ProcessTriage.OnStuck != "alert" {
+		t.Errorf("Expected 'alert' on_stuck, got %q", cfg.ProcessTriage.OnStuck)
+	}
+}
+
+func TestProcessTriageInFullConfig(t *testing.T) {
+	cfg := Default()
+
+	// Verify ProcessTriage config is present and properly initialized
+	if !cfg.Integrations.ProcessTriage.Enabled {
+		t.Error("Expected ProcessTriage to be enabled in full config default")
+	}
+	if cfg.Integrations.ProcessTriage.StuckThreshold != 600 {
+		t.Errorf("Expected 600s stuck threshold in full config, got %d", cfg.Integrations.ProcessTriage.StuckThreshold)
+	}
+}
+
+func TestProcessTriageConfigFromTOML(t *testing.T) {
+	configContent := `
+[integrations.process_triage]
+enabled = false
+binary_path = "/usr/local/bin/pt"
+check_interval = 60
+idle_threshold = 600
+stuck_threshold = 1200
+on_stuck = "kill"
+use_rano_data = false
+`
+	configPath := createTempConfig(t, configContent)
+	cfg, err := Load(configPath)
+	if err != nil {
+		t.Fatalf("Failed to load config: %v", err)
+	}
+
+	if cfg.Integrations.ProcessTriage.Enabled {
+		t.Error("Expected ProcessTriage to be disabled")
+	}
+	if cfg.Integrations.ProcessTriage.BinaryPath != "/usr/local/bin/pt" {
+		t.Errorf("Expected binary path '/usr/local/bin/pt', got %q", cfg.Integrations.ProcessTriage.BinaryPath)
+	}
+	if cfg.Integrations.ProcessTriage.CheckInterval != 60 {
+		t.Errorf("Expected 60s check interval, got %d", cfg.Integrations.ProcessTriage.CheckInterval)
+	}
+	if cfg.Integrations.ProcessTriage.IdleThreshold != 600 {
+		t.Errorf("Expected 600s idle threshold, got %d", cfg.Integrations.ProcessTriage.IdleThreshold)
+	}
+	if cfg.Integrations.ProcessTriage.StuckThreshold != 1200 {
+		t.Errorf("Expected 1200s stuck threshold, got %d", cfg.Integrations.ProcessTriage.StuckThreshold)
+	}
+	if cfg.Integrations.ProcessTriage.OnStuck != "kill" {
+		t.Errorf("Expected 'kill' on_stuck, got %q", cfg.Integrations.ProcessTriage.OnStuck)
+	}
+	if cfg.Integrations.ProcessTriage.UseRanoData {
+		t.Error("Expected UseRanoData to be disabled")
+	}
+}
+
+func TestValidateProcessTriageConfig(t *testing.T) {
+	tests := []struct {
+		name    string
+		cfg     ProcessTriageConfig
+		wantErr bool
+		errMsg  string
+	}{
+		{
+			name:    "valid default config",
+			cfg:     DefaultProcessTriageConfig(),
+			wantErr: false,
+		},
+		{
+			name: "valid custom config",
+			cfg: ProcessTriageConfig{
+				Enabled:        true,
+				BinaryPath:     "",
+				CheckInterval:  60,
+				IdleThreshold:  300,
+				StuckThreshold: 600,
+				OnStuck:        "kill",
+				UseRanoData:    false,
+			},
+			wantErr: false,
+		},
+		{
+			name: "check_interval too low",
+			cfg: ProcessTriageConfig{
+				Enabled:        true,
+				CheckInterval:  3,
+				IdleThreshold:  300,
+				StuckThreshold: 600,
+				OnStuck:        "alert",
+			},
+			wantErr: true,
+			errMsg:  "check_interval must be at least 5 seconds",
+		},
+		{
+			name: "idle_threshold too low",
+			cfg: ProcessTriageConfig{
+				Enabled:        true,
+				CheckInterval:  30,
+				IdleThreshold:  20,
+				StuckThreshold: 600,
+				OnStuck:        "alert",
+			},
+			wantErr: true,
+			errMsg:  "idle_threshold must be at least 30 seconds",
+		},
+		{
+			name: "stuck_threshold less than idle_threshold",
+			cfg: ProcessTriageConfig{
+				Enabled:        true,
+				CheckInterval:  30,
+				IdleThreshold:  600,
+				StuckThreshold: 300,
+				OnStuck:        "alert",
+			},
+			wantErr: true,
+			errMsg:  "stuck_threshold (300) must be >= idle_threshold (600)",
+		},
+		{
+			name: "invalid on_stuck action",
+			cfg: ProcessTriageConfig{
+				Enabled:        true,
+				CheckInterval:  30,
+				IdleThreshold:  300,
+				StuckThreshold: 600,
+				OnStuck:        "invalid",
+			},
+			wantErr: true,
+			errMsg:  "on_stuck must be 'alert', 'kill', or 'ignore'",
+		},
+		{
+			name: "on_stuck ignore is valid",
+			cfg: ProcessTriageConfig{
+				Enabled:        true,
+				CheckInterval:  30,
+				IdleThreshold:  300,
+				StuckThreshold: 600,
+				OnStuck:        "ignore",
+			},
+			wantErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ValidateProcessTriageConfig(&tt.cfg)
+			if tt.wantErr {
+				if err == nil {
+					t.Error("Expected error but got nil")
+				} else if tt.errMsg != "" && !strings.Contains(err.Error(), tt.errMsg) {
+					t.Errorf("Expected error containing %q, got %q", tt.errMsg, err.Error())
+				}
+			} else {
+				if err != nil {
+					t.Errorf("Unexpected error: %v", err)
+				}
+			}
+		})
+	}
+}
+
+func TestValidateProcessTriageConfigNil(t *testing.T) {
+	err := ValidateProcessTriageConfig(nil)
+	if err != nil {
+		t.Errorf("Expected nil error for nil config, got %v", err)
+	}
+}

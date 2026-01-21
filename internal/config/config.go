@@ -680,10 +680,11 @@ type AgentMailConfig struct {
 
 // IntegrationsConfig holds external tool integration settings.
 type IntegrationsConfig struct {
-	DCG  DCGConfig  `toml:"dcg"`
-	CAAM CAAMConfig `toml:"caam"` // CAAM (Coding Agent Account Manager) integration
-	RCH  RCHConfig  `toml:"rch"`  // RCH (Remote Compilation Helper) integration
-	Caut CautConfig `toml:"caut"` // caut (Cloud API Usage Tracker) integration
+	DCG           DCGConfig           `toml:"dcg"`
+	CAAM          CAAMConfig          `toml:"caam"`           // CAAM (Coding Agent Account Manager) integration
+	RCH           RCHConfig           `toml:"rch"`            // RCH (Remote Compilation Helper) integration
+	Caut          CautConfig          `toml:"caut"`           // caut (Cloud API Usage Tracker) integration
+	ProcessTriage ProcessTriageConfig `toml:"process_triage"` // pt (process_triage) Bayesian health classification
 }
 
 // DCGConfig holds configuration for the DCG (destructive_commit_guard) integration.
@@ -732,9 +733,10 @@ func DefaultIntegrationsConfig() IntegrationsConfig {
 			AuditLog:        "",
 			AllowOverride:   true,
 		},
-		CAAM: DefaultCAAMConfig(),
-		RCH:  DefaultRCHConfig(),
-		Caut: DefaultCautConfig(),
+		CAAM:          DefaultCAAMConfig(),
+		RCH:           DefaultRCHConfig(),
+		Caut:          DefaultCautConfig(),
+		ProcessTriage: DefaultProcessTriageConfig(),
 	}
 }
 
@@ -816,6 +818,73 @@ func DefaultCautConfig() CautConfig {
 		PerAgentTracking: true,   // Enable per-agent tracking if supported
 		Currency:         "USD",  // Default to USD
 	}
+}
+
+// ProcessTriageConfig holds configuration for process_triage (pt) integration.
+// pt uses Bayesian classification to identify useful, abandoned, and zombie processes.
+type ProcessTriageConfig struct {
+	Enabled        bool   `toml:"enabled"`         // Enable process triage integration
+	BinaryPath     string `toml:"binary_path"`     // Path to pt binary (optional, defaults to PATH lookup)
+	CheckInterval  int    `toml:"check_interval"`  // How often to check processes (seconds)
+	IdleThreshold  int    `toml:"idle_threshold"`  // Seconds of idle before considering abandoned
+	StuckThreshold int    `toml:"stuck_threshold"` // Seconds stuck before considering zombie
+	OnStuck        string `toml:"on_stuck"`        // Action when stuck: "alert", "kill", "ignore"
+	UseRanoData    bool   `toml:"use_rano_data"`   // Use rano network data to improve classification
+}
+
+// DefaultProcessTriageConfig returns sensible defaults for process_triage integration.
+func DefaultProcessTriageConfig() ProcessTriageConfig {
+	return ProcessTriageConfig{
+		Enabled:        true,    // Enabled by default (when pt is available)
+		BinaryPath:     "",      // Default to PATH lookup
+		CheckInterval:  30,      // Check every 30 seconds
+		IdleThreshold:  300,     // 5 minutes idle = abandoned candidate
+		StuckThreshold: 600,     // 10 minutes stuck = zombie candidate
+		OnStuck:        "alert", // Alert by default, don't auto-kill
+		UseRanoData:    true,    // Use rano data when available
+	}
+}
+
+// ValidateProcessTriageConfig validates the process_triage configuration.
+func ValidateProcessTriageConfig(cfg *ProcessTriageConfig) error {
+	if cfg == nil {
+		return nil
+	}
+
+	// Skip validation for unconfigured/zero-valued configs (use defaults)
+	if !cfg.Enabled && cfg.CheckInterval == 0 && cfg.IdleThreshold == 0 && cfg.StuckThreshold == 0 && cfg.OnStuck == "" {
+		return nil
+	}
+
+	if cfg.BinaryPath != "" {
+		path := ExpandHome(cfg.BinaryPath)
+		info, err := os.Stat(path)
+		if err != nil {
+			return fmt.Errorf("binary_path: %w", err)
+		}
+		if info.IsDir() {
+			return fmt.Errorf("binary_path: %q is a directory", path)
+		}
+	}
+
+	if cfg.CheckInterval < 5 {
+		return fmt.Errorf("check_interval must be at least 5 seconds, got %d", cfg.CheckInterval)
+	}
+
+	if cfg.IdleThreshold < 30 {
+		return fmt.Errorf("idle_threshold must be at least 30 seconds, got %d", cfg.IdleThreshold)
+	}
+
+	if cfg.StuckThreshold < cfg.IdleThreshold {
+		return fmt.Errorf("stuck_threshold (%d) must be >= idle_threshold (%d)", cfg.StuckThreshold, cfg.IdleThreshold)
+	}
+
+	validActions := map[string]bool{"alert": true, "kill": true, "ignore": true}
+	if !validActions[cfg.OnStuck] {
+		return fmt.Errorf("on_stuck must be 'alert', 'kill', or 'ignore', got %q", cfg.OnStuck)
+	}
+
+	return nil
 }
 
 // ModelsConfig holds model alias configuration for each agent type
@@ -2336,6 +2405,11 @@ func Validate(cfg *Config) []error {
 	// Validate DCG integration config
 	if err := ValidateDCGConfig(&cfg.Integrations.DCG); err != nil {
 		errs = append(errs, fmt.Errorf("integrations.dcg: %w", err))
+	}
+
+	// Validate ProcessTriage integration config
+	if err := ValidateProcessTriageConfig(&cfg.Integrations.ProcessTriage); err != nil {
+		errs = append(errs, fmt.Errorf("integrations.process_triage: %w", err))
 	}
 
 	// Validate projects_base if set
