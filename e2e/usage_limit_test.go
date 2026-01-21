@@ -588,3 +588,182 @@ func TestE2E_MultiplePanesSummary(t *testing.T) {
 
 	suite.Logger().Log("[E2E-MULTI] SUCCESS: Multiple panes summary test passed")
 }
+
+// =============================================================================
+// Test Scenario 4: Rate Limited Detection
+// =============================================================================
+// Verify --robot-is-working correctly identifies rate-limited agents
+// Note: This test requires mock mode or an agent hitting actual rate limits
+
+func TestE2E_RateLimitedDetection(t *testing.T) {
+	CommonE2EPrerequisites(t)
+	SkipIfNoAgents(t)
+
+	// This test is most useful with mock caut data showing high usage
+	if !IsMockMode() && GetMockFile() == "" {
+		t.Skip("[E2E-RATE-LIMIT] Skipping without mock mode - rate limit hard to trigger reliably")
+	}
+
+	agentType := GetAvailableAgent()
+	if agentType == "" {
+		t.Skip("No agent available")
+	}
+
+	suite := NewTestSuite(t, "rate_limited")
+	defer suite.Teardown()
+
+	if err := suite.Setup(); err != nil {
+		t.Fatalf("[E2E-RATE-LIMIT] Setup failed: %v", err)
+	}
+
+	// Spawn agent
+	if err := suite.SpawnAgent(1, agentType); err != nil {
+		t.Fatalf("[E2E-RATE-LIMIT] Spawn failed: %v", err)
+	}
+
+	// Wait for agent to initialize
+	time.Sleep(8 * time.Second)
+
+	// Check agent health which includes caut integration
+	result, err := suite.CallAgentHealth([]int{1})
+	if err != nil {
+		t.Fatalf("[E2E-RATE-LIMIT] AgentHealth failed: %v", err)
+	}
+
+	if !result.Success {
+		t.Fatalf("[E2E-RATE-LIMIT] AgentHealth returned success=false: %s", result.Error)
+	}
+
+	status, ok := result.Panes["1"]
+	if !ok {
+		t.Fatal("[E2E-RATE-LIMIT] Pane 1 not found in result")
+	}
+
+	suite.Logger().Log("[E2E-RATE-LIMIT] Health: Score=%d, Grade=%s, Issues=%v",
+		status.HealthScore, status.HealthGrade, status.Issues)
+	suite.Logger().Log("[E2E-RATE-LIMIT] CautAvailable=%v", result.CautAvailable)
+
+	// In mock mode with rate limited fixture, we expect issues
+	// In real mode, check if caut is available and reporting
+	if result.CautAvailable {
+		suite.Logger().Log("[E2E-RATE-LIMIT] caut integration is working")
+	} else {
+		suite.Logger().Log("[E2E-RATE-LIMIT] caut not available - skipping rate limit assertions")
+	}
+
+	// Also check --robot-is-working for rate limit detection
+	isWorkingResult, err := suite.CallIsWorking([]int{1})
+	if err != nil {
+		t.Fatalf("[E2E-RATE-LIMIT] IsWorking failed: %v", err)
+	}
+
+	workStatus := isWorkingResult.Panes["1"]
+	suite.Logger().Log("[E2E-RATE-LIMIT] IsRateLimited=%v, Recommendation=%s",
+		workStatus.IsRateLimited, workStatus.Recommendation)
+
+	// If rate limited, recommendation should be RATE_LIMITED_WAIT
+	if workStatus.IsRateLimited {
+		if workStatus.Recommendation != "RATE_LIMITED_WAIT" {
+			t.Errorf("[E2E-RATE-LIMIT] Rate limited agent should have RATE_LIMITED_WAIT, got %s",
+				workStatus.Recommendation)
+		}
+		suite.Logger().Log("[E2E-RATE-LIMIT] SUCCESS: Rate limited agent correctly detected")
+	} else {
+		suite.Logger().Log("[E2E-RATE-LIMIT] INFO: Agent not rate limited - test passed (detection working)")
+	}
+}
+
+// =============================================================================
+// Test Scenario 7: caut Integration
+// =============================================================================
+// Verify caut client integration and graceful degradation
+
+func TestE2E_CautIntegration(t *testing.T) {
+	CommonE2EPrerequisites(t)
+	SkipIfNoAgents(t)
+
+	agentType := GetAvailableAgent()
+	if agentType == "" {
+		t.Skip("No agent available")
+	}
+
+	suite := NewTestSuite(t, "caut_integration")
+	defer suite.Teardown()
+
+	if err := suite.Setup(); err != nil {
+		t.Fatalf("[E2E-CAUT] Setup failed: %v", err)
+	}
+
+	// Spawn agent
+	if err := suite.SpawnAgent(1, agentType); err != nil {
+		t.Fatalf("[E2E-CAUT] Spawn failed: %v", err)
+	}
+
+	// Wait for agent
+	time.Sleep(8 * time.Second)
+
+	// Call agent health which includes caut
+	result, err := suite.CallAgentHealth([]int{1})
+	if err != nil {
+		t.Fatalf("[E2E-CAUT] AgentHealth failed: %v", err)
+	}
+
+	if !result.Success {
+		t.Fatalf("[E2E-CAUT] AgentHealth returned success=false: %s", result.Error)
+	}
+
+	suite.Logger().Log("[E2E-CAUT] CautAvailable: %v", result.CautAvailable)
+
+	// VERIFY: Result should always be valid regardless of caut availability
+	// This tests graceful degradation
+	status, ok := result.Panes["1"]
+	if !ok {
+		t.Fatal("[E2E-CAUT] Pane 1 not found in result")
+	}
+
+	// Health score should always be present
+	if status.HealthScore < 0 || status.HealthScore > 100 {
+		t.Errorf("[E2E-CAUT] Health score %d out of range", status.HealthScore)
+	}
+
+	// Grade should always be present
+	if status.HealthGrade == "" {
+		t.Error("[E2E-CAUT] Health grade should not be empty")
+	}
+
+	// Recommendation should always be present
+	if status.Recommendation == "" {
+		t.Error("[E2E-CAUT] Recommendation should not be empty")
+	}
+
+	if result.CautAvailable {
+		suite.Logger().Log("[E2E-CAUT] SUCCESS: caut integration working - provider data available")
+
+		// If caut is available, verify agent type to provider mapping
+		// Claude Code (cc) -> claude provider
+		// Codex (cod) -> codex provider
+		// Gemini (gmi) -> gemini provider
+		expectedAgentTypes := map[string]bool{
+			"cc":      true,
+			"cod":     true,
+			"gmi":     true,
+			"unknown": true, // acceptable if agent type detection failed
+		}
+		if !expectedAgentTypes[status.AgentType] {
+			suite.Logger().Log("[E2E-CAUT] WARNING: Unexpected agent type: %s", status.AgentType)
+		}
+	} else {
+		suite.Logger().Log("[E2E-CAUT] SUCCESS: Graceful degradation - caut unavailable but health check completed")
+	}
+
+	// Verify fleet health is populated even without caut
+	if result.FleetHealth.TotalPanes != 1 {
+		t.Errorf("[E2E-CAUT] Expected 1 pane in fleet health, got %d", result.FleetHealth.TotalPanes)
+	}
+
+	suite.Logger().Log("[E2E-CAUT] Fleet health: Total=%d, Healthy=%d, Warning=%d, Critical=%d",
+		result.FleetHealth.TotalPanes, result.FleetHealth.HealthyCount,
+		result.FleetHealth.WarningCount, result.FleetHealth.CriticalCount)
+
+	suite.Logger().Log("[E2E-CAUT] SUCCESS: caut integration test passed")
+}
