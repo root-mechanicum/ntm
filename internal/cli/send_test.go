@@ -337,6 +337,81 @@ func TestTruncatePrompt(t *testing.T) {
 	}
 }
 
+func TestExtractLikelyCommand(t *testing.T) {
+	tests := []struct {
+		name   string
+		input  string
+		want   string
+		wantOK bool
+	}{
+		{
+			name:   "simple git command",
+			input:  "git status",
+			want:   "git status",
+			wantOK: true,
+		},
+		{
+			name:   "prefixed shell prompt",
+			input:  "  $ rm -rf /tmp",
+			want:   "rm -rf /tmp",
+			wantOK: true,
+		},
+		{
+			name:   "command in fenced block",
+			input:  "```bash\nrm -rf /var/tmp\n```",
+			want:   "rm -rf /var/tmp",
+			wantOK: true,
+		},
+		{
+			name:   "flag-only heuristic",
+			input:  "deploy --force",
+			want:   "deploy --force",
+			wantOK: true,
+		},
+		{
+			name:   "non-command text",
+			input:  "please review the changes",
+			want:   "",
+			wantOK: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, ok := extractLikelyCommand(tt.input)
+			if ok != tt.wantOK {
+				t.Fatalf("extractLikelyCommand ok=%v, want %v", ok, tt.wantOK)
+			}
+			if got != tt.want {
+				t.Fatalf("extractLikelyCommand = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestLooksLikeShellCommand(t *testing.T) {
+	tests := []struct {
+		line   string
+		expect bool
+	}{
+		{"git status", true},
+		{"sudo rm -rf /", true},
+		{"echo hello", false},
+		{"foo && bar", true},
+		{"use --force when needed", true},
+		{"just some words", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.line, func(t *testing.T) {
+			got := looksLikeShellCommand(tt.line)
+			if got != tt.expect {
+				t.Fatalf("looksLikeShellCommand(%q) = %v, want %v", tt.line, got, tt.expect)
+			}
+		})
+	}
+}
+
 // TestSendFlagNoOptDefVal verifies that --cc/--cod/--gmi flags work without consuming
 // the next positional argument as the flag value. This tests the NoOptDefVal fix.
 // Before the fix: "ntm send session --cod hello" would fail because "hello" was consumed by --cod

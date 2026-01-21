@@ -24,11 +24,13 @@ import (
 	"github.com/Dicklesworthstone/ntm/internal/events"
 	"github.com/Dicklesworthstone/ntm/internal/history"
 	"github.com/Dicklesworthstone/ntm/internal/hooks"
+	"github.com/Dicklesworthstone/ntm/internal/integrations/dcg"
 	"github.com/Dicklesworthstone/ntm/internal/output"
 	"github.com/Dicklesworthstone/ntm/internal/prompt"
 	"github.com/Dicklesworthstone/ntm/internal/robot"
 	sessionPkg "github.com/Dicklesworthstone/ntm/internal/session"
 	"github.com/Dicklesworthstone/ntm/internal/templates"
+	"github.com/Dicklesworthstone/ntm/internal/tools"
 	"github.com/Dicklesworthstone/ntm/internal/tmux"
 	"github.com/Dicklesworthstone/ntm/internal/tui/theme"
 )
@@ -818,113 +820,138 @@ func runSendInternal(opts SendOptions) error {
 		return outputError(fmt.Errorf("no panes found in session '%s'", session))
 	}
 
+	// Determine which panes to target
+	var selectedPanes []tmux.Pane
+	if paneIndex >= 0 {
+		for _, p := range panes {
+			if p.Index == paneIndex {
+				selectedPanes = append(selectedPanes, p)
+				break
+			}
+		}
+		if len(selectedPanes) == 0 {
+			return outputError(fmt.Errorf("pane %d not found", paneIndex))
+		}
+	} else {
+		noFilter := !targetCC && !targetCod && !targetGmi && !targetAll && len(tags) == 0
+		hasVariantFilter := len(targets) > 0
+		if noFilter {
+			// Default: send to all agent panes (skip user panes)
+			skipFirst = true
+		}
+
+		for i, p := range panes {
+			// Skip first pane if requested
+			if skipFirst && i == 0 {
+				continue
+			}
+
+			// Apply filters
+			if !targetAll && !noFilter {
+				// Check tags
+				if len(tags) > 0 {
+					if !HasAnyTag(p.Tags, tags) {
+						continue
+					}
+				}
+
+				// Check type filters (only if specified)
+				hasTypeFilter := hasVariantFilter || targetCC || targetCod || targetGmi
+
+				if hasTypeFilter {
+					if hasVariantFilter {
+						if !targets.MatchesPane(p) {
+							continue
+						}
+					} else {
+						match := false
+						if targetCC && p.Type == tmux.AgentClaude {
+							match = true
+						}
+						if targetCod && p.Type == tmux.AgentCodex {
+							match = true
+						}
+						if targetGmi && p.Type == tmux.AgentGemini {
+							match = true
+						}
+						if !match {
+							continue
+						}
+					}
+				}
+			} else if noFilter {
+				// Default mode: skip non-agent panes
+				if p.Type == tmux.AgentUser {
+					continue
+				}
+			}
+
+			selectedPanes = append(selectedPanes, p)
+		}
+	}
+
 	// Track results for JSON output
-	var targetPanes []int
+	targetPanes := make([]int, 0, len(selectedPanes))
+	for _, p := range selectedPanes {
+		targetPanes = append(targetPanes, p.Index)
+	}
+	histTargets = targetPanes
+
+	// Apply DCG safety check for non-Claude agents
+	if err := maybeBlockSendWithDCG(prompt, session, selectedPanes); err != nil {
+		return outputError(err)
+	}
+
 	delivered := 0
 	failed := 0
 
 	// If specific pane requested
 	if paneIndex >= 0 {
-		for _, p := range panes {
-			if p.Index == paneIndex {
-				targetPanes = append(targetPanes, paneIndex)
-				histTargets = targetPanes
-				if err := tmux.PasteKeys(p.ID, prompt, true); err != nil {
-					failed++
-					histErr = err
-					if jsonOutput {
-						result := SendResult{
-							Success:       false,
-							Session:       session,
-							PromptPreview: truncatePrompt(prompt, 50),
-							Targets:       targetPanes,
-							Delivered:     delivered,
-							Failed:        failed,
-							RoutedTo:      opts.routingResult,
-							Error:         err.Error(),
-						}
-						return json.NewEncoder(os.Stdout).Encode(result)
-					}
-					return err
+		p := selectedPanes[0]
+		if err := tmux.PasteKeys(p.ID, prompt, true); err != nil {
+			failed++
+			histErr = err
+			if jsonOutput {
+				result := SendResult{
+					Success:       false,
+					Session:       session,
+					PromptPreview: truncatePrompt(prompt, 50),
+					Targets:       targetPanes,
+					Delivered:     delivered,
+					Failed:        failed,
+					RoutedTo:      opts.routingResult,
+					Error:         err.Error(),
 				}
-				delivered++
-				histSuccess = true
-
-				if jsonOutput {
-					result := SendResult{
-						Success:       true,
-						Session:       session,
-						PromptPreview: truncatePrompt(prompt, 50),
-						Targets:       targetPanes,
-						Delivered:     delivered,
-						Failed:        failed,
-						RoutedTo:      opts.routingResult,
-					}
-					return json.NewEncoder(os.Stdout).Encode(result)
-				}
-				fmt.Printf("Sent to pane %d\n", paneIndex)
-				return nil
-
+				return json.NewEncoder(os.Stdout).Encode(result)
 			}
+			return err
 		}
-		return outputError(fmt.Errorf("pane %d not found", paneIndex))
+		delivered++
+		histSuccess = true
+
+		if jsonOutput {
+			result := SendResult{
+				Success:       true,
+				Session:       session,
+				PromptPreview: truncatePrompt(prompt, 50),
+				Targets:       targetPanes,
+				Delivered:     delivered,
+				Failed:        failed,
+				RoutedTo:      opts.routingResult,
+			}
+			return json.NewEncoder(os.Stdout).Encode(result)
+		}
+		fmt.Printf("Sent to pane %d\n", paneIndex)
+		return nil
 	}
 
-	// Determine which panes to target
-	noFilter := !targetCC && !targetCod && !targetGmi && !targetAll && len(tags) == 0
-	hasVariantFilter := len(targets) > 0
-	if noFilter {
-		// Default: send to all agent panes (skip user panes)
-		skipFirst = true
+	if len(selectedPanes) == 0 {
+		histErr = errors.New("no matching panes found")
+		fmt.Println("No matching panes found")
+		return nil
 	}
 
-	for i, p := range panes {
-		// Skip first pane if requested
-		if skipFirst && i == 0 {
-			continue
-		}
-
-		// Apply filters
-		if !targetAll && !noFilter {
-			// Check tags
-			if len(tags) > 0 {
-				if !HasAnyTag(p.Tags, tags) {
-					continue
-				}
-			}
-
-			// Check type filters (only if specified)
-			hasTypeFilter := hasVariantFilter || targetCC || targetCod || targetGmi
-
-			if hasTypeFilter {
-				if hasVariantFilter {
-					if !targets.MatchesPane(p) {
-						continue
-					}
-				} else {
-					match := false
-					if targetCC && p.Type == tmux.AgentClaude {
-						match = true
-					}
-					if targetCod && p.Type == tmux.AgentCodex {
-						match = true
-					}
-					if targetGmi && p.Type == tmux.AgentGemini {
-						match = true
-					}
-					if !match {
-						continue
-					}
-				}
-			}
-		} else if noFilter {
-			// Default mode: skip non-agent panes
-			if p.Type == tmux.AgentUser {
-				continue
-			}
-		}
-
-		targetPanes = append(targetPanes, p.Index)
+	for _, p := range selectedPanes {
 		if err := tmux.PasteKeys(p.ID, prompt, true); err != nil {
 			failed++
 			histErr = err
@@ -1295,6 +1322,166 @@ func boolToStr(b bool) string {
 		return "true"
 	}
 	return "false"
+}
+
+var dcgCommandPrefixes = map[string]struct{}{
+	"git":       {},
+	"rm":        {},
+	"mv":        {},
+	"cp":        {},
+	"chmod":     {},
+	"chown":     {},
+	"kubectl":   {},
+	"terraform": {},
+}
+
+func maybeBlockSendWithDCG(prompt, session string, panes []tmux.Pane) error {
+	if cfg == nil || !cfg.Integrations.DCG.Enabled {
+		return nil
+	}
+	if len(panes) == 0 {
+		return nil
+	}
+	if !hasNonClaudeTargets(panes) {
+		return nil
+	}
+	command, ok := extractLikelyCommand(prompt)
+	if !ok {
+		return nil
+	}
+
+	adapter := tools.NewDCGAdapter()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if !adapter.IsAvailable(ctx) {
+		return nil
+	}
+
+	blocked, err := adapter.CheckCommand(ctx, command)
+	if err != nil {
+		return err
+	}
+	if blocked == nil {
+		return nil
+	}
+
+	logDCGBlocked(command, session, panes, blocked)
+	reason := strings.TrimSpace(blocked.Reason)
+	if reason == "" {
+		reason = "blocked by dcg"
+	}
+	return fmt.Errorf("blocked by dcg: %s", reason)
+}
+
+func hasNonClaudeTargets(panes []tmux.Pane) bool {
+	for _, p := range panes {
+		if isNonClaudeAgent(p) {
+			return true
+		}
+	}
+	return false
+}
+
+func isNonClaudeAgent(p tmux.Pane) bool {
+	if p.Type == tmux.AgentUser {
+		return false
+	}
+	return p.Type != tmux.AgentClaude
+}
+
+func extractLikelyCommand(prompt string) (string, bool) {
+	for _, line := range strings.Split(prompt, "\n") {
+		candidate := normalizeCommandLine(line)
+		if candidate == "" {
+			continue
+		}
+		if looksLikeShellCommand(candidate) {
+			return candidate, true
+		}
+	}
+	return "", false
+}
+
+func normalizeCommandLine(line string) string {
+	trimmed := strings.TrimSpace(line)
+	if strings.HasPrefix(trimmed, "$ ") {
+		trimmed = strings.TrimSpace(strings.TrimPrefix(trimmed, "$ "))
+	}
+	if strings.HasPrefix(trimmed, "> ") {
+		trimmed = strings.TrimSpace(strings.TrimPrefix(trimmed, "> "))
+	}
+	if strings.HasPrefix(trimmed, "# ") {
+		trimmed = strings.TrimSpace(strings.TrimPrefix(trimmed, "# "))
+	}
+	return strings.TrimSpace(trimmed)
+}
+
+func looksLikeShellCommand(line string) bool {
+	lower := strings.ToLower(strings.TrimSpace(line))
+	if lower == "" {
+		return false
+	}
+	if strings.HasPrefix(lower, "```") {
+		return false
+	}
+	if strings.HasPrefix(lower, "sudo ") {
+		lower = strings.TrimSpace(strings.TrimPrefix(lower, "sudo "))
+	}
+	fields := strings.Fields(lower)
+	if len(fields) == 0 {
+		return false
+	}
+	if _, ok := dcgCommandPrefixes[fields[0]]; ok {
+		return true
+	}
+	if strings.Contains(lower, "&&") || strings.Contains(lower, "||") || strings.Contains(lower, ";") || strings.Contains(lower, "|") {
+		return true
+	}
+	if strings.Contains(lower, "--force") || strings.Contains(lower, "--hard") || strings.Contains(lower, " -rf") || strings.Contains(lower, " -fr") {
+		return true
+	}
+	return false
+}
+
+func logDCGBlocked(command, session string, panes []tmux.Pane, blocked *tools.BlockedCommand) {
+	config := dcg.DefaultAuditLoggerConfig()
+	if cfg != nil && cfg.Integrations.DCG.AuditLog != "" {
+		config.Path = cfg.Integrations.DCG.AuditLog
+	}
+	logger, err := dcg.NewAuditLogger(config)
+	if err != nil {
+		if !jsonOutput {
+			fmt.Printf("⚠ DCG audit log unavailable: %v\n", err)
+		}
+		return
+	}
+	defer func() {
+		_ = logger.Close()
+	}()
+
+	rule := strings.TrimSpace(blocked.Reason)
+	if rule == "" {
+		rule = "blocked"
+	}
+	output := strings.TrimSpace(blocked.Reason)
+	if output == "" {
+		output = "blocked"
+	}
+
+	for _, p := range panes {
+		if !isNonClaudeAgent(p) {
+			continue
+		}
+		paneLabel := p.Title
+		if paneLabel == "" {
+			if p.ID != "" {
+				paneLabel = p.ID
+			} else {
+				paneLabel = fmt.Sprintf("pane_%d", p.Index)
+			}
+		}
+		_ = logger.LogBlocked(command, paneLabel, session, rule, output)
+	}
 }
 
 func checkCassDuplicates(session, prompt string, threshold float64, days int) error {
