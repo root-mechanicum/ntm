@@ -8,6 +8,8 @@ import (
 	"os/exec"
 	"runtime"
 	"strings"
+
+	"github.com/Dicklesworthstone/ntm/internal/tmux"
 )
 
 // Clipboard exposes a unified copy/paste interface across platforms.
@@ -236,13 +238,13 @@ func (b wslBackend) name() string    { return "wsl-clipboard" }
 type tmuxBackend struct{}
 
 func (tmuxBackend) copy(text string) error {
-	cmd := exec.Command("tmux", "load-buffer", "-")
+	cmd := exec.Command(tmux.BinaryPath(), "load-buffer", "-")
 	cmd.Stdin = strings.NewReader(text)
 	return cmd.Run()
 }
 
 func (tmuxBackend) paste() (string, error) {
-	out, err := exec.Command("tmux", "show-buffer").Output()
+	out, err := exec.Command(tmux.BinaryPath(), "show-buffer").Output()
 	return string(out), err
 }
 

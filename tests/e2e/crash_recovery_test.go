@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Dicklesworthstone/ntm/internal/tmux"
 	"github.com/Dicklesworthstone/ntm/tests/testutil"
 )
 
@@ -53,7 +54,7 @@ scrollback = 500
 	// Cleanup
 	t.Cleanup(func() {
 		logger.Log("[E2E-CRASH] Teardown: Killing test session")
-		exec.Command("tmux", "kill-session", "-t", sessionName).Run()
+		exec.Command(tmux.BinaryPath(), "kill-session", "-t", sessionName).Run()
 	})
 
 	// Step 1: Spawn session with agents
@@ -70,7 +71,7 @@ scrollback = 500
 	logger.LogSection("Step 2: Simulating agent crash")
 
 	// Get pane IDs
-	paneOut, err := exec.Command("tmux", "list-panes", "-t", sessionName, "-F", "#{pane_id}:#{pane_index}").Output()
+	paneOut, err := exec.Command(tmux.BinaryPath(), "list-panes", "-t", sessionName, "-F", "#{pane_id}:#{pane_index}").Output()
 	if err != nil {
 		t.Fatalf("[E2E-CRASH] Failed to list panes: %v", err)
 	}
@@ -88,7 +89,7 @@ scrollback = 500
 	logger.Log("[E2E-CRASH] Crashing pane %s", targetPaneID)
 
 	// Send exit command to simulate crash
-	_, err = exec.Command("tmux", "send-keys", "-t", targetPaneID, "exit", "Enter").Output()
+	_, err = exec.Command(tmux.BinaryPath(), "send-keys", "-t", targetPaneID, "exit", "Enter").Output()
 	if err != nil {
 		t.Fatalf("[E2E-CRASH] Failed to send exit command: %v", err)
 	}
@@ -191,7 +192,7 @@ scrollback = 500
 
 	t.Cleanup(func() {
 		logger.Log("[E2E-HEALTH] Teardown")
-		exec.Command("tmux", "kill-session", "-t", sessionName).Run()
+		exec.Command(tmux.BinaryPath(), "kill-session", "-t", sessionName).Run()
 	})
 
 	// Step 1: Spawn session
@@ -298,7 +299,7 @@ scrollback = 500
 
 	t.Cleanup(func() {
 		logger.Log("[E2E-RATELIMIT] Teardown")
-		exec.Command("tmux", "kill-session", "-t", sessionName).Run()
+		exec.Command(tmux.BinaryPath(), "kill-session", "-t", sessionName).Run()
 	})
 
 	// Step 1: Spawn session
@@ -315,7 +316,7 @@ scrollback = 500
 	logger.LogSection("Step 2: Inject rate limit message")
 
 	// Get pane ID for the agent pane
-	paneOut, err := exec.Command("tmux", "list-panes", "-t", sessionName, "-F", "#{pane_id}").Output()
+	paneOut, err := exec.Command(tmux.BinaryPath(), "list-panes", "-t", sessionName, "-F", "#{pane_id}").Output()
 	if err != nil {
 		t.Fatalf("[E2E-RATELIMIT] Failed to list panes: %v", err)
 	}
@@ -327,7 +328,7 @@ scrollback = 500
 
 	// Send command that outputs rate limit message
 	rateLimitMsg := "echo 'Rate limit exceeded. Please wait 60 seconds before retrying.'"
-	_, err = exec.Command("tmux", "send-keys", "-t", targetPaneID, rateLimitMsg, "Enter").Output()
+	_, err = exec.Command(tmux.BinaryPath(), "send-keys", "-t", targetPaneID, rateLimitMsg, "Enter").Output()
 	if err != nil {
 		t.Fatalf("[E2E-RATELIMIT] Failed to send rate limit message: %v", err)
 	}
@@ -410,7 +411,7 @@ scrollback = 500
 
 	t.Cleanup(func() {
 		logger.Log("[E2E-RESTART] Teardown")
-		exec.Command("tmux", "kill-session", "-t", sessionName).Run()
+		exec.Command(tmux.BinaryPath(), "kill-session", "-t", sessionName).Run()
 	})
 
 	// Step 1: Spawn session
@@ -433,7 +434,7 @@ scrollback = 500
 
 	// Step 3: Crash an agent pane
 	logger.LogSection("Step 3: Crash agent pane")
-	paneOut, err := exec.Command("tmux", "list-panes", "-t", sessionName, "-F", "#{pane_id}:#{pane_index}").Output()
+	paneOut, err := exec.Command(tmux.BinaryPath(), "list-panes", "-t", sessionName, "-F", "#{pane_id}:#{pane_index}").Output()
 	if err != nil {
 		t.Fatalf("[E2E-RESTART] Failed to list panes: %v", err)
 	}
@@ -450,7 +451,7 @@ scrollback = 500
 	}
 
 	// Send exit to crash the pane
-	_, err = exec.Command("tmux", "send-keys", "-t", targetPaneID, "exit", "Enter").Output()
+	_, err = exec.Command(tmux.BinaryPath(), "send-keys", "-t", targetPaneID, "exit", "Enter").Output()
 	if err != nil {
 		t.Fatalf("[E2E-RESTART] Failed to crash pane: %v", err)
 	}
@@ -545,7 +546,7 @@ scrollback = 500
 
 	t.Cleanup(func() {
 		logger.Log("[E2E-FIX] Teardown")
-		exec.Command("tmux", "kill-session", "-t", sessionName).Run()
+		exec.Command(tmux.BinaryPath(), "kill-session", "-t", sessionName).Run()
 	})
 
 	// Step 1: Spawn session
@@ -560,7 +561,7 @@ scrollback = 500
 
 	// Step 2: Crash one agent
 	logger.LogSection("Step 2: Crash one agent")
-	paneOut, err := exec.Command("tmux", "list-panes", "-t", sessionName, "-F", "#{pane_id}").Output()
+	paneOut, err := exec.Command(tmux.BinaryPath(), "list-panes", "-t", sessionName, "-F", "#{pane_id}").Output()
 	if err != nil {
 		t.Fatalf("[E2E-FIX] Failed to list panes: %v", err)
 	}
@@ -570,7 +571,7 @@ scrollback = 500
 	}
 	targetPaneID := panes[1]
 
-	_, err = exec.Command("tmux", "send-keys", "-t", targetPaneID, "exit", "Enter").Output()
+	_, err = exec.Command(tmux.BinaryPath(), "send-keys", "-t", targetPaneID, "exit", "Enter").Output()
 	if err != nil {
 		t.Fatalf("[E2E-FIX] Failed to crash pane: %v", err)
 	}

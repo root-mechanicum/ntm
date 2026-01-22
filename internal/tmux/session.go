@@ -757,7 +757,7 @@ func (c *Client) AttachOrSwitch(session string) error {
 			return c.RunSilent("switch-client", "-t", session)
 		}
 		// Interactive attach needs stdin/stdout, so use exec directly for local
-		cmd := exec.Command("tmux", "attach", "-t", session)
+		cmd := exec.Command(BinaryPath(), "attach", "-t", session)
 		cmd.Stdin = os.Stdin
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr

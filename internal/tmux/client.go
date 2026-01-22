@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
+	"sync"
 )
 
 // Client handles tmux operations, optionally on a remote host
@@ -20,6 +22,45 @@ func NewClient(remote string) *Client {
 
 // DefaultClient is the default local client
 var DefaultClient = NewClient("")
+
+var (
+	tmuxBinaryOnce sync.Once
+	tmuxBinaryPath string
+)
+
+// BinaryPath returns the resolved tmux binary path for local execution.
+// It prefers standard install locations and falls back to PATH lookup.
+func BinaryPath() string {
+	tmuxBinaryOnce.Do(func() {
+		tmuxBinaryPath = resolveTmuxBinaryPath()
+	})
+	if tmuxBinaryPath == "" {
+		return "tmux"
+	}
+	return tmuxBinaryPath
+}
+
+func resolveTmuxBinaryPath() string {
+	candidates := []string{
+		"/usr/bin/tmux",
+		"/usr/local/bin/tmux",
+		"/opt/homebrew/bin/tmux",
+	}
+	for _, path := range candidates {
+		if binaryExists(path) {
+			return path
+		}
+	}
+	if path, err := exec.LookPath("tmux"); err == nil && path != "" {
+		return path
+	}
+	return "/usr/bin/tmux"
+}
+
+func binaryExists(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && !info.IsDir()
+}
 
 // Run executes a tmux command
 func (c *Client) Run(args ...string) (string, error) {
@@ -67,7 +108,8 @@ func runLocalContext(ctx context.Context, args ...string) (string, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	cmd := exec.CommandContext(ctx, "tmux", args...)
+	binary := BinaryPath()
+	cmd := exec.CommandContext(ctx, binary, args...)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
@@ -77,7 +119,7 @@ func runLocalContext(ctx context.Context, args ...string) (string, error) {
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return "", ctxErr
 		}
-		return "", fmt.Errorf("tmux %s: %w: %s", strings.Join(args, " "), err, stderr.String())
+		return "", fmt.Errorf("%s %s: %w: %s", binary, strings.Join(args, " "), err, stderr.String())
 	}
 	return strings.TrimSpace(stdout.String()), nil
 }
@@ -116,8 +158,7 @@ func (c *Client) RunSilentContext(ctx context.Context, args ...string) error {
 // IsInstalled checks if tmux is available on the target host
 func (c *Client) IsInstalled() bool {
 	if c.Remote == "" {
-		_, err := exec.LookPath("tmux")
-		return err == nil
+		return binaryExists(BinaryPath())
 	}
 	// Check remote
 	err := c.RunSilent("-V")

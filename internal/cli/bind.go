@@ -10,6 +10,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/Dicklesworthstone/ntm/internal/tmux"
 	"github.com/Dicklesworthstone/ntm/internal/tui/theme"
 )
 
@@ -69,7 +70,7 @@ func setupBinding(key string) error {
 	// Apply to current tmux server (if running)
 	inTmux := os.Getenv("TMUX") != ""
 	if inTmux {
-		cmd := exec.Command("tmux", "bind-key", "-n", key, "display-popup", "-E", "-w", "90%", "-h", "90%", "ntm palette")
+		cmd := exec.Command(tmux.BinaryPath(), "bind-key", "-n", key, "display-popup", "-E", "-w", "90%", "-h", "90%", "ntm palette")
 		if err := cmd.Run(); err != nil {
 			fmt.Printf("%s⚠%s Could not bind in current session: %v\n", colorize(t.Warning), colorize(t.Text), err)
 		} else {
@@ -142,7 +143,7 @@ func removeBinding(key string) error {
 
 	// Remove from current tmux server
 	if os.Getenv("TMUX") != "" {
-		cmd := exec.Command("tmux", "unbind-key", "-n", key)
+		cmd := exec.Command(tmux.BinaryPath(), "unbind-key", "-n", key)
 		if err := cmd.Run(); err != nil {
 			fmt.Printf("%s⚠%s Could not unbind in current session: %v\n", colorize(t.Warning), colorize(t.Text), err)
 		} else {

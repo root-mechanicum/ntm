@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/Dicklesworthstone/ntm/internal/agentmail"
+	"github.com/Dicklesworthstone/ntm/internal/tmux"
 )
 
 // ConflictReason describes why a file conflict was detected.
@@ -1664,7 +1665,7 @@ type paneInfo struct {
 func getPanesForSession(session string) ([]paneInfo, error) {
 	// Import tmux package and get panes
 	// This is a simplified version - the actual implementation will use tmux.GetPanes
-	cmd := exec.Command("tmux", "list-panes", "-t", session, "-F", "#{pane_id}|#{pane_title}|#{pane_current_command}")
+	cmd := exec.Command(tmux.BinaryPath(), "list-panes", "-t", session, "-F", "#{pane_id}|#{pane_title}|#{pane_current_command}")
 	output, err := cmd.Output()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get panes: %w", err)
@@ -1709,7 +1710,7 @@ func getPanesForSession(session string) ([]paneInfo, error) {
 
 // capturePaneOutput captures output from a tmux pane.
 func capturePaneOutput(paneID string, lines int) (string, error) {
-	cmd := exec.Command("tmux", "capture-pane", "-t", paneID, "-p", "-S", fmt.Sprintf("-%d", lines))
+	cmd := exec.Command(tmux.BinaryPath(), "capture-pane", "-t", paneID, "-p", "-S", fmt.Sprintf("-%d", lines))
 	output, err := cmd.Output()
 	if err != nil {
 		return "", err

@@ -16,6 +16,7 @@ import (
 
 	"github.com/Dicklesworthstone/ntm/internal/config"
 	"github.com/Dicklesworthstone/ntm/internal/git"
+	"github.com/Dicklesworthstone/ntm/internal/tmux"
 )
 
 // worktreeCmd represents the worktree command group
@@ -542,7 +543,7 @@ func getCurrentTmuxSession() (string, error) {
 
 	// Extract session name from tmux environment
 	// This is a simplified approach - could be enhanced
-	cmd := exec.Command("tmux", "display-message", "-p", "#S")
+	cmd := exec.Command(tmux.BinaryPath(), "display-message", "-p", "#S")
 	output, err := cmd.Output()
 	if err != nil {
 		return "", fmt.Errorf("failed to get tmux session: %w", err)

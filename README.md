@@ -581,6 +581,33 @@ ntm spawn myproject --profile-set=backend-team
 
 NTM provides machine-readable output for integration with AI coding agents and automation pipelines. All robot commands output JSON by default and follow consistent exit codes (0=success, 1=error, 2=unavailable).
 
+**Robot Output Formats + Verbosity:**
+
+- `--robot-format=json|toon|auto` (Env: `NTM_ROBOT_FORMAT`). `auto` currently resolves to JSON.
+- `--robot-verbosity=terse|default|debug` (Env: `NTM_ROBOT_VERBOSITY`). Applies to JSON/TOON only.
+- Config default for verbosity: `~/.config/ntm/config.toml` → `[robot] verbosity = "default"`.
+- `--robot-terse` is a **separate single-line format** and ignores `--robot-format` / `--robot-verbosity`.
+- TOON is token-efficient but only supports uniform arrays and simple objects; unsupported shapes return an error. Use `--robot-format=json` or `auto` to avoid TOON failures.
+
+**Example output (JSON vs TOON):**
+
+```json
+{
+  "success": true,
+  "timestamp": "2026-01-22T01:23:00Z",
+  "sessions": [
+    {"name": "myproject", "attached": true, "windows": 1}
+  ]
+}
+```
+
+```text
+success: true
+timestamp: 2026-01-22T01:23:00Z
+sessions[1]{attached,name,windows}:
+  true	myproject	1
+```
+
 **State Inspection:**
 
 ```bash

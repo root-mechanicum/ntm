@@ -224,6 +224,7 @@ func newSendCmd() *cobra.Command {
 	var targets SendTargets
 	var targetAll, skipFirst bool
 	var paneIndex int
+	var panesArg string
 	var promptFile, prefix, suffix string
 	var contextFiles []string
 	var templateName string
@@ -346,12 +347,27 @@ func newSendCmd() *cobra.Command {
 				return runSendBatch(batchOpts)
 			}
 
+			var panes []int
+			panesSpecified := panesArg != ""
+			if panesSpecified {
+				var err error
+				panes, err = robot.ParsePanesArg(panesArg)
+				if err != nil {
+					return err
+				}
+			}
+			if panesSpecified && paneIndex >= 0 {
+				return fmt.Errorf("cannot use --pane and --panes together")
+			}
+
 			opts := SendOptions{
 				Session:        session,
 				Targets:        targets,
 				TargetAll:      targetAll,
 				SkipFirst:      skipFirst,
 				PaneIndex:      paneIndex,
+				Panes:          panes,
+				PanesSpecified: panesSpecified,
 				Tags:           tags,
 				SmartRoute:     smartRoute,
 				RouteStrategy:  routeStrategy,
@@ -405,6 +421,7 @@ func newSendCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&targetAll, "all", false, "send to all panes (including user pane)")
 	cmd.Flags().BoolVarP(&skipFirst, "skip-first", "s", false, "skip the first (user) pane")
 	cmd.Flags().IntVarP(&paneIndex, "pane", "p", -1, "send to specific pane index")
+	cmd.Flags().StringVar(&panesArg, "panes", "", "send to specific pane indices (comma-separated). Example: --panes=1,2")
 	cmd.Flags().StringVarP(&promptFile, "file", "f", "", "read prompt from file (also used as {{file}} in templates)")
 	cmd.Flags().StringVar(&prefix, "prefix", "", "text to prepend to file/stdin content")
 	cmd.Flags().StringVar(&suffix, "suffix", "", "text to append to file/stdin content")

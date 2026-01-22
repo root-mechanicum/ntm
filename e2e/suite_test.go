@@ -12,6 +12,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/Dicklesworthstone/ntm/internal/tmux"
 )
 
 // TestLogger provides structured logging for E2E tests with persistent log files.
@@ -117,8 +119,8 @@ func (s *TestSuite) Setup() error {
 	s.logger.Log("[E2E-SETUP] Setting up test environment")
 
 	// Check if tmux is available
-	if _, err := exec.LookPath("tmux"); err != nil {
-		return fmt.Errorf("tmux not found: %w", err)
+	if !tmux.DefaultClient.IsInstalled() {
+		return fmt.Errorf("tmux not found")
 	}
 
 	// Check if ntm is available
@@ -127,7 +129,7 @@ func (s *TestSuite) Setup() error {
 	}
 
 	// Create tmux session with specified dimensions
-	cmd := exec.Command("tmux", "new-session", "-d", "-s", s.session, "-x", "200", "-y", "50")
+	cmd := exec.Command(tmux.BinaryPath(), "new-session", "-d", "-s", s.session, "-x", "200", "-y", "50")
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("create session: %w, output: %s", err, string(output))
@@ -135,7 +137,7 @@ func (s *TestSuite) Setup() error {
 
 	s.cleanup = append(s.cleanup, func() {
 		s.logger.Log("[E2E-CLEANUP] Killing session %s", s.session)
-		exec.Command("tmux", "kill-session", "-t", s.session).Run()
+		exec.Command(tmux.BinaryPath(), "kill-session", "-t", s.session).Run()
 	})
 
 	s.logger.Log("[E2E-SETUP] Session created successfully")
@@ -148,7 +150,7 @@ func (s *TestSuite) SpawnAgent(pane int, agentType string) error {
 
 	// Create new pane if needed
 	if pane > 0 {
-		cmd := exec.Command("tmux", "split-window", "-t", s.session, "-h")
+		cmd := exec.Command(tmux.BinaryPath(), "split-window", "-t", s.session, "-h")
 		if err := cmd.Run(); err != nil {
 			return fmt.Errorf("create pane: %w", err)
 		}
@@ -169,7 +171,7 @@ func (s *TestSuite) SpawnAgent(pane int, agentType string) error {
 
 	// Launch agent
 	target := fmt.Sprintf("%s:%d", s.session, pane)
-	sendCmd := exec.Command("tmux", "send-keys", "-t", target, alias, "Enter")
+	sendCmd := exec.Command(tmux.BinaryPath(), "send-keys", "-t", target, alias, "Enter")
 	if err := sendCmd.Run(); err != nil {
 		return fmt.Errorf("launch agent: %w", err)
 	}

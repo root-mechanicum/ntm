@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/Dicklesworthstone/ntm/internal/tmux"
 )
 
 // AgentConfig specifies the number of agents of each type to spawn.
@@ -127,7 +129,7 @@ func killSession(logger *TestLogger, name string) {
 	if err != nil {
 		logger.Log("ntm kill failed: %v, output: %s", err, string(out))
 		// Fallback to tmux kill-session
-		exec.Command("tmux", "kill-session", "-t", name).Run()
+		exec.Command(tmux.BinaryPath(), "kill-session", "-t", name).Run()
 	} else {
 		logger.Log("Session %s killed successfully", name)
 	}
@@ -139,7 +141,7 @@ func KillAllTestSessions(logger *TestLogger) {
 	logger.LogSection("Killing All Test Sessions")
 
 	// List all tmux sessions
-	out, err := exec.Command("tmux", "list-sessions", "-F", "#{session_name}").Output()
+	out, err := exec.Command(tmux.BinaryPath(), "list-sessions", "-F", "#{session_name}").Output()
 	if err != nil {
 		logger.Log("Failed to list tmux sessions: %v", err)
 		return
@@ -150,7 +152,7 @@ func KillAllTestSessions(logger *TestLogger) {
 	for _, session := range sessions {
 		if strings.HasPrefix(session, "ntm_test_") {
 			logger.Log("Killing orphan test session: %s", session)
-			exec.Command("tmux", "kill-session", "-t", session).Run()
+			exec.Command(tmux.BinaryPath(), "kill-session", "-t", session).Run()
 			killed++
 		}
 	}
@@ -160,13 +162,13 @@ func KillAllTestSessions(logger *TestLogger) {
 
 // SessionExists checks if a tmux session exists.
 func SessionExists(name string) bool {
-	err := exec.Command("tmux", "has-session", "-t", name).Run()
+	err := exec.Command(tmux.BinaryPath(), "has-session", "-t", name).Run()
 	return err == nil
 }
 
 // GetSessionPaneCount returns the number of panes in a session.
 func GetSessionPaneCount(name string) (int, error) {
-	out, err := exec.Command("tmux", "list-panes", "-t", name, "-F", "#{pane_id}").Output()
+	out, err := exec.Command(tmux.BinaryPath(), "list-panes", "-t", name, "-F", "#{pane_id}").Output()
 	if err != nil {
 		return 0, err
 	}
@@ -192,7 +194,7 @@ func WaitForSession(name string, timeout time.Duration) error {
 // CapturePane captures the visible content of a pane.
 func CapturePane(name string, paneIndex int) (string, error) {
 	target := fmt.Sprintf("%s:%d", name, paneIndex)
-	out, err := exec.Command("tmux", "capture-pane", "-t", target, "-p").Output()
+	out, err := exec.Command(tmux.BinaryPath(), "capture-pane", "-t", target, "-p").Output()
 	if err != nil {
 		return "", fmt.Errorf("failed to capture pane %s: %w", target, err)
 	}

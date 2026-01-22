@@ -224,7 +224,7 @@ func (c *Capturer) captureGitState(workingDir, sessionName, checkpointID string)
 
 // getSessionDir gets the working directory for a session.
 func getSessionDir(sessionName string) (string, error) {
-	cmd := exec.Command("tmux", "display-message", "-p", "-t", sessionName, "#{pane_current_path}")
+	cmd := exec.Command(tmux.BinaryPath(), "display-message", "-p", "-t", sessionName, "#{pane_current_path}")
 	var out bytes.Buffer
 	cmd.Stdout = &out
 	if err := cmd.Run(); err != nil {
@@ -235,7 +235,7 @@ func getSessionDir(sessionName string) (string, error) {
 
 // getSessionLayout gets the tmux layout string for a session.
 func getSessionLayout(sessionName string) (string, error) {
-	cmd := exec.Command("tmux", "display-message", "-p", "-t", sessionName, "#{window_layout}")
+	cmd := exec.Command(tmux.BinaryPath(), "display-message", "-p", "-t", sessionName, "#{window_layout}")
 	var out bytes.Buffer
 	cmd.Stdout = &out
 	if err := cmd.Run(); err != nil {

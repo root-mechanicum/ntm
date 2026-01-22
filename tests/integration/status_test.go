@@ -3,7 +3,6 @@ package integration
 import (
 	"fmt"
 	"os"
-	"os/exec"
 	"strings"
 	"testing"
 	"time"
@@ -14,7 +13,7 @@ import (
 )
 
 func TestMain(m *testing.M) {
-	if _, err := exec.LookPath("tmux"); err != nil {
+	if !tmux.DefaultClient.IsInstalled() {
 		// tmux is required for these integration tests
 		return
 	}

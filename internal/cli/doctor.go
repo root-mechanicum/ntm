@@ -17,6 +17,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/Dicklesworthstone/ntm/internal/invariants"
+	"github.com/Dicklesworthstone/ntm/internal/tmux"
 	"github.com/Dicklesworthstone/ntm/internal/tools"
 )
 
@@ -291,7 +292,8 @@ func checkDependencies(ctx context.Context) []DepCheck {
 		Name:       "tmux",
 		MinVersion: "3.0",
 	}
-	if path, err := exec.LookPath("tmux"); err == nil {
+	if tmux.DefaultClient.IsInstalled() {
+		path := tmux.BinaryPath()
 		tmuxCheck.Installed = true
 		cmd := exec.CommandContext(ctx, path, "-V")
 		if out, err := cmd.Output(); err == nil {

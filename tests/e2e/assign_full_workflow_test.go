@@ -20,6 +20,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Dicklesworthstone/ntm/internal/tmux"
 	"github.com/Dicklesworthstone/ntm/tests/testutil"
 )
 
@@ -79,7 +80,7 @@ gemini = "bash"
 
 	// Cleanup on test completion
 	s.cleanup = append(s.cleanup, func() {
-		exec.Command("tmux", "kill-session", "-t", s.session).Run()
+		exec.Command(tmux.BinaryPath(), "kill-session", "-t", s.session).Run()
 	})
 
 	return s
@@ -486,7 +487,7 @@ codex = "bash"
 
 	// Cleanup
 	t.Cleanup(func() {
-		exec.Command("tmux", "kill-session", "-t", session).Run()
+		exec.Command(tmux.BinaryPath(), "kill-session", "-t", session).Run()
 	})
 
 	// Initialize beads in project

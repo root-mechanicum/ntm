@@ -7,12 +7,14 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/Dicklesworthstone/ntm/internal/tmux"
 )
 
 // RequireTmux skips the test if tmux is not installed.
 func RequireTmux(t *testing.T) {
 	t.Helper()
-	if _, err := exec.LookPath("tmux"); err != nil {
+	if !tmux.DefaultClient.IsInstalled() {
 		t.Skip("tmux not installed, skipping test")
 	}
 }
@@ -46,7 +48,7 @@ func RequireNTMBinary(t *testing.T) {
 func RequireTmuxServer(t *testing.T) {
 	t.Helper()
 	RequireTmux(t)
-	if err := exec.Command("tmux", "list-sessions").Run(); err != nil {
+	if err := exec.Command(tmux.BinaryPath(), "list-sessions").Run(); err != nil {
 		// Start a temporary server
 		t.Log("No tmux server running, will create one for test")
 	}

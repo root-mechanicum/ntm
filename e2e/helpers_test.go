@@ -5,6 +5,8 @@ import (
 	"os"
 	"os/exec"
 	"testing"
+
+	"github.com/Dicklesworthstone/ntm/internal/tmux"
 )
 
 // SkipIfShort skips the test in short mode.
@@ -16,7 +18,7 @@ func SkipIfShort(t *testing.T) {
 
 // SkipIfNoTmux skips the test if tmux is not available.
 func SkipIfNoTmux(t *testing.T) {
-	if _, err := exec.LookPath("tmux"); err != nil {
+	if !tmux.DefaultClient.IsInstalled() {
 		t.Skip("tmux not found, skipping E2E test")
 	}
 }

@@ -6,6 +6,8 @@ import (
 	"os/exec"
 	"strconv"
 	"time"
+
+	"github.com/Dicklesworthstone/ntm/internal/tmux"
 )
 
 // =============================================================================
@@ -117,7 +119,7 @@ func formatTarget(session string, pane int) string {
 
 // runTmuxCommand executes a tmux command.
 func runTmuxCommand(args ...string) error {
-	cmd := exec.Command("tmux", args...)
+	cmd := exec.Command(tmux.BinaryPath(), args...)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		if len(output) > 0 {
