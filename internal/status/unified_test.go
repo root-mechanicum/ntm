@@ -5,6 +5,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/Dicklesworthstone/ntm/internal/tmux"
 )
 
 func TestNewDetector(t *testing.T) {
@@ -461,8 +463,7 @@ func TestDefaultConfig(t *testing.T) {
 
 // tmuxAvailable checks if tmux is installed and returns true if so
 func tmuxAvailable() bool {
-	_, err := exec.LookPath("tmux")
-	return err == nil
+	return tmux.DefaultClient.IsInstalled()
 }
 
 // createTestSession creates a tmux session for testing and returns the session name
@@ -470,14 +471,14 @@ func createTestSession(t *testing.T) string {
 	t.Helper()
 	sessionName := "ntm_status_test_" + time.Now().Format("150405")
 
-	cmd := exec.Command("tmux", "new-session", "-d", "-s", sessionName)
+	cmd := exec.Command(tmux.BinaryPath(), "new-session", "-d", "-s", sessionName)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Skipf("Failed to create test session (tmux may be unavailable): %v: %s", err, output)
 	}
 
 	t.Cleanup(func() {
-		exec.Command("tmux", "kill-session", "-t", sessionName).Run()
+		exec.Command(tmux.BinaryPath(), "kill-session", "-t", sessionName).Run()
 	})
 
 	// Give tmux a moment to set up
@@ -495,7 +496,7 @@ func TestDetect(t *testing.T) {
 	sessionName := createTestSession(t)
 
 	// Get the pane ID from the session
-	cmd := exec.Command("tmux", "list-panes", "-t", sessionName, "-F", "#{pane_id}")
+	cmd := exec.Command(tmux.BinaryPath(), "list-panes", "-t", sessionName, "-F", "#{pane_id}")
 	output, err := cmd.Output()
 	if err != nil {
 		t.Fatalf("Failed to get pane ID: %v", err)
@@ -599,7 +600,7 @@ func TestDetectWithErrorOutput(t *testing.T) {
 	sessionName := createTestSession(t)
 
 	// Get pane ID
-	cmd := exec.Command("tmux", "list-panes", "-t", sessionName, "-F", "#{pane_id}")
+	cmd := exec.Command(tmux.BinaryPath(), "list-panes", "-t", sessionName, "-F", "#{pane_id}")
 	output, err := cmd.Output()
 	if err != nil {
 		t.Fatalf("Failed to get pane ID: %v", err)
@@ -607,7 +608,7 @@ func TestDetectWithErrorOutput(t *testing.T) {
 	paneID := strings.TrimSpace(string(output))
 
 	// Send an error message to the pane
-	exec.Command("tmux", "send-keys", "-t", paneID, "echo 'Error: rate limit exceeded'", "Enter").Run()
+	exec.Command(tmux.BinaryPath(), "send-keys", "-t", paneID, "echo 'Error: rate limit exceeded'", "Enter").Run()
 	time.Sleep(200 * time.Millisecond)
 
 	d := NewDetector()
@@ -634,7 +635,7 @@ func TestDetectWithIdlePrompt(t *testing.T) {
 	sessionName := createTestSession(t)
 
 	// Get pane ID
-	cmd := exec.Command("tmux", "list-panes", "-t", sessionName, "-F", "#{pane_id}")
+	cmd := exec.Command(tmux.BinaryPath(), "list-panes", "-t", sessionName, "-F", "#{pane_id}")
 	output, err := cmd.Output()
 	if err != nil {
 		t.Fatalf("Failed to get pane ID: %v", err)
@@ -665,7 +666,7 @@ func TestDetectAllWithMultiplePanes(t *testing.T) {
 	sessionName := createTestSession(t)
 
 	// Split pane to create a second one
-	exec.Command("tmux", "split-window", "-t", sessionName).Run()
+	exec.Command(tmux.BinaryPath(), "split-window", "-t", sessionName).Run()
 	time.Sleep(100 * time.Millisecond)
 
 	d := NewDetector()

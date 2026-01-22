@@ -56,7 +56,7 @@ func TestRealSessionCreationBasic(t *testing.T) {
 	}
 
 	// Verify via tmux list-sessions
-	out, err := exec.Command("tmux", "list-sessions", "-F", "#{session_name}").Output()
+	out, err := exec.Command(BinaryPath(), "list-sessions", "-F", "#{session_name}").Output()
 	if err != nil {
 		t.Fatalf("tmux list-sessions failed: %v", err)
 	}

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/Dicklesworthstone/ntm/internal/agentmail"
+	"github.com/Dicklesworthstone/ntm/internal/tmux"
 	"github.com/Dicklesworthstone/ntm/tests/testutil"
 )
 
@@ -46,7 +47,7 @@ func TestE2EAgentMailAutoRegistration(t *testing.T) {
 	}
 
 	t.Cleanup(func() {
-		_ = exec.Command("tmux", "kill-session", "-t", session).Run()
+		_ = exec.Command(tmux.BinaryPath(), "kill-session", "-t", session).Run()
 	})
 
 	// Spawn 2 Claude + 1 Codex agents
@@ -57,7 +58,7 @@ func TestE2EAgentMailAutoRegistration(t *testing.T) {
 	time.Sleep(1 * time.Second)
 
 	// Verify pane count
-	listOut, err := exec.Command("tmux", "list-panes", "-t", session, "-F", "#{pane_title}").Output()
+	listOut, err := exec.Command(tmux.BinaryPath(), "list-panes", "-t", session, "-F", "#{pane_title}").Output()
 	if err != nil {
 		t.Fatalf("list panes: %v", err)
 	}
@@ -154,7 +155,7 @@ func TestE2EAgentMailRegistryRecovery(t *testing.T) {
 	configPath := writeAgentMailTestConfig(t, projectsBase)
 
 	t.Cleanup(func() {
-		_ = exec.Command("tmux", "kill-session", "-t", session).Run()
+		_ = exec.Command(tmux.BinaryPath(), "kill-session", "-t", session).Run()
 	})
 
 	// Spawn agents
@@ -178,7 +179,7 @@ func TestE2EAgentMailRegistryRecovery(t *testing.T) {
 	t.Logf("Original mappings: %v", originalMappings)
 
 	// Kill the session
-	_ = exec.Command("tmux", "kill-session", "-t", session).Run()
+	_ = exec.Command(tmux.BinaryPath(), "kill-session", "-t", session).Run()
 	time.Sleep(500 * time.Millisecond)
 
 	// Verify registry persists after session death

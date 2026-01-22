@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Dicklesworthstone/ntm/internal/tmux"
 	"github.com/Dicklesworthstone/ntm/tests/testutil"
 )
 
@@ -158,7 +159,7 @@ gemini = "bash"
 	}
 
 	t.Cleanup(func() {
-		exec.Command("tmux", "kill-session", "-t", session).Run()
+		exec.Command(tmux.BinaryPath(), "kill-session", "-t", session).Run()
 	})
 
 	// Spawn session with two agents (claude+codex)
@@ -409,7 +410,7 @@ codex = "bash"
 	}
 
 	t.Cleanup(func() {
-		exec.Command("tmux", "kill-session", "-t", session).Run()
+		exec.Command(tmux.BinaryPath(), "kill-session", "-t", session).Run()
 	})
 
 	// Test robot-spawn with Claude agents
@@ -480,7 +481,7 @@ claude = "bash"
 	}
 
 	t.Cleanup(func() {
-		exec.Command("tmux", "kill-session", "-t", session).Run()
+		exec.Command(tmux.BinaryPath(), "kill-session", "-t", session).Run()
 	})
 
 	// Spawn session first
@@ -588,7 +589,7 @@ claude = "bash"
 	}
 
 	t.Cleanup(func() {
-		exec.Command("tmux", "kill-session", "-t", session).Run()
+		exec.Command(tmux.BinaryPath(), "kill-session", "-t", session).Run()
 	})
 
 	// Spawn session
@@ -655,7 +656,7 @@ func createSyntheticAgentSessionWithName(t *testing.T, logger *testutil.TestLogg
 
 	t.Cleanup(func() {
 		logger.LogSection("Teardown synthetic session")
-		exec.Command("tmux", "kill-session", "-t", name).Run()
+		exec.Command(tmux.BinaryPath(), "kill-session", "-t", name).Run()
 	})
 
 	return name
@@ -692,7 +693,7 @@ gemini = "bash"
 	}
 
 	t.Cleanup(func() {
-		exec.Command("tmux", "kill-session", "-t", session).Run()
+		exec.Command(tmux.BinaryPath(), "kill-session", "-t", session).Run()
 	})
 
 	// Spawn session with agents to simulate different states
@@ -1022,7 +1023,7 @@ claude = "bash"
 
 	defer func() {
 		logger.LogSection("cleanup")
-		_ = exec.Command("tmux", "kill-session", "-t", session).Run()
+		_ = exec.Command(tmux.BinaryPath(), "kill-session", "-t", session).Run()
 	}()
 
 	// Spawn mixed session with multiple agent types
@@ -1160,7 +1161,7 @@ claude = "bash"
 
 	defer func() {
 		logger.LogSection("cleanup")
-		_ = exec.Command("tmux", "kill-session", "-t", session).Run()
+		_ = exec.Command(tmux.BinaryPath(), "kill-session", "-t", session).Run()
 	}()
 
 	// Spawn session with multiple agents
@@ -1232,7 +1233,7 @@ claude = "bash"
 
 	defer func() {
 		logger.LogSection("cleanup")
-		_ = exec.Command("tmux", "kill-session", "-t", session).Run()
+		_ = exec.Command(tmux.BinaryPath(), "kill-session", "-t", session).Run()
 	}()
 
 	// Spawn session
@@ -1377,7 +1378,7 @@ claude = "bash"
 
 	defer func() {
 		logger.LogSection("cleanup")
-		_ = exec.Command("tmux", "kill-session", "-t", session).Run()
+		_ = exec.Command(tmux.BinaryPath(), "kill-session", "-t", session).Run()
 	}()
 
 	// Spawn session
@@ -1465,7 +1466,7 @@ claude = "bash"
 
 	defer func() {
 		logger.LogSection("cleanup")
-		_ = exec.Command("tmux", "kill-session", "-t", session).Run()
+		_ = exec.Command(tmux.BinaryPath(), "kill-session", "-t", session).Run()
 	}()
 
 	// Spawn session
@@ -1592,7 +1593,7 @@ claude = "bash"
 	time.Sleep(500 * time.Millisecond)
 
 	// Check if we can capture pane output (best effort)
-	if output, err := exec.Command("tmux", "capture-pane", "-t", fmt.Sprintf("%s:0.1", session), "-p").Output(); err == nil {
+	if output, err := exec.Command(tmux.BinaryPath(), "capture-pane", "-t", fmt.Sprintf("%s:0.1", session), "-p").Output(); err == nil {
 		paneContent := string(output)
 		if strings.Contains(paneContent, uniqueMarker) {
 			logger.Log("[E2E-ROBOT-SEND-TRACKING] Test 3 PASSED: Message delivered to pane (marker found in output)")
@@ -1638,7 +1639,7 @@ claude = "bash"
 
 	defer func() {
 		logger.LogSection("cleanup")
-		_ = exec.Command("tmux", "kill-session", "-t", session).Run()
+		_ = exec.Command(tmux.BinaryPath(), "kill-session", "-t", session).Run()
 	}()
 
 	// Spawn large session with multiple agent types
@@ -1802,7 +1803,7 @@ claude = "bash"
 	}
 
 	t.Cleanup(func() {
-		exec.Command("tmux", "kill-session", "-t", session).Run()
+		exec.Command(tmux.BinaryPath(), "kill-session", "-t", session).Run()
 	})
 
 	// Spawn session

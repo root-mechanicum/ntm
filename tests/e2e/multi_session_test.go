@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Dicklesworthstone/ntm/internal/tmux"
 	"github.com/Dicklesworthstone/ntm/tests/testutil"
 )
 
@@ -61,7 +62,7 @@ scrollback = 500
 	t.Cleanup(func() {
 		logger.Log("[MULTI-SESSION] Teardown: Killing test sessions")
 		for _, sess := range sessions {
-			exec.Command("tmux", "kill-session", "-t", sess).Run()
+			exec.Command(tmux.BinaryPath(), "kill-session", "-t", sess).Run()
 		}
 	})
 
@@ -264,7 +265,7 @@ scrollback = 500
 	t.Cleanup(func() {
 		logger.Log("[CONCURRENT] Teardown: Killing sessions")
 		for _, sess := range sessions {
-			exec.Command("tmux", "kill-session", "-t", sess).Run()
+			exec.Command(tmux.BinaryPath(), "kill-session", "-t", sess).Run()
 		}
 	})
 
@@ -487,7 +488,7 @@ scrollback = 500
 	t.Cleanup(func() {
 		logger.Log("[NAMESPACE] Teardown: Killing sessions")
 		for _, sess := range sessions {
-			exec.Command("tmux", "kill-session", "-t", sess).Run()
+			exec.Command(tmux.BinaryPath(), "kill-session", "-t", sess).Run()
 		}
 	})
 
@@ -646,7 +647,7 @@ scrollback = 500
 		if err != nil {
 			t.Errorf("[RAPID] Cycle %d: Kill failed: %v", i, err)
 			// Cleanup anyway
-			exec.Command("tmux", "kill-session", "-t", sessName).Run()
+			exec.Command(tmux.BinaryPath(), "kill-session", "-t", sessName).Run()
 			continue
 		}
 
@@ -656,7 +657,7 @@ scrollback = 500
 		// Verify gone
 		if testutil.SessionExists(sessName) {
 			t.Errorf("[RAPID] Cycle %d: Session should be gone after kill", i)
-			exec.Command("tmux", "kill-session", "-t", sessName).Run()
+			exec.Command(tmux.BinaryPath(), "kill-session", "-t", sessName).Run()
 			continue
 		}
 

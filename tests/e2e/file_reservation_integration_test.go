@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/Dicklesworthstone/ntm/internal/agentmail"
+	"github.com/Dicklesworthstone/ntm/internal/tmux"
 	"github.com/Dicklesworthstone/ntm/tests/testutil"
 )
 
@@ -44,7 +45,7 @@ func TestE2EAgentMailReservationFlow(t *testing.T) {
 	}
 
 	t.Cleanup(func() {
-		_ = exec.Command("tmux", "kill-session", "-t", session).Run()
+		_ = exec.Command(tmux.BinaryPath(), "kill-session", "-t", session).Run()
 	})
 
 	runCmd(t, projectDir, "ntm", "--config", configPath, "spawn", session, "--cc=1")
@@ -101,7 +102,7 @@ func TestE2EAgentMailReservationConflict(t *testing.T) {
 	}
 
 	t.Cleanup(func() {
-		_ = exec.Command("tmux", "kill-session", "-t", session).Run()
+		_ = exec.Command(tmux.BinaryPath(), "kill-session", "-t", session).Run()
 	})
 
 	runCmd(t, projectDir, "ntm", "--config", configPath, "spawn", session, "--cc=2")

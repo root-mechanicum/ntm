@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/Dicklesworthstone/ntm/internal/state"
+	"github.com/Dicklesworthstone/ntm/internal/tmux"
 	"github.com/Dicklesworthstone/ntm/tests/testutil"
 )
 
@@ -70,7 +71,7 @@ max_recovery_tokens = 2000
 	// Cleanup session on test completion
 	t.Cleanup(func() {
 		logger.Log("[E2E-RECOVERY] Teardown: Killing test session")
-		exec.Command("tmux", "kill-session", "-t", sessionName).Run()
+		exec.Command(tmux.BinaryPath(), "kill-session", "-t", sessionName).Run()
 	})
 
 	// Step 1: Spawn session with agents

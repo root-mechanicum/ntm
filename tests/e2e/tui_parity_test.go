@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Dicklesworthstone/ntm/internal/tmux"
 	"github.com/Dicklesworthstone/ntm/tests/testutil"
 )
 
@@ -808,7 +809,7 @@ codex = "bash"
 	}
 
 	t.Cleanup(func() {
-		exec.Command("tmux", "kill-session", "-t", session).Run()
+		exec.Command(tmux.BinaryPath(), "kill-session", "-t", session).Run()
 	})
 
 	// Spawn session

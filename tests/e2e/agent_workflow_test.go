@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Dicklesworthstone/ntm/internal/tmux"
 	"github.com/Dicklesworthstone/ntm/tests/testutil"
 )
 
@@ -54,7 +55,7 @@ scrollback = 500
 	// Cleanup session on test completion
 	t.Cleanup(func() {
 		logger.LogSection("Teardown: Killing test session")
-		exec.Command("tmux", "kill-session", "-t", sessionName).Run()
+		exec.Command(tmux.BinaryPath(), "kill-session", "-t", sessionName).Run()
 	})
 
 	// Step 1: Spawn session with agents (may have non-zero exit due to terminal issues in test env)
@@ -220,7 +221,7 @@ codex = "bash"
 	}
 
 	t.Cleanup(func() {
-		exec.Command("tmux", "kill-session", "-t", sessionName).Run()
+		exec.Command(tmux.BinaryPath(), "kill-session", "-t", sessionName).Run()
 	})
 
 	// Spawn with multiple agent types (may have non-zero exit due to terminal issues)
@@ -395,7 +396,7 @@ codex = "bash"
 	}
 
 	t.Cleanup(func() {
-		exec.Command("tmux", "kill-session", "-t", sessionName).Run()
+		exec.Command(tmux.BinaryPath(), "kill-session", "-t", sessionName).Run()
 	})
 
 	// Spawn with variants (may have non-zero exit due to terminal issues)
