@@ -725,3 +725,151 @@ func toLower(s string) string {
 	}
 	return string(result)
 }
+
+// =============================================================================
+// Hard Kill Tests (bd-bh74z)
+// =============================================================================
+
+// TestHardKillResult tests the HardKillResult structure.
+func TestHardKillResult(t *testing.T) {
+	result := HardKillResult{
+		ShellPID:   12345,
+		ChildPID:   12346,
+		KillMethod: "kill_9",
+		Success:    true,
+	}
+
+	if result.ShellPID != 12345 {
+		t.Errorf("HardKillResult.ShellPID = %d, want 12345", result.ShellPID)
+	}
+	if result.ChildPID != 12346 {
+		t.Errorf("HardKillResult.ChildPID = %d, want 12346", result.ChildPID)
+	}
+	if result.KillMethod != "kill_9" {
+		t.Errorf("HardKillResult.KillMethod = %q, want 'kill_9'", result.KillMethod)
+	}
+	if !result.Success {
+		t.Error("HardKillResult.Success should be true")
+	}
+}
+
+// TestHardKillResultNoChild tests when no child process is found.
+func TestHardKillResultNoChild(t *testing.T) {
+	result := HardKillResult{
+		ShellPID:   12345,
+		ChildPID:   0,
+		KillMethod: "no_child_process",
+		Success:    true,
+	}
+
+	if result.KillMethod != "no_child_process" {
+		t.Errorf("HardKillResult.KillMethod = %q, want 'no_child_process'", result.KillMethod)
+	}
+	if !result.Success {
+		t.Error("no_child_process should still be success (agent already exited)")
+	}
+}
+
+// TestRestartSequenceWithHardKill tests the RestartSequence with hard kill fields.
+func TestRestartSequenceWithHardKill(t *testing.T) {
+	seq := RestartSequence{
+		ExitMethod:     "hard_kill",
+		ExitDurationMs: 1000,
+		ShellConfirmed: true,
+		AgentLaunched:  true,
+		AgentType:      "cc",
+		HardKillUsed:   true,
+		HardKillResult: &HardKillResult{
+			ShellPID:   54321,
+			ChildPID:   54322,
+			KillMethod: "kill_9",
+			Success:    true,
+		},
+	}
+
+	if seq.ExitMethod != "hard_kill" {
+		t.Errorf("RestartSequence.ExitMethod = %q, want 'hard_kill'", seq.ExitMethod)
+	}
+	if !seq.HardKillUsed {
+		t.Error("RestartSequence.HardKillUsed should be true")
+	}
+	if seq.HardKillResult == nil {
+		t.Fatal("RestartSequence.HardKillResult should not be nil")
+	}
+	if seq.HardKillResult.ShellPID != 54321 {
+		t.Errorf("HardKillResult.ShellPID = %d, want 54321", seq.HardKillResult.ShellPID)
+	}
+}
+
+// TestSmartRestartOptionsWithHardKill tests the options struct with hard kill flags.
+func TestSmartRestartOptionsWithHardKill(t *testing.T) {
+	opts := SmartRestartOptions{
+		Session:      "test-session",
+		Panes:        []int{2, 3, 4},
+		Force:        false,
+		DryRun:       false,
+		HardKill:     true,
+		HardKillOnly: false,
+	}
+
+	if !opts.HardKill {
+		t.Error("SmartRestartOptions.HardKill should be true")
+	}
+	if opts.HardKillOnly {
+		t.Error("SmartRestartOptions.HardKillOnly should be false")
+	}
+}
+
+// TestSmartRestartOptionsHardKillOnly tests the hard kill only option.
+func TestSmartRestartOptionsHardKillOnly(t *testing.T) {
+	opts := SmartRestartOptions{
+		Session:      "test-session",
+		Panes:        []int{2},
+		HardKill:     false, // Doesn't matter when HardKillOnly is true
+		HardKillOnly: true,
+	}
+
+	if !opts.HardKillOnly {
+		t.Error("SmartRestartOptions.HardKillOnly should be true")
+	}
+}
+
+// TestDefaultOptionsNoHardKill tests that hard kill is disabled by default.
+func TestDefaultOptionsNoHardKill(t *testing.T) {
+	opts := DefaultSmartRestartOptions()
+
+	if opts.HardKill {
+		t.Error("DefaultSmartRestartOptions().HardKill should be false")
+	}
+	if opts.HardKillOnly {
+		t.Error("DefaultSmartRestartOptions().HardKillOnly should be false")
+	}
+}
+
+// TestSplitBySpace tests the splitBySpace helper.
+func TestSplitBySpace(t *testing.T) {
+	tests := []struct {
+		input string
+		want  []string
+	}{
+		{"one two three", []string{"one", "two", "three"}},
+		{"  spaced   out  ", []string{"spaced", "out"}},
+		{"single", []string{"single"}},
+		{"", nil},
+		{"\t\ttabs\t\there\t", []string{"tabs", "here"}},
+		{"2 12345", []string{"2", "12345"}}, // Like tmux list-panes output
+	}
+
+	for _, tt := range tests {
+		got := splitBySpace(tt.input)
+		if len(got) != len(tt.want) {
+			t.Errorf("splitBySpace(%q) = %v, want %v", tt.input, got, tt.want)
+			continue
+		}
+		for i := range got {
+			if got[i] != tt.want[i] {
+				t.Errorf("splitBySpace(%q)[%d] = %q, want %q", tt.input, i, got[i], tt.want[i])
+			}
+		}
+	}
+}

@@ -129,3 +129,120 @@ func runTmuxCommand(args ...string) error {
 	}
 	return nil
 }
+
+// =============================================================================
+// Hard Kill Fallback (bd-bh74z)
+// =============================================================================
+// When soft exit fails, we need to forcefully kill the agent process.
+// This uses kill -9 to terminate the child process of the pane's shell.
+
+// HardKillResult contains information about the hard kill operation.
+type HardKillResult struct {
+	ShellPID   int    `json:"shell_pid,omitempty"`
+	ChildPID   int    `json:"child_pid,omitempty"`
+	KillMethod string `json:"kill_method"`
+	Success    bool   `json:"success"`
+}
+
+// hardKillAgent performs a forceful kill -9 on the agent process.
+// It should be called when soft exit methods fail.
+func hardKillAgent(session string, pane int, seq *RestartSequence) (*HardKillResult, error) {
+	result := &HardKillResult{
+		KillMethod: "kill_9",
+	}
+
+	// Step 1: Get shell PID from tmux
+	shellPID, err := getShellPID(session, pane)
+	if err != nil {
+		return result, wrapError("failed to get shell PID", err)
+	}
+	result.ShellPID = shellPID
+
+	// Step 2: Get child PID via pgrep
+	childPID, err := getChildPID(shellPID)
+	if err != nil {
+		// No child process might mean agent already exited
+		result.KillMethod = "no_child_process"
+		result.Success = true
+		return result, nil
+	}
+	result.ChildPID = childPID
+
+	// Step 3: kill -9 the child process
+	if err := killProcess(childPID); err != nil {
+		return result, wrapError("kill -9 failed", err)
+	}
+
+	// Update sequence info
+	seq.ExitMethod = "hard_kill"
+	result.Success = true
+	return result, nil
+}
+
+// getShellPID retrieves the PID of the shell process in a tmux pane.
+// Uses: tmux list-panes -t session:window -F '#{pane_index} #{pane_pid}'
+func getShellPID(session string, pane int) (int, error) {
+	// Use window 1 format (NTM uses window 1 for agents)
+	target := session + ":1"
+	cmd := exec.Command(tmux.BinaryPath(), "list-panes", "-t", target, "-F", "#{pane_index} #{pane_pid}")
+	output, err := cmd.Output()
+	if err != nil {
+		return 0, wrapError("tmux list-panes failed", err)
+	}
+
+	// Parse output to find our pane
+	lines := splitLines(string(output))
+	for _, line := range lines {
+		parts := splitBySpace(line)
+		if len(parts) >= 2 {
+			paneIdx, err := strconv.Atoi(parts[0])
+			if err != nil {
+				continue
+			}
+			if paneIdx == pane {
+				pid, err := strconv.Atoi(parts[1])
+				if err != nil {
+					return 0, wrapError("invalid PID format", err)
+				}
+				return pid, nil
+			}
+		}
+	}
+
+	return 0, newError("pane not found")
+}
+
+// Note: getChildPID is defined in status_enrich.go and reused here
+
+// killProcess sends SIGKILL (kill -9) to a process.
+func killProcess(pid int) error {
+	cmd := exec.Command("kill", "-9", strconv.Itoa(pid))
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		if len(output) > 0 {
+			return wrapError(trimSpace(string(output)), err)
+		}
+		return err
+	}
+	return nil
+}
+
+// splitBySpace splits a string by whitespace, handling multiple spaces.
+func splitBySpace(s string) []string {
+	var result []string
+	var current string
+	for _, c := range s {
+		if c == ' ' || c == '\t' {
+			if current != "" {
+				result = append(result, current)
+				current = ""
+			}
+		} else {
+			current += string(c)
+		}
+	}
+	if current != "" {
+		result = append(result, current)
+	}
+	return result
+}

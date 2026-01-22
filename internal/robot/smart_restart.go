@@ -54,6 +54,8 @@ type SmartRestartOptions struct {
 	LinesCaptured int           // Lines to capture for pre-check (default: 100)
 	Verbose       bool          // Include extra debugging info
 	PostWaitTime  time.Duration // Time to wait after launch before verification (default: 6s)
+	HardKill      bool          // Use hard kill (kill -9) as fallback if soft exit fails (bd-bh74z)
+	HardKillOnly  bool          // Skip soft exit entirely and use kill -9 immediately
 }
 
 // DefaultSmartRestartOptions returns sensible defaults.
@@ -78,12 +80,14 @@ type PreCheckInfo struct {
 
 // RestartSequence documents the restart execution steps.
 type RestartSequence struct {
-	ExitMethod     string `json:"exit_method"`
-	ExitDurationMs int    `json:"exit_duration_ms"`
-	ShellConfirmed bool   `json:"shell_confirmed"`
-	AgentLaunched  bool   `json:"agent_launched"`
-	AgentType      string `json:"agent_type"`
-	PromptSent     bool   `json:"prompt_sent,omitempty"`
+	ExitMethod     string          `json:"exit_method"`
+	ExitDurationMs int             `json:"exit_duration_ms"`
+	ShellConfirmed bool            `json:"shell_confirmed"`
+	AgentLaunched  bool            `json:"agent_launched"`
+	AgentType      string          `json:"agent_type"`
+	PromptSent     bool            `json:"prompt_sent,omitempty"`
+	HardKillUsed   bool            `json:"hard_kill_used,omitempty"`   // True if hard kill was needed (bd-bh74z)
+	HardKillResult *HardKillResult `json:"hard_kill_result,omitempty"` // Details of hard kill operation
 }
 
 // PostStateInfo contains the verified state after restart.
@@ -378,57 +382,132 @@ func executeRestart(session string, pane int, agentType string, opts SmartRestar
 		AgentType: agentType,
 	}
 	var attemptedActions []string
+	var softExitFailed bool
 
-	// Step 1: Exit the current agent using agent-specific method
-	attemptedActions = append(attemptedActions, "exit-agent-"+agentType)
-	exitErr := exitAgent(session, pane, agentType, seq)
-	if exitErr != nil {
-		structErr := newRestartError(
-			ErrCodeSoftExitFailed,
-			"Agent did not respond to exit within timeout: "+exitErr.Error(),
-			"soft_exit",
-			pane,
-			agentType,
-			attemptedActions,
-			"",
-		).WithRecoveryHint("Try --robot-restart-pane with --force to use kill -9 fallback")
-		return seq, structErr
+	// Step 1: Exit the current agent using agent-specific method (unless HardKillOnly)
+	if !opts.HardKillOnly {
+		attemptedActions = append(attemptedActions, "exit-agent-"+agentType)
+		exitErr := exitAgent(session, pane, agentType, seq)
+		if exitErr != nil {
+			if opts.HardKill {
+				// Soft exit failed, but we're allowed to try hard kill
+				softExitFailed = true
+			} else {
+				structErr := newRestartError(
+					ErrCodeSoftExitFailed,
+					"Agent did not respond to exit within timeout: "+exitErr.Error(),
+					"soft_exit",
+					pane,
+					agentType,
+					attemptedActions,
+					"",
+				).WithRecoveryHint("Try --robot-restart-pane with --hard-kill to use kill -9 fallback")
+				return seq, structErr
+			}
+		}
+
+		// Step 2: Wait for shell to return (after soft exit attempt)
+		attemptedActions = append(attemptedActions, "wait-3s")
+		seq.ExitDurationMs = 3000
+		time.Sleep(3 * time.Second)
+
+		// Step 3: Verify shell prompt
+		attemptedActions = append(attemptedActions, "verify-shell-prompt")
+		target := fmt.Sprintf("%s:1.%d", session, pane)
+		output, err := tmux.CapturePaneOutput(target, 10)
+		if err != nil {
+			if opts.HardKill {
+				softExitFailed = true
+			} else {
+				structErr := newRestartError(
+					ErrCodeShellNotReturned,
+					"Failed to capture pane output after exit: "+err.Error(),
+					"post_exit",
+					pane,
+					agentType,
+					attemptedActions,
+					"",
+				).WithRecoveryHint("Check if the pane still exists with ntm status")
+				return seq, structErr
+			}
+		} else {
+			seq.ShellConfirmed = looksLikeShellPrompt(output)
+			if !seq.ShellConfirmed && !opts.HardKill {
+				structErr := newRestartError(
+					ErrCodeShellNotReturned,
+					"Shell prompt not detected after exit - agent may still be running",
+					"post_exit",
+					pane,
+					agentType,
+					attemptedActions,
+					output,
+				).WithRecoveryHint("Try --robot-restart-pane with --hard-kill, or manually kill the process")
+				return seq, structErr
+			}
+			if !seq.ShellConfirmed {
+				softExitFailed = true
+			}
+		}
 	}
 
-	// Step 2: Wait for shell to return
-	attemptedActions = append(attemptedActions, "wait-3s")
-	seq.ExitDurationMs = 3000
-	time.Sleep(3 * time.Second)
+	// Step 3b: Hard kill fallback if soft exit failed or HardKillOnly (bd-bh74z)
+	if opts.HardKillOnly || (opts.HardKill && softExitFailed) {
+		attemptedActions = append(attemptedActions, "hard-kill")
+		hardKillResult, err := hardKillAgent(session, pane, seq)
+		seq.HardKillUsed = true
+		seq.HardKillResult = hardKillResult
 
-	// Step 3: Verify shell prompt
-	attemptedActions = append(attemptedActions, "verify-shell-prompt")
-	target := fmt.Sprintf("%s:1.%d", session, pane)
-	output, err := tmux.CapturePaneOutput(target, 10)
-	if err != nil {
-		structErr := newRestartError(
-			ErrCodeShellNotReturned,
-			"Failed to capture pane output after exit: "+err.Error(),
-			"post_exit",
-			pane,
-			agentType,
-			attemptedActions,
-			"",
-		).WithRecoveryHint("Check if the pane still exists with ntm status")
-		return seq, structErr
-	}
+		if err != nil {
+			structErr := newRestartError(
+				ErrCodeHardKillFailed,
+				"Hard kill (kill -9) failed: "+err.Error(),
+				"hard_kill",
+				pane,
+				agentType,
+				attemptedActions,
+				"",
+			)
+			if hardKillResult != nil && hardKillResult.ShellPID > 0 {
+				structErr.Details.WithChildPID(hardKillResult.ChildPID)
+				structErr.Details.SetExtra("shell_pid", hardKillResult.ShellPID)
+			}
+			structErr.WithRecoveryHint("Manual intervention required - check process state with ps aux | grep <pid>")
+			return seq, structErr
+		}
 
-	seq.ShellConfirmed = looksLikeShellPrompt(output)
-	if !seq.ShellConfirmed {
-		structErr := newRestartError(
-			ErrCodeShellNotReturned,
-			"Shell prompt not detected after exit - agent may still be running",
-			"post_exit",
-			pane,
-			agentType,
-			attemptedActions,
-			output,
-		).WithRecoveryHint("Try --robot-restart-pane with --force, or manually kill the process")
-		return seq, structErr
+		// Wait for shell to return after hard kill
+		attemptedActions = append(attemptedActions, "wait-1s-after-kill")
+		time.Sleep(1 * time.Second)
+
+		// Verify shell prompt after hard kill
+		target := fmt.Sprintf("%s:1.%d", session, pane)
+		output, err := tmux.CapturePaneOutput(target, 10)
+		if err != nil {
+			structErr := newRestartError(
+				ErrCodeShellNotReturned,
+				"Failed to capture pane output after hard kill: "+err.Error(),
+				"post_hard_kill",
+				pane,
+				agentType,
+				attemptedActions,
+				"",
+			).WithRecoveryHint("Check if the pane still exists with ntm status")
+			return seq, structErr
+		}
+
+		seq.ShellConfirmed = looksLikeShellPrompt(output)
+		if !seq.ShellConfirmed {
+			structErr := newRestartError(
+				ErrCodeShellNotReturned,
+				"Shell prompt not detected after hard kill",
+				"post_hard_kill",
+				pane,
+				agentType,
+				attemptedActions,
+				output,
+			).WithRecoveryHint("Shell may be in unexpected state - try manually running 'reset' in the pane")
+			return seq, structErr
+		}
 	}
 
 	// Step 4: Launch new agent using alias
@@ -447,7 +526,7 @@ func executeRestart(session string, pane int, agentType string, opts SmartRestar
 			pane,
 			agentType,
 			attemptedActions,
-			output,
+			"", // No pane output available at launch step
 		).WithRecoveryHint("Verify the agent CLI is installed and in PATH")
 		return seq, structErr
 	}
