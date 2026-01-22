@@ -1,10 +1,18 @@
 # NTM - Named Tmux Manager
 
+<div align="center">
+  <img src="ntm_dashboard.webp" alt="NTM - Multi-agent tmux orchestration dashboard">
+</div>
+
+<div align="center">
+
 ![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS-blue.svg)
 ![Go Version](https://img.shields.io/badge/go-1.25+-00ADD8.svg)
 ![License](https://img.shields.io/badge/license-MIT-green.svg)
 ![CI](https://img.shields.io/github/actions/workflow/status/Dicklesworthstone/ntm/ci.yml?label=CI)
 ![Release](https://img.shields.io/github/v/release/Dicklesworthstone/ntm?include_prereleases)
+
+</div>
 
 **A powerful tmux session management tool for orchestrating multiple AI coding agents in parallel.**
 
