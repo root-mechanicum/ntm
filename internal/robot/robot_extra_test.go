@@ -5,11 +5,13 @@ import (
 	"testing"
 
 	"github.com/Dicklesworthstone/ntm/internal/config"
-	"github.com/Dicklesworthstone/ntm/tests/testutil"
+	"github.com/Dicklesworthstone/ntm/internal/tmux"
 )
 
 func TestPrintTerse(t *testing.T) {
-	testutil.RequireTmuxThrottled(t)
+	if !tmux.IsInstalled() {
+		t.Skip("tmux not installed")
+	}
 
 	cfg := config.Default()
 	output, err := captureStdout(t, func() error { return PrintTerse(cfg) })
