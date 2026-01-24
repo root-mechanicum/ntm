@@ -538,6 +538,9 @@ type EnsemblePreset struct {
 	// Name is the unique identifier for this preset.
 	Name string `json:"name" toml:"name" yaml:"name"`
 
+	// Extends optionally references another preset to extend.
+	Extends string `json:"extends,omitempty" toml:"extends,omitempty" yaml:"extends,omitempty"`
+
 	// DisplayName is the human-facing name (e.g., "Architecture Review").
 	DisplayName string `json:"display_name,omitempty" toml:"display_name,omitempty" yaml:"display_name,omitempty"`
 
@@ -572,34 +575,10 @@ type EnsemblePreset struct {
 
 // Validate checks that the preset is valid and all mode refs resolve against the catalog.
 func (p *EnsemblePreset) Validate(catalog *ModeCatalog) error {
-	if p.Name == "" {
-		return errors.New("preset name is required")
+	report := ValidateEnsemblePreset(p, catalog, nil)
+	if err := report.Error(); err != nil {
+		return err
 	}
-	if len(p.Modes) == 0 {
-		return errors.New("preset must have at least one mode")
-	}
-
-	// Resolve all mode refs
-	resolved, err := ResolveModeRefs(p.Modes, catalog)
-	if err != nil {
-		return fmt.Errorf("preset %q: %w", p.Name, err)
-	}
-
-	// Check tier restrictions
-	if !p.AllowAdvanced {
-		for _, modeID := range resolved {
-			mode := catalog.GetMode(modeID)
-			if mode != nil && mode.Tier == TierAdvanced {
-				return fmt.Errorf("preset %q: mode %q is advanced tier but AllowAdvanced is false", p.Name, modeID)
-			}
-		}
-	}
-
-	// Validate synthesis config if strategy is set
-	if p.Synthesis.Strategy != "" && !p.Synthesis.Strategy.IsValid() {
-		return fmt.Errorf("preset %q: invalid synthesis strategy %q", p.Name, p.Synthesis.Strategy)
-	}
-
 	return nil
 }
 
@@ -1107,6 +1086,12 @@ type BudgetConfig struct {
 
 	// MaxTotalTokens is the total token budget across all modes.
 	MaxTotalTokens int `json:"max_total_tokens,omitempty" toml:"max_total_tokens" yaml:"max_total_tokens,omitempty"`
+
+	// SynthesisReserveTokens reserves tokens for the synthesizer agent.
+	SynthesisReserveTokens int `json:"synthesis_reserve_tokens,omitempty" toml:"synthesis_reserve_tokens" yaml:"synthesis_reserve_tokens,omitempty"`
+
+	// ContextReserveTokens reserves tokens for context packs or shared context.
+	ContextReserveTokens int `json:"context_reserve_tokens,omitempty" toml:"context_reserve_tokens" yaml:"context_reserve_tokens,omitempty"`
 
 	// TimeoutPerMode is the max duration for each mode to complete.
 	TimeoutPerMode time.Duration `json:"timeout_per_mode,omitempty" toml:"timeout_per_mode" yaml:"timeout_per_mode,omitempty"`

@@ -48,8 +48,10 @@ func resetFlags() {
 func TestResolveRobotFormat_DefaultAuto(t *testing.T) {
 	resetFlags()
 	t.Setenv("NTM_ROBOT_FORMAT", "")
+	t.Setenv("NTM_OUTPUT_FORMAT", "")
+	t.Setenv("TOON_DEFAULT_FORMAT", "")
 
-	resolveRobotFormat()
+	resolveRobotFormat(nil)
 
 	if robot.OutputFormat != robot.FormatAuto {
 		t.Errorf("OutputFormat default = %q, want %q", robot.OutputFormat, robot.FormatAuto)
@@ -59,11 +61,39 @@ func TestResolveRobotFormat_DefaultAuto(t *testing.T) {
 func TestResolveRobotFormat_EnvFallback(t *testing.T) {
 	resetFlags()
 	t.Setenv("NTM_ROBOT_FORMAT", "toon")
+	t.Setenv("NTM_OUTPUT_FORMAT", "")
+	t.Setenv("TOON_DEFAULT_FORMAT", "")
 
-	resolveRobotFormat()
+	resolveRobotFormat(nil)
 
 	if robot.OutputFormat != robot.FormatTOON {
 		t.Errorf("OutputFormat from env = %q, want %q", robot.OutputFormat, robot.FormatTOON)
+	}
+}
+
+func TestResolveRobotFormat_NtmOutputFormatFallback(t *testing.T) {
+	resetFlags()
+	t.Setenv("NTM_ROBOT_FORMAT", "")
+	t.Setenv("NTM_OUTPUT_FORMAT", "toon")
+	t.Setenv("TOON_DEFAULT_FORMAT", "")
+
+	resolveRobotFormat(nil)
+
+	if robot.OutputFormat != robot.FormatTOON {
+		t.Errorf("OutputFormat from NTM_OUTPUT_FORMAT = %q, want %q", robot.OutputFormat, robot.FormatTOON)
+	}
+}
+
+func TestResolveRobotFormat_ToonDefaultFallback(t *testing.T) {
+	resetFlags()
+	t.Setenv("NTM_ROBOT_FORMAT", "")
+	t.Setenv("NTM_OUTPUT_FORMAT", "")
+	t.Setenv("TOON_DEFAULT_FORMAT", "toon")
+
+	resolveRobotFormat(nil)
+
+	if robot.OutputFormat != robot.FormatTOON {
+		t.Errorf("OutputFormat from TOON_DEFAULT_FORMAT = %q, want %q", robot.OutputFormat, robot.FormatTOON)
 	}
 }
 
@@ -72,7 +102,7 @@ func TestResolveRobotFormat_FlagOverridesEnv(t *testing.T) {
 	t.Setenv("NTM_ROBOT_FORMAT", "toon")
 	robotFormat = "json"
 
-	resolveRobotFormat()
+	resolveRobotFormat(nil)
 
 	if robot.OutputFormat != robot.FormatJSON {
 		t.Errorf("OutputFormat from flag = %q, want %q", robot.OutputFormat, robot.FormatJSON)
@@ -83,10 +113,31 @@ func TestResolveRobotFormat_InvalidValueFallsBack(t *testing.T) {
 	resetFlags()
 	robotFormat = "xml"
 
-	resolveRobotFormat()
+	resolveRobotFormat(nil)
 
 	if robot.OutputFormat != robot.FormatAuto {
 		t.Errorf("OutputFormat invalid = %q, want %q", robot.OutputFormat, robot.FormatAuto)
+	}
+}
+
+func TestResolveRobotFormat_ConfigFallback(t *testing.T) {
+	resetFlags()
+	t.Setenv("NTM_ROBOT_FORMAT", "")
+	t.Setenv("NTM_OUTPUT_FORMAT", "")
+	t.Setenv("TOON_DEFAULT_FORMAT", "")
+
+	cfg := &config.Config{
+		Robot: config.RobotConfig{
+			Output: config.RobotOutputConfig{
+				Format: "toon",
+			},
+		},
+	}
+
+	resolveRobotFormat(cfg)
+
+	if robot.OutputFormat != robot.FormatTOON {
+		t.Errorf("OutputFormat from config = %q, want %q", robot.OutputFormat, robot.FormatTOON)
 	}
 }
 

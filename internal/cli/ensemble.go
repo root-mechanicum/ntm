@@ -56,11 +56,56 @@ type ensembleStatusOutput struct {
 }
 
 func newEnsembleCmd() *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "ensemble",
-		Short: "Manage reasoning ensembles",
+	opts := ensembleSpawnOptions{
+		Assignment: "affinity",
 	}
 
+	cmd := &cobra.Command{
+		Use:   "ensemble [ensemble] [question]",
+		Short: "Manage reasoning ensembles",
+		Long: `Manage and run reasoning ensembles.
+
+Primary usage:
+  ntm ensemble <ensemble-name> "<question>"
+`,
+		Example: `  ntm ensemble project-diagnosis "What are the main issues?"
+  ntm ensemble idea-forge "What features should we add next?"
+  ntm ensemble spawn mysession --preset project-diagnosis --question "..."`,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if len(args) == 0 {
+				return cmd.Help()
+			}
+			if len(args) < 2 {
+				return fmt.Errorf("ensemble name and question required (usage: ntm ensemble <ensemble-name> <question>)")
+			}
+
+			projectDir, err := resolveEnsembleProjectDir(opts.Project)
+			if err != nil {
+				if IsJSONOutput() {
+					_ = output.PrintJSON(output.NewError(err.Error()))
+				}
+				return err
+			}
+			opts.Project = projectDir
+
+			if err := tmux.EnsureInstalled(); err != nil {
+				if IsJSONOutput() {
+					_ = output.PrintJSON(output.NewError(err.Error()))
+				}
+				return err
+			}
+
+			baseName := defaultEnsembleSessionName(projectDir)
+			opts.Session = uniqueEnsembleSessionName(baseName)
+			opts.Preset = args[0]
+			opts.Question = strings.Join(args[1:], " ")
+
+			return runEnsembleSpawn(cmd, opts)
+		},
+	}
+
+	bindEnsembleSharedFlags(cmd, &opts)
+	cmd.AddCommand(newEnsembleSpawnCmd())
 	cmd.AddCommand(newEnsembleStatusCmd())
 	return cmd
 }
@@ -203,6 +248,12 @@ func mergeBudgetDefaults(current, defaults ensemble.BudgetConfig) ensemble.Budge
 	}
 	if current.MaxTotalTokens == 0 {
 		current.MaxTotalTokens = defaults.MaxTotalTokens
+	}
+	if current.SynthesisReserveTokens == 0 {
+		current.SynthesisReserveTokens = defaults.SynthesisReserveTokens
+	}
+	if current.ContextReserveTokens == 0 {
+		current.ContextReserveTokens = defaults.ContextReserveTokens
 	}
 	if current.TimeoutPerMode == 0 {
 		current.TimeoutPerMode = defaults.TimeoutPerMode

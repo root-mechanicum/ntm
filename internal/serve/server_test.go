@@ -2,8 +2,16 @@ package serve
 
 import (
 	"context"
+	"crypto"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/sha256"
+	"crypto/tls"
+	"crypto/x509"
+	"encoding/base64"
 	"encoding/json"
 	"io"
+	"math/big"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -326,21 +334,40 @@ func TestEventStreamSSE(t *testing.T) {
 }
 
 func TestCORSMiddleware(t *testing.T) {
-	handler := corsMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := New(Config{})
+	handler := srv.corsMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
 	// Test preflight OPTIONS request
 	req := httptest.NewRequest(http.MethodOptions, "/", nil)
+	req.Header.Set("Origin", "http://localhost:3000")
 	rec := httptest.NewRecorder()
 
 	handler.ServeHTTP(rec, req)
 
-	if rec.Header().Get("Access-Control-Allow-Origin") != "*" {
-		t.Error("Expected CORS header")
+	if rec.Header().Get("Access-Control-Allow-Origin") != "http://localhost:3000" {
+		t.Error("Expected CORS allowlist header")
 	}
 	if rec.Code != http.StatusOK {
 		t.Errorf("OPTIONS Status = %d, want %d", rec.Code, http.StatusOK)
+	}
+}
+
+func TestCORSMiddlewareRejectsOrigin(t *testing.T) {
+	srv := New(Config{})
+	handler := srv.corsMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.Header.Set("Origin", "http://evil.example.com")
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("Status = %d, want %d", rec.Code, http.StatusForbidden)
 	}
 }
 
@@ -357,4 +384,176 @@ func TestLoggingMiddleware(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Errorf("Status = %d, want %d", rec.Code, http.StatusOK)
 	}
+}
+
+func TestAuthMiddlewareAPIKey(t *testing.T) {
+	srv := New(Config{
+		Auth: AuthConfig{
+			Mode:   AuthModeAPIKey,
+			APIKey: "secret",
+		},
+	})
+	handler := srv.authMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/sessions", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnauthorized {
+		t.Errorf("missing api key status = %d, want %d", rec.Code, http.StatusUnauthorized)
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/api/sessions", nil)
+	req.Header.Set("Authorization", "Bearer secret")
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Errorf("valid api key status = %d, want %d", rec.Code, http.StatusOK)
+	}
+}
+
+func TestAuthMiddlewareOIDC(t *testing.T) {
+	issuer := "https://issuer.example.com"
+	audience := "ntm"
+	key := mustGenerateKey(t)
+	jwksURL := startJWKS(t, key, "kid1")
+	token := signJWT(t, key, "kid1", issuer, audience, time.Now().Add(1*time.Hour))
+
+	srv := New(Config{
+		Auth: AuthConfig{
+			Mode: AuthModeOIDC,
+			OIDC: OIDCConfig{
+				Issuer:   issuer,
+				Audience: audience,
+				JWKSURL:  jwksURL,
+			},
+		},
+	})
+	handler := srv.authMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/sessions", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnauthorized {
+		t.Errorf("missing oidc token status = %d, want %d", rec.Code, http.StatusUnauthorized)
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/api/sessions", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Errorf("valid oidc token status = %d, want %d", rec.Code, http.StatusOK)
+	}
+}
+
+func TestAuthMiddlewareMTLS(t *testing.T) {
+	srv := New(Config{
+		Auth: AuthConfig{
+			Mode: AuthModeMTLS,
+		},
+	})
+	handler := srv.authMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/sessions", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnauthorized {
+		t.Errorf("missing mtls cert status = %d, want %d", rec.Code, http.StatusUnauthorized)
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/api/sessions", nil)
+	req.TLS = &tls.ConnectionState{PeerCertificates: []*x509.Certificate{{}}}
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Errorf("valid mtls cert status = %d, want %d", rec.Code, http.StatusOK)
+	}
+}
+
+func TestWebSocketRejectedWithoutToken(t *testing.T) {
+	srv := New(Config{
+		Auth: AuthConfig{
+			Mode:   AuthModeAPIKey,
+			APIKey: "secret",
+		},
+	})
+	handler := srv.authMiddleware(http.HandlerFunc(srv.handleWS))
+
+	req := httptest.NewRequest(http.MethodGet, "/ws", nil)
+	req.Header.Set("Connection", "Upgrade")
+	req.Header.Set("Upgrade", "websocket")
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Errorf("ws unauth status = %d, want %d", rec.Code, http.StatusUnauthorized)
+	}
+}
+
+func mustGenerateKey(t *testing.T) *rsa.PrivateKey {
+	t.Helper()
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatalf("generate key: %v", err)
+	}
+	return key
+}
+
+func startJWKS(t *testing.T, key *rsa.PrivateKey, kid string) string {
+	t.Helper()
+	n := base64.RawURLEncoding.EncodeToString(key.PublicKey.N.Bytes())
+	e := base64.RawURLEncoding.EncodeToString(big.NewInt(int64(key.PublicKey.E)).Bytes())
+	payload := map[string]interface{}{
+		"keys": []map[string]string{
+			{
+				"kty": "RSA",
+				"kid": kid,
+				"n":   n,
+				"e":   e,
+			},
+		},
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(payload)
+	}))
+	t.Cleanup(srv.Close)
+	return srv.URL
+}
+
+func signJWT(t *testing.T, key *rsa.PrivateKey, kid, issuer, audience string, exp time.Time) string {
+	t.Helper()
+	header := map[string]string{
+		"alg": "RS256",
+		"kid": kid,
+		"typ": "JWT",
+	}
+	claims := map[string]interface{}{
+		"iss": issuer,
+		"aud": audience,
+		"exp": exp.Unix(),
+	}
+	headerJSON, err := json.Marshal(header)
+	if err != nil {
+		t.Fatalf("marshal header: %v", err)
+	}
+	claimsJSON, err := json.Marshal(claims)
+	if err != nil {
+		t.Fatalf("marshal claims: %v", err)
+	}
+	headerEnc := base64.RawURLEncoding.EncodeToString(headerJSON)
+	claimsEnc := base64.RawURLEncoding.EncodeToString(claimsJSON)
+	signingInput := headerEnc + "." + claimsEnc
+	hash := sha256.Sum256([]byte(signingInput))
+	sig, err := rsa.SignPKCS1v15(rand.Reader, key, crypto.SHA256, hash[:])
+	if err != nil {
+		t.Fatalf("sign jwt: %v", err)
+	}
+	sigEnc := base64.RawURLEncoding.EncodeToString(sig)
+	return signingInput + "." + sigEnc
 }

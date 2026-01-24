@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -31,13 +30,24 @@ type EnsembleConfig struct {
 	Ensemble    string   // built-in or user-defined ensemble name
 	Modes       []string // explicit mode IDs/codes or explicit specs (mode:agent)
 
+	// AllowAdvanced permits advanced/experimental modes (default: core only).
+	AllowAdvanced bool
+
+	// ProjectDir sets the working directory for spawned panes.
+	ProjectDir string
+
 	AgentMix   map[string]int
 	Assignment string // round-robin, affinity, explicit
+
+	// SkipInject prevents prompt injection (creates session and assignments only).
+	SkipInject bool
 
 	Synthesis SynthesisConfig
 	Budget    BudgetConfig
 	Cache     CacheConfig
-	EarlyStop EarlyStopConfig
+	// CacheOverride forces Cache config to apply even when disabling.
+	CacheOverride bool
+	EarlyStop     EarlyStopConfig
 }
 
 // EarlyStopConfig controls early stopping behavior for ensembles.
@@ -47,11 +57,11 @@ type EarlyStopConfig struct {
 
 // EnsembleManager orchestrates ensemble session lifecycle steps.
 type EnsembleManager struct {
-	TmuxClient         *tmux.Client
+	TmuxClient          *tmux.Client
 	SessionOrchestrator *swarm.SessionOrchestrator
-	PaneLauncher       *swarm.PaneLauncher
-	PromptInjector     *swarm.PromptInjector
-	Logger             *slog.Logger
+	PaneLauncher        *swarm.PaneLauncher
+	PromptInjector      *swarm.PromptInjector
+	Logger              *slog.Logger
 
 	Catalog  *ModeCatalog
 	Registry *EnsembleRegistry
@@ -60,11 +70,11 @@ type EnsembleManager struct {
 // NewEnsembleManager creates a manager with default dependencies.
 func NewEnsembleManager() *EnsembleManager {
 	return &EnsembleManager{
-		TmuxClient:         nil,
+		TmuxClient:          nil,
 		SessionOrchestrator: swarm.NewSessionOrchestrator(),
-		PaneLauncher:       swarm.NewPaneLauncher(),
-		PromptInjector:     swarm.NewPromptInjector(),
-		Logger:             slog.Default(),
+		PaneLauncher:        swarm.NewPaneLauncher(),
+		PromptInjector:      swarm.NewPromptInjector(),
+		Logger:              slog.Default(),
 	}
 }
 
@@ -180,6 +190,11 @@ func (m *EnsembleManager) SpawnEnsemble(ctx context.Context, cfg *EnsembleConfig
 	state.Status = EnsembleInjecting
 	if saveErr := SaveSession(cfg.SessionName, state); saveErr != nil {
 		logger.Warn("ensemble state save failed", "session", cfg.SessionName, "error", saveErr)
+	}
+
+	if cfg.SkipInject {
+		logger.Info("ensemble prompt injection skipped", "session", cfg.SessionName)
+		return state, nil
 	}
 
 	injector := m.promptInjector()
@@ -322,19 +337,23 @@ func resolveEnsembleConfig(cfg *EnsembleConfig, catalog *ModeCatalog, registry *
 		if preset == nil {
 			return nil, resolved, nil, fmt.Errorf("ensemble %q not found", cfg.Ensemble)
 		}
-		if err := preset.Validate(catalog); err != nil {
+		effectivePreset := *preset
+		if cfg.AllowAdvanced {
+			effectivePreset.AllowAdvanced = true
+		}
+		if err := effectivePreset.Validate(catalog); err != nil {
 			return nil, resolved, nil, err
 		}
-		modeIDs, err := preset.ResolveIDs(catalog)
+		modeIDs, err := effectivePreset.ResolveIDs(catalog)
 		if err != nil {
 			return nil, resolved, nil, err
 		}
-		resolved.presetName = preset.Name
-		resolved.synthesis = preset.Synthesis
-		resolved.budget = preset.Budget
-		resolved.cache = preset.Cache
+		resolved.presetName = effectivePreset.Name
+		resolved.synthesis = effectivePreset.Synthesis
+		resolved.budget = effectivePreset.Budget
+		resolved.cache = effectivePreset.Cache
 		applyConfigOverrides(cfg, &resolved)
-		if err := validateResolvedConfig(&resolved); err != nil {
+		if err := validateResolvedConfig(&resolved, modeIDs, catalog, effectivePreset.AllowAdvanced); err != nil {
 			return nil, resolved, nil, err
 		}
 		return modeIDs, resolved, nil, nil
@@ -347,10 +366,10 @@ func resolveEnsembleConfig(cfg *EnsembleConfig, catalog *ModeCatalog, registry *
 		}
 		resolved.explicitSpecs = specs
 		applyConfigOverrides(cfg, &resolved)
-		if err := validateResolvedConfig(&resolved); err != nil {
+		modeIDs := explicitModeIDs(specs)
+		if err := validateResolvedConfig(&resolved, modeIDs, catalog, cfg.AllowAdvanced); err != nil {
 			return nil, resolved, specs, err
 		}
-		modeIDs := explicitModeIDs(specs)
 		return modeIDs, resolved, specs, nil
 	}
 
@@ -364,7 +383,7 @@ func resolveEnsembleConfig(cfg *EnsembleConfig, catalog *ModeCatalog, registry *
 	}
 
 	applyConfigOverrides(cfg, &resolved)
-	if err := validateResolvedConfig(&resolved); err != nil {
+	if err := validateResolvedConfig(&resolved, modeIDs, catalog, cfg.AllowAdvanced); err != nil {
 		return nil, resolved, nil, err
 	}
 
@@ -373,26 +392,46 @@ func resolveEnsembleConfig(cfg *EnsembleConfig, catalog *ModeCatalog, registry *
 
 func applyConfigOverrides(cfg *EnsembleConfig, resolved *resolvedEnsembleConfig) {
 	if cfg.Synthesis.Strategy != "" {
-		resolved.synthesis = cfg.Synthesis
+		resolved.synthesis.Strategy = cfg.Synthesis.Strategy
 	}
-	if cfg.Budget.MaxTokensPerMode > 0 || cfg.Budget.MaxTotalTokens > 0 {
-		resolved.budget = cfg.Budget
+	if cfg.Budget.MaxTokensPerMode > 0 {
+		resolved.budget.MaxTokensPerMode = cfg.Budget.MaxTokensPerMode
 	}
-	if cfg.Cache.Enabled || cfg.Cache.MaxEntries > 0 || cfg.Cache.TTL > 0 {
+	if cfg.Budget.MaxTotalTokens > 0 {
+		resolved.budget.MaxTotalTokens = cfg.Budget.MaxTotalTokens
+	}
+	if cfg.Budget.SynthesisReserveTokens > 0 {
+		resolved.budget.SynthesisReserveTokens = cfg.Budget.SynthesisReserveTokens
+	}
+	if cfg.Budget.ContextReserveTokens > 0 {
+		resolved.budget.ContextReserveTokens = cfg.Budget.ContextReserveTokens
+	}
+	if cfg.Budget.TimeoutPerMode > 0 {
+		resolved.budget.TimeoutPerMode = cfg.Budget.TimeoutPerMode
+	}
+	if cfg.Budget.TotalTimeout > 0 {
+		resolved.budget.TotalTimeout = cfg.Budget.TotalTimeout
+	}
+	if cfg.Budget.MaxRetries > 0 {
+		resolved.budget.MaxRetries = cfg.Budget.MaxRetries
+	}
+	if cfg.CacheOverride || cfg.Cache.Enabled || cfg.Cache.MaxEntries > 0 || cfg.Cache.TTL > 0 {
 		resolved.cache = cfg.Cache
 	}
 }
 
-func validateResolvedConfig(resolved *resolvedEnsembleConfig) error {
-	if resolved.synthesis.Strategy != "" {
-		if _, err := ValidateOrMigrateStrategy(string(resolved.synthesis.Strategy)); err != nil {
-			return err
-		}
+func validateResolvedConfig(resolved *resolvedEnsembleConfig, modeIDs []string, catalog *ModeCatalog, allowAdvanced bool) error {
+	if resolved == nil {
+		return errors.New("resolved config is nil")
 	}
-	if resolved.budget.MaxTokensPerMode < 0 || resolved.budget.MaxTotalTokens < 0 {
-		return errors.New("budget limits must be non-negative")
+	if catalog == nil {
+		return errors.New("mode catalog is nil")
 	}
-	return nil
+	report := NewValidationReport()
+	validateModeIDs(modeIDs, catalog, allowAdvanced, report)
+	validateSynthesisConfig(resolved.synthesis, catalog, allowAdvanced, report)
+	validateBudgetConfig(resolved.budget, report)
+	return report.Error()
 }
 
 func parseModeRefs(values []string) ([]ModeRef, error) {
@@ -413,6 +452,7 @@ func parseModeRefs(values []string) ([]ModeRef, error) {
 
 func normalizeExplicitSpecs(specs []string, catalog *ModeCatalog) ([]string, error) {
 	var normalized []string
+	seen := make(map[string]struct{})
 	for _, spec := range specs {
 		parts := strings.Split(spec, ",")
 		for _, part := range parts {
@@ -437,7 +477,12 @@ func normalizeExplicitSpecs(specs []string, catalog *ModeCatalog) ([]string, err
 			if err != nil {
 				return nil, err
 			}
-			normalized = append(normalized, fmt.Sprintf("%s:%s", modeIDs[0], agentType))
+			modeID := modeIDs[0]
+			if _, exists := seen[modeID]; exists {
+				return nil, fmt.Errorf("explicit assignment duplicates mode %q", modeID)
+			}
+			seen[modeID] = struct{}{}
+			normalized = append(normalized, fmt.Sprintf("%s:%s", modeID, agentType))
 		}
 	}
 	if len(normalized) == 0 {
@@ -490,6 +535,7 @@ func buildPaneSpecs(cfg *EnsembleConfig, modeCount int) ([]swarm.PaneSpec, error
 		panes = append(panes, swarm.PaneSpec{
 			Index:     i + 1,
 			AgentType: agentType,
+			Project:   cfg.ProjectDir,
 		})
 	}
 
@@ -548,7 +594,7 @@ func assignModes(strategy string, modeIDs []string, explicitSpecs []string, pane
 func normalizeAssignment(value string) string {
 	value = strings.TrimSpace(strings.ToLower(value))
 	if value == "" {
-		return assignmentRoundRobin
+		return assignmentAffinity
 	}
 	return value
 }
@@ -570,8 +616,6 @@ func buildPaneTargetMap(sessionName string, panes []tmux.Pane) map[string]string
 	return targets
 }
 
-var modeCodeRegex = regexp.MustCompile(`^[A-Za-z][0-9]+$`)
-
 func isModeCode(value string) bool {
-	return modeCodeRegex.MatchString(strings.TrimSpace(value))
+	return modeCodeRegex.MatchString(strings.ToUpper(strings.TrimSpace(value)))
 }

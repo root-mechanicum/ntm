@@ -1729,6 +1729,18 @@ func Print(cfg *Config, w io.Writer) error {
 	}
 	fmt.Fprintln(w)
 
+	fmt.Fprintln(w, "[robot.output]")
+	fmt.Fprintln(w, "# Robot output format settings")
+	if cfg.Robot.Output.Format != "" {
+		fmt.Fprintf(w, "format = %q\n", cfg.Robot.Output.Format)
+	} else {
+		fmt.Fprintln(w, "# format = \"json\"")
+	}
+	fmt.Fprintf(w, "pretty = %t\n", cfg.Robot.Output.Pretty)
+	fmt.Fprintf(w, "timestamps = %t\n", cfg.Robot.Output.Timestamps)
+	fmt.Fprintf(w, "compress = %t\n", cfg.Robot.Output.Compress)
+	fmt.Fprintln(w)
+
 	fmt.Fprintln(w, "[agent_mail]")
 	fmt.Fprintln(w, "# Agent Mail server settings for multi-agent coordination")
 	fmt.Fprintln(w, "# Environment variables: AGENT_MAIL_URL, AGENT_MAIL_TOKEN, AGENT_MAIL_ENABLED")

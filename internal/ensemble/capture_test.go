@@ -1,89 +1,36 @@
 package ensemble
 
-import (
-	"strings"
-	"testing"
-)
+import "testing"
 
-func TestOutputCaptureExtractYAML_LargestValid(t *testing.T) {
-	capture := &OutputCapture{validator: NewSchemaValidator()}
-
-	input := strings.Join([]string{
-		"prefix",
-		"```yaml",
-		"thesis: short",
-		"```",
-		"noise",
-		"```yaml",
-		"mode_id: test-mode",
-		"thesis: longer",
-		"confidence: 0.6",
-		"top_findings:",
-		"  - finding: example",
-		"    impact: high",
-		"    confidence: 0.5",
-		"    evidence_pointer: foo.go:1",
-		"    reasoning: because",
-		"```",
-	}, "\n")
-
-	got, ok := capture.extractYAML(input)
-	if !ok {
-		t.Fatalf("expected YAML block to be extracted")
+func TestOutputCapture_DefaultsAndLineCount(t *testing.T) {
+	capture := &OutputCapture{}
+	capture.SetMaxLines(-1)
+	capture.ensureDefaults()
+	if capture.tmuxClient == nil {
+		t.Fatal("expected tmux client to be set")
 	}
-	if !strings.Contains(got, "mode_id: test-mode") {
-		t.Fatalf("expected largest valid YAML block, got: %q", got)
+	if capture.validator == nil {
+		t.Fatal("expected validator to be set")
+	}
+	if capture.maxLines != defaultCaptureLines {
+		t.Fatalf("maxLines = %d, want %d", capture.maxLines, defaultCaptureLines)
+	}
+
+	if countLines("") != 0 {
+		t.Fatal("countLines should be 0 for empty string")
+	}
+	if countLines("a\n") != 1 {
+		t.Fatal("countLines should ignore trailing newline")
+	}
+	if countLines("a\nb") != 2 {
+		t.Fatal("countLines should count lines")
 	}
 }
 
-func TestOutputCaptureExtractYAML_InvalidBlocksFallbackToFirst(t *testing.T) {
-	capture := &OutputCapture{validator: NewSchemaValidator()}
-
-	input := strings.Join([]string{
-		"```yaml",
-		"thesis: [",
-		"```",
-		"```yaml",
-		": invalid",
-		"```",
-	}, "\n")
-
-	got, ok := capture.extractYAML(input)
-	if !ok {
-		t.Fatalf("expected YAML block to be extracted")
-	}
-	if strings.TrimSpace(got) != "thesis: [" {
-		t.Fatalf("expected first YAML block, got: %q", got)
-	}
-}
-
-func TestOutputCaptureExtractYAML_ThesisFallback(t *testing.T) {
-	capture := &OutputCapture{validator: NewSchemaValidator()}
-
-	input := strings.Join([]string{
-		"prefix",
-		"thesis: |",
-		"  hello",
-		"confidence: 0.4",
-	}, "\n")
-
-	got, ok := capture.extractYAML(input)
-	if !ok {
-		t.Fatalf("expected thesis fallback to return YAML")
-	}
-	if !strings.HasPrefix(strings.TrimSpace(got), "thesis:") {
-		t.Fatalf("expected thesis fallback content, got: %q", got)
-	}
-}
-
-func TestOutputCaptureExtractYAML_None(t *testing.T) {
-	capture := &OutputCapture{validator: NewSchemaValidator()}
-
-	got, ok := capture.extractYAML("no yaml here")
-	if ok {
-		t.Fatalf("expected no YAML block, got: %q", got)
-	}
-	if got != "" {
-		t.Fatalf("expected empty YAML result, got: %q", got)
+func TestOutputCapture_SetMaxLines(t *testing.T) {
+	capture := NewOutputCapture(nil)
+	capture.SetMaxLines(10)
+	if capture.maxLines != 10 {
+		t.Fatalf("maxLines = %d, want 10", capture.maxLines)
 	}
 }

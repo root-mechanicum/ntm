@@ -113,7 +113,7 @@ Shell Integration:
 	},
 	Run: func(cmd *cobra.Command, args []string) {
 		// Resolve robot output format and verbosity: CLI flag > env var > config > default
-		resolveRobotFormat()
+		resolveRobotFormat(cfg)
 		resolveRobotVerbosity(cfg)
 		robotDryRunEffective := robotDryRun || robotRestoreDry
 
@@ -275,6 +275,34 @@ Shell Integration:
 				scrollbackLines = 1000 // Default to capturing more for context estimation
 			}
 			if err := robot.PrintContext(robotContext, scrollbackLines); err != nil {
+				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				os.Exit(1)
+			}
+			return
+		}
+		if robotEnsembleSpawn != "" {
+			opts := robot.EnsembleSpawnOptions{
+				Session:       robotEnsembleSpawn,
+				Preset:        robotEnsemblePreset,
+				Modes:         robotEnsembleModes,
+				Question:      robotEnsembleQuestion,
+				Agents:        robotEnsembleAgents,
+				Assignment:    robotEnsembleAssignment,
+				AllowAdvanced: robotEnsembleAllowAdvanced,
+				BudgetTotal:   robotEnsembleBudgetTotal,
+				BudgetPerMode: robotEnsembleBudgetPerMode,
+				NoCache:       robotEnsembleNoCache,
+				NoQuestions:   robotEnsembleNoQuestions,
+				ProjectDir:    robotEnsembleProject,
+			}
+			if err := robot.PrintEnsembleSpawn(opts); err != nil {
+				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				os.Exit(1)
+			}
+			return
+		}
+		if robotEnsemble != "" {
+			if err := robot.PrintEnsemble(robotEnsemble); err != nil {
 				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 				os.Exit(1)
 			}
@@ -1317,22 +1345,35 @@ func loadRobotSendMessage(msg, msgFile string) (string, error) {
 
 // Robot output flags for AI agent integration
 var (
-	robotHelp         bool
-	robotStatus       bool
-	robotVersion      bool
-	robotCapabilities bool
-	robotPlan         bool
-	robotSnapshot     bool   // unified state query
-	robotSince        string // ISO8601 timestamp for delta snapshot
-	robotTail         string // session name for tail
-	robotErrors       string // session name for errors
-	robotErrorsSince  string // duration for errors filter (e.g., 5m, 1h)
-	robotLines        int    // number of lines to capture
-	robotPanes        string // comma-separated pane filter
-	robotGraph        bool   // bv insights passthrough
-	robotBeadLimit    int    // limit for ready/in-progress beads in snapshot
-	robotDashboard    bool   // dashboard summary output
-	robotContext      string // session name for context usage
+	robotHelp                  bool
+	robotStatus                bool
+	robotVersion               bool
+	robotCapabilities          bool
+	robotPlan                  bool
+	robotSnapshot              bool   // unified state query
+	robotSince                 string // ISO8601 timestamp for delta snapshot
+	robotTail                  string // session name for tail
+	robotErrors                string // session name for errors
+	robotErrorsSince           string // duration for errors filter (e.g., 5m, 1h)
+	robotLines                 int    // number of lines to capture
+	robotPanes                 string // comma-separated pane filter
+	robotGraph                 bool   // bv insights passthrough
+	robotBeadLimit             int    // limit for ready/in-progress beads in snapshot
+	robotDashboard             bool   // dashboard summary output
+	robotContext               string // session name for context usage
+	robotEnsemble              string // session name for ensemble state
+	robotEnsembleSpawn         string // session name for ensemble spawn
+	robotEnsemblePreset        string // preset name for ensemble spawn
+	robotEnsembleModes         string // mode IDs/codes for ensemble spawn
+	robotEnsembleQuestion      string // question for ensemble spawn
+	robotEnsembleAgents        string // agent mix for ensemble spawn
+	robotEnsembleAssignment    string // assignment strategy for ensemble spawn
+	robotEnsembleAllowAdvanced bool   // allow advanced modes
+	robotEnsembleBudgetTotal   int    // total token budget override
+	robotEnsembleBudgetPerMode int    // per-mode token budget override
+	robotEnsembleNoCache       bool   // disable context cache
+	robotEnsembleNoQuestions   bool   // skip targeted questions
+	robotEnsembleProject       string // project directory override
 
 	// Robot-send flags
 	robotSend        string // session name for send
@@ -1683,6 +1724,19 @@ func init() {
 	rootCmd.Flags().IntVar(&robotTriageLimit, "triage-limit", 10, "Max recommendations per category. Optional with --robot-triage. Example: --triage-limit=20")
 	rootCmd.Flags().BoolVar(&robotDashboard, "robot-dashboard", false, "Get dashboard summary as markdown (or JSON with --json). Token-efficient overview")
 	rootCmd.Flags().StringVar(&robotContext, "robot-context", "", "Get context window usage for all agents in a session. Required: SESSION. Example: ntm --robot-context=myproject")
+	rootCmd.Flags().StringVar(&robotEnsemble, "robot-ensemble", "", "Get ensemble state for a session. Required: SESSION. Example: ntm --robot-ensemble=myproject")
+	rootCmd.Flags().StringVar(&robotEnsembleSpawn, "robot-ensemble-spawn", "", "Spawn a reasoning ensemble. Required: SESSION. Example: ntm --robot-ensemble-spawn=myproject --preset=project-diagnosis --question='...'")
+	rootCmd.Flags().StringVar(&robotEnsemblePreset, "preset", "", "Ensemble preset name. Required with --robot-ensemble-spawn unless --modes is set")
+	rootCmd.Flags().StringVar(&robotEnsembleModes, "modes", "", "Explicit mode IDs or codes (comma-separated). Used with --robot-ensemble-spawn")
+	rootCmd.Flags().StringVar(&robotEnsembleQuestion, "question", "", "Question for ensemble spawn. Required with --robot-ensemble-spawn")
+	rootCmd.Flags().StringVar(&robotEnsembleAgents, "agents", "", "Agent mix for ensemble spawn (e.g., cc=2,cod=1,gmi=1)")
+	rootCmd.Flags().StringVar(&robotEnsembleAssignment, "assignment", "affinity", "Assignment strategy for ensemble spawn: round-robin, affinity, category, explicit")
+	rootCmd.Flags().BoolVar(&robotEnsembleAllowAdvanced, "allow-advanced", false, "Allow advanced/experimental modes with --robot-ensemble-spawn")
+	rootCmd.Flags().IntVar(&robotEnsembleBudgetTotal, "budget-total", 0, "Override total token budget for ensemble spawn")
+	rootCmd.Flags().IntVar(&robotEnsembleBudgetPerMode, "budget-per-agent", 0, "Override per-agent token cap for ensemble spawn")
+	rootCmd.Flags().BoolVar(&robotEnsembleNoCache, "no-cache", false, "Bypass context cache for ensemble spawn")
+	rootCmd.Flags().BoolVar(&robotEnsembleNoQuestions, "no-questions", false, "Skip targeted questions during ensemble spawn (future)")
+	rootCmd.Flags().StringVar(&robotEnsembleProject, "project", "", "Project directory override for ensemble spawn")
 	rootCmd.Flags().IntVar(&robotBeadLimit, "bead-limit", 5, "Max beads per category in snapshot. Optional with --robot-snapshot, --robot-status. Example: --bead-limit=10")
 	rootCmd.Flags().StringVar(&robotVerbosity, "robot-verbosity", "", "Robot verbosity profile for JSON/TOON: terse, default, or debug. Env: NTM_ROBOT_VERBOSITY")
 
@@ -1788,7 +1842,7 @@ func init() {
 	rootCmd.Flags().BoolVar(&robotTerse, "robot-terse", false, "Single-line state: S:session|A:ready/total|W:working|I:idle|B:beads|M:mail|!:alerts. Minimal tokens")
 
 	// Robot-format flag for output serialization format
-	rootCmd.Flags().StringVar(&robotFormat, "robot-format", "", "Output format for robot commands: json (default), toon (token-efficient), or auto. Env: NTM_ROBOT_FORMAT")
+	rootCmd.Flags().StringVar(&robotFormat, "robot-format", "", "Output format for robot commands: json (default), toon (token-efficient), or auto. Env: NTM_ROBOT_FORMAT, NTM_OUTPUT_FORMAT, TOON_DEFAULT_FORMAT")
 
 	// Robot-markdown flags for token-efficient markdown output
 	rootCmd.Flags().BoolVar(&robotMarkdown, "robot-markdown", false, "System state as markdown tables. LLM-friendly, ~50% fewer tokens than JSON")
@@ -2752,14 +2806,25 @@ func GetFormatter() *output.Formatter {
 	return output.New(output.WithJSON(jsonOutput))
 }
 
-// resolveRobotFormat determines the robot output format from CLI flag, env var, or default.
-// Priority: --robot-format flag > NTM_ROBOT_FORMAT env var > default (auto)
-func resolveRobotFormat() {
+// resolveRobotFormat determines the robot output format from CLI flag, env var, config, or default.
+// Priority: --robot-format flag > NTM_ROBOT_FORMAT > NTM_OUTPUT_FORMAT > TOON_DEFAULT_FORMAT > config > auto
+func resolveRobotFormat(cfg *config.Config) {
 	formatStr := robotFormat
 
 	// Fall back to environment variable if flag not set
 	if formatStr == "" {
 		formatStr = os.Getenv("NTM_ROBOT_FORMAT")
+	}
+	if formatStr == "" {
+		formatStr = os.Getenv("NTM_OUTPUT_FORMAT")
+	}
+	if formatStr == "" {
+		formatStr = os.Getenv("TOON_DEFAULT_FORMAT")
+	}
+
+	// Fall back to config if available
+	if formatStr == "" && cfg != nil {
+		formatStr = cfg.Robot.Output.Format
 	}
 
 	// Parse and set the format
@@ -2843,7 +2908,7 @@ func needsConfigLoading(cmdName string) bool {
 			robotSend != "" || robotAck != "" || robotSpawn != "" ||
 			robotInterrupt != "" || robotRestartPane != "" || robotGraph || robotMail || robotHealth != "" ||
 			robotDiagnose != "" || robotTerse || robotMarkdown || robotSave != "" || robotRestore != "" ||
-			robotContext != "" || robotAlerts || robotIsWorking != "" || robotAgentHealth != "" ||
+			robotContext != "" || robotEnsemble != "" || robotEnsembleSpawn != "" || robotAlerts || robotIsWorking != "" || robotAgentHealth != "" ||
 			robotSmartRestart != "" || robotMonitor != "" {
 			return true
 		}

@@ -591,7 +591,7 @@ NTM provides machine-readable output for integration with AI coding agents and a
 
 **Robot Output Formats + Verbosity:**
 
-- `--robot-format=json|toon|auto` (Env: `NTM_ROBOT_FORMAT`). `auto` currently resolves to JSON.
+- `--robot-format=json|toon|auto` (Env: `NTM_ROBOT_FORMAT`, `NTM_OUTPUT_FORMAT`, `TOON_DEFAULT_FORMAT`; Config: `[robot.output] format` = json|toon). `auto` currently resolves to JSON.
 - `--robot-verbosity=terse|default|debug` (Env: `NTM_ROBOT_VERBOSITY`). Applies to JSON/TOON only.
 - Config default for verbosity: `~/.config/ntm/config.toml` → `[robot] verbosity = "default"`.
 - `--robot-terse` is a **separate single-line format** and ignores `--robot-format` / `--robot-verbosity`.

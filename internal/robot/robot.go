@@ -45,13 +45,14 @@ type CASSIndexStats struct {
 	Messages      int64 `json:"messages"`
 }
 
-// PrintCASSStatus outputs CASS health and stats as JSON
-func PrintCASSStatus() error {
+// GetCASSStatus collects CASS health and stats.
+// This function returns the data struct directly, enabling CLI/REST parity.
+func GetCASSStatus() (*CASSStatusOutput, error) {
 	client := cass.NewClient()
 	status, err := client.Status(context.Background())
 
 	cassAvailable := client.IsInstalled()
-	output := CASSStatusOutput{
+	output := &CASSStatusOutput{
 		RobotResponse: NewRobotResponse(true),
 		CASSAvailable: cassAvailable,
 		Healthy:       false,
@@ -64,7 +65,7 @@ func PrintCASSStatus() error {
 			ErrCodeDependencyMissing,
 			"Install cass to enable search and context",
 		)
-		return encodeJSON(output)
+		return output, nil
 	}
 
 	if err == nil {
@@ -82,6 +83,16 @@ func PrintCASSStatus() error {
 		)
 	}
 
+	return output, nil
+}
+
+// PrintCASSStatus outputs CASS health and stats as JSON.
+// This is a thin wrapper around GetCASSStatus() for CLI output.
+func PrintCASSStatus() error {
+	output, err := GetCASSStatus()
+	if err != nil {
+		return err
+	}
 	return encodeJSON(output)
 }
 
@@ -104,43 +115,51 @@ type CASSSearchHit struct {
 	CreatedAt  int64   `json:"created_at"`
 }
 
-// PrintCASSSearch outputs search results as JSON
-func PrintCASSSearch(query, agent, workspace, since string, limit int) error {
+// CASSSearchOptions configures the GetCASSSearch operation.
+type CASSSearchOptions struct {
+	Query     string
+	Agent     string
+	Workspace string
+	Since     string
+	Limit     int
+}
+
+// GetCASSSearch performs a CASS search and returns the results.
+// This function returns the data struct directly, enabling CLI/REST parity.
+func GetCASSSearch(opts CASSSearchOptions) (*CASSSearchOutput, error) {
 	client := cass.NewClient()
 	if !client.IsInstalled() {
-		output := CASSSearchOutput{
+		return &CASSSearchOutput{
 			RobotResponse: NewErrorResponse(
 				fmt.Errorf("cass not installed"),
 				ErrCodeDependencyMissing,
 				"Install cass to enable search",
 			),
-			Query: query,
+			Query: opts.Query,
 			Hits:  []CASSSearchHit{},
-		}
-		return encodeJSON(output)
+		}, nil
 	}
 	resp, err := client.Search(context.Background(), cass.SearchOptions{
-		Query:     query,
-		Agent:     agent,
-		Workspace: workspace,
-		Since:     since,
-		Limit:     limit,
+		Query:     opts.Query,
+		Agent:     opts.Agent,
+		Workspace: opts.Workspace,
+		Since:     opts.Since,
+		Limit:     opts.Limit,
 	})
 
 	if err != nil {
-		output := CASSSearchOutput{
+		return &CASSSearchOutput{
 			RobotResponse: NewErrorResponse(
 				err,
 				ErrCodeInternalError,
 				"Check cass index health and query parameters",
 			),
-			Query: query,
+			Query: opts.Query,
 			Hits:  []CASSSearchHit{},
-		}
-		return encodeJSON(output)
+		}, nil
 	}
 
-	output := CASSSearchOutput{
+	output := &CASSSearchOutput{
 		RobotResponse: NewRobotResponse(true),
 		Query:         resp.Query,
 		Count:         resp.Count,
@@ -163,6 +182,22 @@ func PrintCASSSearch(query, agent, workspace, since string, limit int) error {
 		}
 	}
 
+	return output, nil
+}
+
+// PrintCASSSearch outputs search results as JSON.
+// This is a thin wrapper around GetCASSSearch() for CLI output.
+func PrintCASSSearch(query, agent, workspace, since string, limit int) error {
+	output, err := GetCASSSearch(CASSSearchOptions{
+		Query:     query,
+		Agent:     agent,
+		Workspace: workspace,
+		Since:     since,
+		Limit:     limit,
+	})
+	if err != nil {
+		return err
+	}
 	return encodeJSON(output)
 }
 
@@ -1057,12 +1092,15 @@ Core Commands:
 --robot-status          Session state, agents, alerts (start here)
 --robot-snapshot        Unified state: sessions + beads + alerts + mail
 --robot-capabilities    Machine-discoverable API schema
+--robot-version         Version/build info (JSON)
 
 Session Operations:
 -------------------
 --robot-spawn=SESSION   Create session with --spawn-cc=N, --spawn-cod=N, --spawn-gmi=N
+--robot-ensemble-spawn=SESSION  Spawn ensemble with --preset/--modes and --question
 --robot-send=SESSION    Send prompts (--msg="text", --panes=1,2, --type=claude)
 --robot-tail=SESSION    Capture pane output (--lines=50, --panes=1,2)
+--robot-ensemble=SESSION Ensemble state (modes, status, synthesis readiness)
 --robot-interrupt=SESSION  Ctrl+C to agents (--interrupt-msg="new task")
 --robot-is-working=SESSION Check if agents are busy
 --robot-wait=SESSION    Wait for idle state (--timeout=5m, --condition=idle)
@@ -1117,6 +1155,17 @@ Quick Start:
 3) Send prompt:       ntm --robot-send=proj --msg="implement auth" --track
 4) Monitor progress:  ntm --robot-is-working=proj
 5) Get output:        ntm --robot-tail=proj --lines=100
+
+Common Workflows:
+-----------------
+- Single agent: ntm --robot-spawn=proj --spawn-cc=1 --spawn-wait
+- Send+wait:    ntm --robot-send=proj --msg="do X" --track
+- Recover:      ntm --robot-snapshot --since=2025-01-01T00:00:00Z
+
+Tips for AI Agents:
+-------------------
+- Start with --robot-status, then narrow with --panes and --lines.
+- Prefer --robot-capabilities for schema discovery over parsing help text.
 
 For complete API documentation: docs/robot-api-design.md
 For machine-readable schema:    ntm --robot-capabilities

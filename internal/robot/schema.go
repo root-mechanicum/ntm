@@ -14,10 +14,12 @@ var SchemaCommand = map[string]interface{}{
 	"status":    StatusOutput{},
 	"send":      SendOutput{},
 	"spawn":     SpawnOutput{},
+	"ensemble_spawn": EnsembleSpawnOutput{},
 	"interrupt": InterruptOutput{},
 	"tail":      TailOutput{},
 	"ack":       AckOutput{},
 	"snapshot":  SnapshotOutput{},
+	"ensemble":  EnsembleOutput{},
 }
 
 // JSONSchema represents a JSON Schema document.
