@@ -28,6 +28,21 @@ curl -fsSL "https://raw.githubusercontent.com/Dicklesworthstone/ntm/main/install
 
 ---
 
+## 🤖 Agent Quickstart (Robot Mode)
+
+**Use `--robot-*` output for automation.** stdout = JSON, stderr = diagnostics, exit 0 = success.
+
+```bash
+# Triage status (machine-readable)
+ntm --robot-status
+
+# List sessions (machine-readable)
+ntm --robot-list
+
+# Send prompt to a session (robot API)
+ntm --robot-send=myproject --message "Summarize this repo and propose next steps."
+```
+
 ## Quick Start
 
 ```bash
