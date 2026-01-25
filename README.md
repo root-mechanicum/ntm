@@ -681,7 +681,7 @@ ntm --robot-tokens --tokens-group-by=model               # Token usage analytics
 |------|----------|-------------|
 | `--panes=1,2,3` | tail, send, ack, interrupt | Filter to specific pane indices |
 | `--type=claude` | send, ack, interrupt | Filter by agent type (claude/cc, codex/cod, gemini/gmi) |
-| `--all` | send, interrupt | Include user pane |
+| `--all` | send, interrupt | Include user pane (default: agent panes only) |
 | `--lines=N` | tail | Lines per pane (default 20) |
 | `--since=TIMESTAMP` | snapshot | RFC3339 timestamp for delta |
 | `--track` | send | Combined send+ack mode |
@@ -705,6 +705,14 @@ ntm --robot-tokens --tokens-group-by=model               # Token usage analytics
 | `--bead-depends-on=id1,id2` | bead-create | Comma-separated dependency IDs |
 | `--bead-assignee=NAME` | bead-claim | Assignee name for claim |
 | `--bead-close-reason=TEXT` | bead-close | Reason for closing |
+
+**User Pane Note (Robot Mode):**
+By default, robot pane-targeting commands act on agent panes only. Add `--all` to include the user pane.
+
+```bash
+ntm --robot-send=myproject --msg="status update"       # agents only
+ntm --robot-send=myproject --msg="status update" --all # include user pane
+```
 
 This enables AI agents to:
 - Discover existing sessions and their agent configurations
@@ -988,6 +996,48 @@ Provide a brief status update:
 2. What you're currently working on
 3. Any blockers or questions
 """
+```
+
+### Ensemble Defaults (Optional)
+
+These defaults apply when you run `ntm ensemble` or `--robot-ensemble-spawn`
+without providing the corresponding flags.
+
+```toml
+[ensemble]
+# Defaults used when flags are not provided
+default_ensemble = "architecture-review"
+agent_mix = "cc=3,cod=2,gmi=1"
+assignment = "affinity"
+mode_tier_default = "core"   # core|advanced|experimental
+allow_advanced = false
+
+[ensemble.synthesis]
+strategy = "deliberative"
+min_confidence = 0.50
+max_findings = 10
+include_raw_outputs = false
+conflict_resolution = "highlight"
+
+[ensemble.cache]
+enabled = true
+ttl_minutes = 60
+cache_dir = "~/.cache/ntm/context-packs"
+max_entries = 32
+share_across_modes = true
+
+[ensemble.budget]
+per_agent = 5000
+total = 30000
+synthesis = 8000
+context_pack = 2000
+
+[ensemble.early_stop]
+enabled = true
+min_agents = 3
+findings_threshold = 0.15
+similarity_threshold = 0.7
+window_size = 3
 ```
 
 ### Project Config (`.ntm/`)

@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"os"
@@ -14,6 +15,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/Dicklesworthstone/ntm/internal/config"
+	"github.com/Dicklesworthstone/ntm/internal/kernel"
 	"github.com/Dicklesworthstone/ntm/internal/output"
 	"github.com/Dicklesworthstone/ntm/internal/pipeline"
 	"github.com/Dicklesworthstone/ntm/internal/plugins"
@@ -40,6 +42,11 @@ var (
 	Date    = "unknown"
 	BuiltBy = "unknown"
 )
+
+// VersionInput is the kernel input for core.version.
+type VersionInput struct {
+	Short bool `json:"short,omitempty"`
+}
 
 var rootCmd = &cobra.Command{
 	Use:   "ntm",
@@ -282,6 +289,7 @@ Shell Integration:
 			return
 		}
 		if robotEnsembleSpawn != "" {
+			applyRobotEnsembleConfigDefaults(cmd, cfg)
 			opts := robot.EnsembleSpawnOptions{
 				Session:       robotEnsembleSpawn,
 				Preset:        robotEnsemblePreset,
@@ -296,7 +304,7 @@ Shell Integration:
 				NoQuestions:   robotEnsembleNoQuestions,
 				ProjectDir:    robotEnsembleProject,
 			}
-			if err := robot.PrintEnsembleSpawn(opts); err != nil {
+			if err := robot.PrintEnsembleSpawn(opts, cfg); err != nil {
 				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 				os.Exit(1)
 			}
@@ -2468,34 +2476,105 @@ func newVersionCmd() *cobra.Command {
 		Use:   "version",
 		Short: "Print version information",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if IsJSONOutput() {
-				response := output.VersionResponse{
-					TimestampedResponse: output.NewTimestamped(),
-					Version:             Version,
-					Commit:              Commit,
-					BuiltAt:             Date,
-					BuiltBy:             BuiltBy,
-					GoVersion:           goVersion(),
-					Platform:            goPlatform(),
-				}
-				return output.PrintJSON(response)
-			}
-
-			if short {
-				fmt.Println(Version)
-				return nil
-			}
-			fmt.Printf("ntm version %s\n", Version)
-			fmt.Printf("  commit:    %s\n", Commit)
-			fmt.Printf("  built:     %s\n", Date)
-			fmt.Printf("  builder:   %s\n", BuiltBy)
-			fmt.Printf("  go:        %s\n", goVersion())
-			fmt.Printf("  platform:  %s\n", goPlatform())
-			return nil
+			return runVersion(short)
 		},
 	}
 	cmd.Flags().BoolVarP(&short, "short", "s", false, "Print only version number")
 	return cmd
+}
+
+func init() {
+	kernel.MustRegister(kernel.Command{
+		Name:        "core.version",
+		Description: "Return NTM version and build info",
+		Category:    "core",
+		Input: &kernel.SchemaRef{
+			Name: "VersionInput",
+			Ref:  "cli.VersionInput",
+		},
+		Output: &kernel.SchemaRef{
+			Name: "VersionResponse",
+			Ref:  "output.VersionResponse",
+		},
+		REST: &kernel.RESTBinding{
+			Method: "GET",
+			Path:   "/version",
+		},
+		Examples: []kernel.Example{
+			{
+				Name:        "version",
+				Description: "Show version info",
+				Command:     "ntm version",
+			},
+			{
+				Name:        "version-short",
+				Description: "Show only the version number",
+				Command:     "ntm version --short",
+			},
+		},
+		SafetyLevel: kernel.SafetySafe,
+		Idempotent:  true,
+	})
+	kernel.MustRegisterHandler("core.version", func(ctx context.Context, _ any) (any, error) {
+		return buildVersionResponse(), nil
+	})
+}
+
+func runVersion(short bool) error {
+	result, err := kernel.Run(context.Background(), "core.version", VersionInput{Short: short})
+	if err != nil {
+		if IsJSONOutput() {
+			_ = output.PrintJSON(output.NewError(err.Error()))
+		}
+		return err
+	}
+
+	resp, err := coerceVersionResponse(result)
+	if err != nil {
+		return err
+	}
+
+	if IsJSONOutput() {
+		return output.PrintJSON(resp)
+	}
+
+	if short {
+		fmt.Println(resp.Version)
+		return nil
+	}
+	fmt.Printf("ntm version %s\n", resp.Version)
+	fmt.Printf("  commit:    %s\n", resp.Commit)
+	fmt.Printf("  built:     %s\n", resp.BuiltAt)
+	fmt.Printf("  builder:   %s\n", resp.BuiltBy)
+	fmt.Printf("  go:        %s\n", resp.GoVersion)
+	fmt.Printf("  platform:  %s\n", resp.Platform)
+	return nil
+}
+
+func coerceVersionResponse(result any) (output.VersionResponse, error) {
+	switch value := result.(type) {
+	case output.VersionResponse:
+		return value, nil
+	case *output.VersionResponse:
+		if value != nil {
+			return *value, nil
+		}
+		return output.VersionResponse{}, fmt.Errorf("core.version returned nil response")
+	default:
+		return output.VersionResponse{}, fmt.Errorf("core.version returned unexpected type %T", result)
+	}
+}
+
+func buildVersionResponse() output.VersionResponse {
+	return output.VersionResponse{
+		TimestampedResponse: output.NewTimestamped(),
+		Version:             Version,
+		Commit:              Commit,
+		BuiltAt:             Date,
+		BuiltBy:             BuiltBy,
+		GoVersion:           goVersion(),
+		Platform:            goPlatform(),
+	}
 }
 
 func newConfigCmd() *cobra.Command {
@@ -2894,6 +2973,45 @@ func resolveRobotVerbosity(cfg *config.Config) {
 		return
 	}
 	robot.OutputVerbosity = verbosity
+}
+
+func applyRobotEnsembleConfigDefaults(cmd *cobra.Command, cfg *config.Config) {
+	if cmd == nil {
+		return
+	}
+	if cfg == nil {
+		cfg = config.Default()
+	}
+
+	ensCfg := cfg.Ensemble
+	flags := cmd.Flags()
+
+	if robotEnsemblePreset == "" && strings.TrimSpace(robotEnsembleModes) == "" && strings.TrimSpace(ensCfg.DefaultEnsemble) != "" {
+		robotEnsemblePreset = ensCfg.DefaultEnsemble
+	}
+	if !flags.Changed("agents") && strings.TrimSpace(robotEnsembleAgents) == "" && strings.TrimSpace(ensCfg.AgentMix) != "" {
+		robotEnsembleAgents = ensCfg.AgentMix
+	}
+	if !flags.Changed("assignment") && strings.TrimSpace(ensCfg.Assignment) != "" {
+		robotEnsembleAssignment = ensCfg.Assignment
+	}
+	if !flags.Changed("allow-advanced") {
+		allow := ensCfg.AllowAdvanced
+		switch strings.ToLower(strings.TrimSpace(ensCfg.ModeTierDefault)) {
+		case "advanced", "experimental":
+			allow = true
+		}
+		robotEnsembleAllowAdvanced = allow
+	}
+	if !flags.Changed("budget-total") && robotEnsembleBudgetTotal == 0 && ensCfg.Budget.Total > 0 {
+		robotEnsembleBudgetTotal = ensCfg.Budget.Total
+	}
+	if !flags.Changed("budget-per-agent") && robotEnsembleBudgetPerMode == 0 && ensCfg.Budget.PerAgent > 0 {
+		robotEnsembleBudgetPerMode = ensCfg.Budget.PerAgent
+	}
+	if !flags.Changed("no-cache") && !ensCfg.Cache.Enabled {
+		robotEnsembleNoCache = true
+	}
 }
 
 // canSkipConfigLoading returns true if we can skip Phase 2 config loading.

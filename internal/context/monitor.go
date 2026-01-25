@@ -187,7 +187,13 @@ func ParseRobotModeContext(output string) *ContextEstimate {
 
 	if !found {
 		// Fallback: try unmarshalling the whole blob in case it's multiline JSON without noise
-		if err := json.Unmarshal([]byte(output), &data); err != nil {
+		// Only attempt if it looks like a JSON object
+		trimmed := strings.TrimSpace(output)
+		if strings.HasPrefix(trimmed, "{") {
+			if err := json.Unmarshal([]byte(trimmed), &data); err != nil {
+				return nil
+			}
+		} else {
 			return nil
 		}
 	}
@@ -740,7 +746,7 @@ type HandoffRecommendation struct {
 
 // ShouldTriggerHandoff checks if an agent should generate a handoff.
 // Returns a recommendation with reason explaining why.
-// Warning threshold is 70%, trigger threshold is 75%.
+// Uses configured thresholds (RotateThreshold, WarningThreshold).
 func (m *ContextMonitor) ShouldTriggerHandoff(agentID string, predictor *ContextPredictor) *HandoffRecommendation {
 	estimate := m.GetEstimate(agentID)
 	if estimate == nil {
@@ -755,18 +761,18 @@ func (m *ContextMonitor) ShouldTriggerHandoff(agentID string, predictor *Context
 		UsagePercent: estimate.UsagePercent,
 	}
 
-	// Hard threshold check (75%)
-	if estimate.UsagePercent >= 75 {
+	// Rotate threshold check
+	if estimate.UsagePercent >= m.rotateThreshold {
 		rec.ShouldTrigger = true
 		rec.ShouldWarn = true
-		rec.Reason = "usage " + strconv.FormatFloat(estimate.UsagePercent, 'f', 1, 64) + "% exceeds 75% threshold"
+		rec.Reason = "usage " + strconv.FormatFloat(estimate.UsagePercent, 'f', 1, 64) + "% exceeds " + strconv.FormatFloat(m.rotateThreshold, 'f', 1, 64) + "% threshold"
 		return rec
 	}
 
-	// Warning threshold check (70%)
-	if estimate.UsagePercent >= 70 {
+	// Warning threshold check
+	if estimate.UsagePercent >= m.warningThreshold {
 		rec.ShouldWarn = true
-		rec.Reason = "usage " + strconv.FormatFloat(estimate.UsagePercent, 'f', 1, 64) + "% exceeds 70% warning threshold"
+		rec.Reason = "usage " + strconv.FormatFloat(estimate.UsagePercent, 'f', 1, 64) + "% exceeds " + strconv.FormatFloat(m.warningThreshold, 'f', 1, 64) + "% warning threshold"
 	}
 
 	// Velocity-based prediction (if predictor available)
@@ -777,7 +783,7 @@ func (m *ContextMonitor) ShouldTriggerHandoff(agentID string, predictor *Context
 			if prediction != nil {
 				rec.TokenVelocity = prediction.TokenVelocity
 
-				// If velocity predicts hitting 85% in next 2 minutes, trigger
+				// If velocity predicts exhaustion in next 8 minutes, trigger
 				if prediction.TokenVelocity > 0 && prediction.MinutesToExhaustion > 0 && prediction.MinutesToExhaustion < 8 {
 					rec.ShouldTrigger = true
 					rec.ShouldWarn = true
@@ -794,3 +800,4 @@ func (m *ContextMonitor) ShouldTriggerHandoff(agentID string, predictor *Context
 
 	return rec
 }
+

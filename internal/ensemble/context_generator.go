@@ -15,7 +15,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Dicklesworthstone/ntm/internal/git"
 	tokenpkg "github.com/Dicklesworthstone/ntm/internal/tokens"
 )
 
@@ -107,11 +106,23 @@ func (g *ContextPackGenerator) resolveProjectRoot() string {
 	if g.ProjectDir == "" {
 		return "."
 	}
-	root, err := git.FindProjectRoot(g.ProjectDir)
+	root, err := findProjectRoot(g.ProjectDir)
 	if err == nil && root != "" {
 		return root
 	}
 	return g.ProjectDir
+}
+
+// findProjectRoot returns the git repository root for the given directory.
+// This is inlined here to avoid import cycles with the git package.
+func findProjectRoot(startDir string) (string, error) {
+	cmd := exec.Command("git", "rev-parse", "--show-toplevel")
+	cmd.Dir = startDir
+	output, err := cmd.Output()
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(output)), nil
 }
 
 func (g *ContextPackGenerator) buildFingerprint(projectRoot, question, modeKey string) ContextFingerprint {

@@ -18,6 +18,7 @@ import (
 	"github.com/Dicklesworthstone/ntm/internal/assignment"
 	"github.com/Dicklesworthstone/ntm/internal/cli/suggestions"
 	"github.com/Dicklesworthstone/ntm/internal/handoff"
+	"github.com/Dicklesworthstone/ntm/internal/kernel"
 	"github.com/Dicklesworthstone/ntm/internal/output"
 	"github.com/Dicklesworthstone/ntm/internal/status"
 	"github.com/Dicklesworthstone/ntm/internal/tmux"
@@ -39,6 +40,11 @@ type statusOptions struct {
 	interval        time.Duration
 }
 
+// SessionListInput is the kernel input for sessions.list.
+type SessionListInput struct {
+	Tags []string `json:"tags,omitempty"`
+}
+
 type paneContextUsage struct {
 	Tokens  int
 	Limit   int
@@ -52,6 +58,52 @@ type contextRow struct {
 	Tokens  int
 	Limit   int
 	Model   string
+}
+
+func init() {
+	kernel.MustRegister(kernel.Command{
+		Name:        "sessions.list",
+		Description: "List tmux sessions",
+		Category:    "sessions",
+		Input: &kernel.SchemaRef{
+			Name: "SessionListInput",
+			Ref:  "cli.SessionListInput",
+		},
+		Output: &kernel.SchemaRef{
+			Name: "SessionListResponse",
+			Ref:  "output.ListResponse",
+		},
+		REST: &kernel.RESTBinding{
+			Method: "GET",
+			Path:   "/sessions",
+		},
+		Examples: []kernel.Example{
+			{
+				Name:        "list",
+				Description: "List all sessions",
+				Command:     "ntm list",
+			},
+			{
+				Name:        "list-with-tag",
+				Description: "List sessions filtered by tag",
+				Command:     "ntm list --tag=frontend",
+			},
+		},
+		SafetyLevel: kernel.SafetySafe,
+		Idempotent:  true,
+	})
+	kernel.MustRegisterHandler("sessions.list", func(ctx context.Context, input any) (any, error) {
+		opts := SessionListInput{}
+		switch value := input.(type) {
+		case SessionListInput:
+			opts = value
+		case *SessionListInput:
+			if value != nil {
+				opts = *value
+			}
+		}
+		return buildSessionListResponse(opts.Tags)
+	})
 }
 
 // filterAssignments filters assignments by status, agent type, and pane number.
@@ -152,21 +204,103 @@ func newListCmd() *cobra.Command {
 }
 
 func runList(tags []string) error {
-	if err := tmux.EnsureInstalled(); err != nil {
+	result, err := kernel.Run(context.Background(), "sessions.list", SessionListInput{Tags: tags})
+	if err != nil {
 		if IsJSONOutput() {
 			_ = output.PrintJSON(output.NewError(err.Error()))
-			return err
 		}
 		return err
 	}
 
+	resp, err := coerceSessionListResponse(result)
+	if err != nil {
+		return err
+	}
+
+	if IsJSONOutput() {
+		return output.PrintJSON(resp)
+	}
+
+	// Text output
+	if len(resp.Sessions) == 0 {
+		fmt.Println("No tmux sessions running")
+		return nil
+	}
+
+	// Check terminal width for responsive output
+	width, _, _ := term.GetSize(int(os.Stdout.Fd()))
+	isWide := width >= 100
+
+	if isWide {
+		w := tabwriter.NewWriter(os.Stdout, 0, 0, 3, ' ', 0)
+		fmt.Fprintln(w, "SESSION\tWINDOWS\tSTATE\tAGENTS")
+
+		for _, s := range resp.Sessions {
+			attached := "detached"
+			if s.Attached {
+				attached = "attached"
+			}
+
+			// Fetch agents summary
+			agents := "-"
+			if s.AgentCounts != nil {
+				var parts []string
+				if s.AgentCounts.Claude > 0 {
+					parts = append(parts, fmt.Sprintf("%d CC", s.AgentCounts.Claude))
+				}
+				if s.AgentCounts.Codex > 0 {
+					parts = append(parts, fmt.Sprintf("%d COD", s.AgentCounts.Codex))
+				}
+				if s.AgentCounts.Gemini > 0 {
+					parts = append(parts, fmt.Sprintf("%d GMI", s.AgentCounts.Gemini))
+				}
+				if s.AgentCounts.User > 0 {
+					parts = append(parts, fmt.Sprintf("%d Usr", s.AgentCounts.User))
+				}
+				if len(parts) > 0 {
+					agents = strings.Join(parts, ", ")
+				}
+			}
+
+			fmt.Fprintf(w, "%s\t%d\t%s\t%s\n", s.Name, s.Windows, attached, agents)
+		}
+		w.Flush()
+	} else {
+		// Standard output for narrow screens
+		for _, s := range resp.Sessions {
+			attached := ""
+			if s.Attached {
+				attached = " (attached)"
+			}
+			fmt.Printf("  %s: %d windows%s\n", s.Name, s.Windows, attached)
+		}
+	}
+
+	return nil
+}
+
+func coerceSessionListResponse(result any) (output.ListResponse, error) {
+	switch value := result.(type) {
+	case output.ListResponse:
+		return value, nil
+	case *output.ListResponse:
+		if value != nil {
+			return *value, nil
+		}
+		return output.ListResponse{}, fmt.Errorf("sessions.list returned nil response")
+	default:
+		return output.ListResponse{}, fmt.Errorf("sessions.list returned unexpected type %T", result)
+	}
+}
+
+func buildSessionListResponse(tags []string) (output.ListResponse, error) {
+	if err := tmux.EnsureInstalled(); err != nil {
+		return output.ListResponse{}, err
+	}
+
 	sessions, err := tmux.ListSessions()
 	if err != nil {
-		if IsJSONOutput() {
-			_ = output.PrintJSON(output.NewError(err.Error()))
-			return err
-		}
-		return err
+		return output.ListResponse{}, err
 	}
 
 	// Filter sessions by tag
@@ -191,124 +325,50 @@ func runList(tags []string) error {
 		sessions = filtered
 	}
 
-	// Build response for JSON output
-	if IsJSONOutput() {
-		items := make([]output.SessionListItem, len(sessions))
-		for i, s := range sessions {
-			item := output.SessionListItem{
-				Name:             s.Name,
-				Windows:          s.Windows,
-				Attached:         s.Attached,
-				WorkingDirectory: s.Directory,
-			}
+	items := make([]output.SessionListItem, len(sessions))
+	for i, s := range sessions {
+		item := output.SessionListItem{
+			Name:             s.Name,
+			Windows:          s.Windows,
+			Attached:         s.Attached,
+			WorkingDirectory: s.Directory,
+		}
 
-			// Get panes to count agents
-			panes, err := tmux.GetPanes(s.Name)
-			if err == nil {
-				item.PaneCount = len(panes)
+		// Get panes to count agents
+		panes, err := tmux.GetPanes(s.Name)
+		if err == nil {
+			item.PaneCount = len(panes)
 
-				// Count agent types
-				var claudeCount, codexCount, geminiCount, userCount int
-				for _, p := range panes {
-					switch p.Type {
-					case tmux.AgentClaude:
-						claudeCount++
-					case tmux.AgentCodex:
-						codexCount++
-					case tmux.AgentGemini:
-						geminiCount++
-					default:
-						userCount++
-					}
-				}
-				item.AgentCounts = &output.AgentCountsResponse{
-					Claude: claudeCount,
-					Codex:  codexCount,
-					Gemini: geminiCount,
-					User:   userCount,
-					Total:  len(panes),
+			// Count agent types
+			var claudeCount, codexCount, geminiCount, userCount int
+			for _, p := range panes {
+				switch p.Type {
+				case tmux.AgentClaude:
+					claudeCount++
+				case tmux.AgentCodex:
+					codexCount++
+				case tmux.AgentGemini:
+					geminiCount++
+				default:
+					userCount++
 				}
 			}
-			items[i] = item
+			item.AgentCounts = &output.AgentCountsResponse{
+				Claude: claudeCount,
+				Codex:  codexCount,
+				Gemini: geminiCount,
+				User:   userCount,
+				Total:  len(panes),
+			}
 		}
-		resp := output.ListResponse{
-			TimestampedResponse: output.NewTimestamped(),
-			Sessions:            items,
-			Count:               len(sessions),
-		}
-		return output.PrintJSON(resp)
+		items[i] = item
 	}
 
-	// Text output
-	if len(sessions) == 0 {
-		fmt.Println("No tmux sessions running")
-		return nil
-	}
-
-	// Check terminal width for responsive output
-	width, _, _ := term.GetSize(int(os.Stdout.Fd()))
-	isWide := width >= 100
-
-	if isWide {
-		w := tabwriter.NewWriter(os.Stdout, 0, 0, 3, ' ', 0)
-		fmt.Fprintln(w, "SESSION\tWINDOWS\tSTATE\tAGENTS")
-
-		for _, s := range sessions {
-			attached := "detached"
-			if s.Attached {
-				attached = "attached"
-			}
-
-			// Fetch agents summary
-			agents := "-"
-			panes, err := tmux.GetPanes(s.Name)
-			if err == nil {
-				var cc, cod, gmi, user int
-				for _, p := range panes {
-					switch p.Type {
-					case tmux.AgentClaude:
-						cc++
-					case tmux.AgentCodex:
-						cod++
-					case tmux.AgentGemini:
-						gmi++
-					default:
-						user++
-					}
-				}
-				var parts []string
-				if cc > 0 {
-					parts = append(parts, fmt.Sprintf("%d CC", cc))
-				}
-				if cod > 0 {
-					parts = append(parts, fmt.Sprintf("%d COD", cod))
-				}
-				if gmi > 0 {
-					parts = append(parts, fmt.Sprintf("%d GMI", gmi))
-				}
-				if user > 0 {
-					parts = append(parts, fmt.Sprintf("%d Usr", user))
-				}
-				if len(parts) > 0 {
-					agents = strings.Join(parts, ", ")
-				}
-			}
-
-			fmt.Fprintf(w, "%s\t%d\t%s\t%s\n", s.Name, s.Windows, attached, agents)
-		}
-		w.Flush()
-	} else {
-		// Standard output for narrow screens
-		for _, s := range sessions {
-			attached := ""
-			if s.Attached {
-				attached = " (attached)"
-			}
-			fmt.Printf("  %s: %d windows%s\n", s.Name, s.Windows, attached)
-		}
-	}
-
-	return nil
+	return output.ListResponse{
+		TimestampedResponse: output.NewTimestamped(),
+		Sessions:            items,
+		Count:               len(sessions),
+	}, nil
 }
 func newStatusCmd() *cobra.Command {
 	var tags []string

@@ -936,3 +936,152 @@ func TestRecovererMiddleware(t *testing.T) {
 		t.Errorf("Error code = %v, want INTERNAL_ERROR", resp["error_code"])
 	}
 }
+
+// =============================================================================
+// WebSocket Hub Tests
+// =============================================================================
+
+func TestWSHub(t *testing.T) {
+	hub := NewWSHub()
+	go hub.Run()
+	defer hub.Stop()
+
+	// Check initial state
+	if hub.ClientCount() != 0 {
+		t.Errorf("ClientCount = %d, want 0", hub.ClientCount())
+	}
+
+	// Test nextSeq
+	seq1 := hub.nextSeq()
+	seq2 := hub.nextSeq()
+	if seq2 != seq1+1 {
+		t.Errorf("nextSeq not incrementing: got %d, want %d", seq2, seq1+1)
+	}
+}
+
+func TestTopicMatching(t *testing.T) {
+	tests := []struct {
+		pattern string
+		topic   string
+		want    bool
+	}{
+		{"*", "anything", true},
+		{"*", "sessions:test", true},
+		{"global", "global", true},
+		{"global", "sessions:test", false},
+		{"sessions:*", "sessions:test", true},
+		{"sessions:*", "sessions:my-session", true},
+		{"sessions:*", "panes:test:0", false},
+		{"panes:*", "panes:test:0", true},
+		{"panes:*", "panes:other:5", true},
+		{"panes:test:*", "panes:test:0", true},
+		{"panes:test:*", "panes:other:0", false},
+		{"sessions:test", "sessions:test", true},
+		{"sessions:test", "sessions:other", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.pattern+"_"+tt.topic, func(t *testing.T) {
+			got := matchTopic(tt.pattern, tt.topic)
+			if got != tt.want {
+				t.Errorf("matchTopic(%q, %q) = %v, want %v", tt.pattern, tt.topic, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestWSClientSubscription(t *testing.T) {
+	client := &WSClient{
+		id:     "test-client",
+		topics: make(map[string]struct{}),
+	}
+
+	// Initially no subscriptions
+	if client.isSubscribed("global") {
+		t.Error("Expected not subscribed to global")
+	}
+
+	// Subscribe to global
+	client.Subscribe([]string{"global", "sessions:test"})
+	if !client.isSubscribed("global") {
+		t.Error("Expected subscribed to global")
+	}
+	if !client.isSubscribed("sessions:test") {
+		t.Error("Expected subscribed to sessions:test")
+	}
+
+	// Unsubscribe
+	client.Unsubscribe([]string{"global"})
+	if client.isSubscribed("global") {
+		t.Error("Expected not subscribed to global after unsubscribe")
+	}
+	if !client.isSubscribed("sessions:test") {
+		t.Error("Expected still subscribed to sessions:test")
+	}
+
+	// Test wildcard subscription
+	client.Subscribe([]string{"panes:*"})
+	if !client.isSubscribed("panes:test:0") {
+		t.Error("Expected wildcard to match panes:test:0")
+	}
+	if !client.isSubscribed("panes:other:5") {
+		t.Error("Expected wildcard to match panes:other:5")
+	}
+}
+
+func TestIsValidTopic(t *testing.T) {
+	valid := []string{
+		"*",
+		"global",
+		"global:*",
+		"sessions:*",
+		"sessions:my-session",
+		"panes:*",
+		"panes:test:0",
+		"agent:claude",
+	}
+
+	invalid := []string{
+		"",
+		"invalid",
+		"random:topic",
+		"foo:bar:baz",
+	}
+
+	for _, topic := range valid {
+		if !isValidTopic(topic) {
+			t.Errorf("isValidTopic(%q) = false, want true", topic)
+		}
+	}
+
+	for _, topic := range invalid {
+		if isValidTopic(topic) {
+			t.Errorf("isValidTopic(%q) = true, want false", topic)
+		}
+	}
+}
+
+func TestWSHubPublish(t *testing.T) {
+	hub := NewWSHub()
+	go hub.Run()
+	defer hub.Stop()
+
+	// Give hub time to start
+	time.Sleep(10 * time.Millisecond)
+
+	// Publish should not block even with no clients
+	hub.Publish("global:events", "test_event", map[string]interface{}{
+		"message": "hello",
+	})
+
+	// Give time for event to be processed
+	time.Sleep(20 * time.Millisecond)
+
+	// Verify sequence incremented (happens in broadcastEvent)
+	hub.seqMu.Lock()
+	seq := hub.seq
+	hub.seqMu.Unlock()
+	if seq != 1 {
+		t.Errorf("seq = %d, want 1", seq)
+	}
+}

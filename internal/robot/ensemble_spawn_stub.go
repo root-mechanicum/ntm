@@ -8,6 +8,8 @@ package robot
 import (
 	"fmt"
 	"strings"
+
+	"github.com/Dicklesworthstone/ntm/internal/config"
 )
 
 // EnsembleSpawnOptions configures --robot-ensemble-spawn.
@@ -34,7 +36,7 @@ type EnsembleSpawnOutput struct {
 }
 
 // PrintEnsembleSpawn returns a not implemented response when ensemble_experimental is disabled.
-func PrintEnsembleSpawn(opts EnsembleSpawnOptions) error {
+func PrintEnsembleSpawn(opts EnsembleSpawnOptions, _ *config.Config) error {
 	output := EnsembleSpawnOutput{
 		RobotResponse: NewErrorResponse(
 			fmt.Errorf("ensemble spawn is experimental"),

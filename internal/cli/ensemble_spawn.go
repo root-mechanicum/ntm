@@ -23,20 +23,23 @@ import (
 )
 
 type ensembleSpawnOptions struct {
-	Session       string
-	Question      string
-	Preset        string
-	Modes         []string
-	AllowAdvanced bool
-	AgentMix      string
-	Assignment    string
-	Synthesis     string
-	BudgetTotal   int
-	BudgetPerMode int
-	NoQuestions   bool
-	NoCache       bool
-	NoInject      bool
-	Project       string
+	Session          string
+	Question         string
+	Preset           string
+	Modes            []string
+	AllowAdvanced    bool
+	AgentMix         string
+	Assignment       string
+	Synthesis        string
+	BudgetTotal      int
+	BudgetPerMode    int
+	NoQuestions      bool
+	NoCache          bool
+	NoInject         bool
+	Project          string
+	DryRun           bool
+	ShowPreambles    bool
+	PreamblePreviewN int
 }
 
 type ensembleSpawnOutput struct {
@@ -86,6 +89,9 @@ func bindEnsembleSpawnFlags(cmd *cobra.Command, opts *ensembleSpawnOptions) {
 	cmd.Flags().StringVarP(&opts.Question, "question", "q", "", "Question for agents to analyze (required)")
 	cmd.Flags().StringVarP(&opts.Preset, "preset", "p", "", "Use pre-configured ensemble (preferred)")
 	cmd.Flags().StringSliceVarP(&opts.Modes, "modes", "m", nil, "Explicit mode IDs or codes (advanced usage)")
+	cmd.Flags().BoolVar(&opts.DryRun, "dry-run", false, "Preview spawn plan without creating session or state")
+	cmd.Flags().BoolVar(&opts.ShowPreambles, "show-preambles", false, "Include preamble previews in dry-run output")
+	cmd.Flags().IntVar(&opts.PreamblePreviewN, "preamble-preview-n", 500, "Max chars for preamble preview (0=full)")
 }
 
 func bindEnsembleSharedFlags(cmd *cobra.Command, opts *ensembleSpawnOptions) {
@@ -261,6 +267,11 @@ func runEnsembleSpawn(cmd *cobra.Command, opts ensembleSpawnOptions) error {
 	manager, err := buildEnsembleManager(projectDir)
 	if err != nil {
 		return outputError(err)
+	}
+
+	// Handle dry-run mode
+	if opts.DryRun {
+		return runEnsembleDryRun(cmd, opts, manager, agentMix, projectDir)
 	}
 
 	ensembleCfg := &ensemble.EnsembleConfig{
@@ -533,4 +544,285 @@ func normalizeEnsembleAgentType(value string) string {
 	default:
 		return ""
 	}
+}
+
+// ensembleDryRunOutput represents the JSON output for dry-run mode.
+type ensembleDryRunOutput struct {
+	Success     bool                     `json:"success"`
+	DryRun      bool                     `json:"dry_run"`
+	GeneratedAt time.Time                `json:"generated_at"`
+	Session     string                   `json:"session"`
+	ProjectDir  string                   `json:"project_dir"`
+	Question    string                   `json:"question"`
+	Preset      string                   `json:"preset,omitempty"`
+	Modes       []ensembleDryRunMode     `json:"modes"`
+	Assignments []ensembleDryRunAssign   `json:"assignments"`
+	Budget      ensembleDryRunBudget     `json:"budget"`
+	Synthesis   ensembleDryRunSynthesis  `json:"synthesis"`
+	Validation  ensembleDryRunValidation `json:"validation"`
+	Preambles   []ensembleDryRunPreamble `json:"preambles,omitempty"`
+	Error       string                   `json:"error,omitempty"`
+}
+
+type ensembleDryRunMode struct {
+	ID        string `json:"id"`
+	Code      string `json:"code"`
+	Name      string `json:"name"`
+	Category  string `json:"category"`
+	Tier      string `json:"tier"`
+	ShortDesc string `json:"short_desc,omitempty"`
+}
+
+type ensembleDryRunAssign struct {
+	ModeID      string `json:"mode_id"`
+	ModeCode    string `json:"mode_code"`
+	AgentType   string `json:"agent_type"`
+	PaneIndex   int    `json:"pane_index"`
+	TokenBudget int    `json:"token_budget"`
+}
+
+type ensembleDryRunBudget struct {
+	MaxTokensPerMode       int `json:"max_tokens_per_mode"`
+	MaxTotalTokens         int `json:"max_total_tokens"`
+	SynthesisReserveTokens int `json:"synthesis_reserve_tokens"`
+	ContextReserveTokens   int `json:"context_reserve_tokens"`
+	EstimatedTotalTokens   int `json:"estimated_total_tokens"`
+	ModeCount              int `json:"mode_count"`
+}
+
+type ensembleDryRunSynthesis struct {
+	Strategy           string  `json:"strategy"`
+	SynthesizerModeID  string  `json:"synthesizer_mode_id,omitempty"`
+	MinConfidence      float64 `json:"min_confidence,omitempty"`
+	MaxFindings        int     `json:"max_findings,omitempty"`
+	ConflictResolution string  `json:"conflict_resolution,omitempty"`
+}
+
+type ensembleDryRunValidation struct {
+	Valid    bool     `json:"valid"`
+	Warnings []string `json:"warnings,omitempty"`
+	Errors   []string `json:"errors,omitempty"`
+}
+
+type ensembleDryRunPreamble struct {
+	ModeID   string `json:"mode_id"`
+	ModeCode string `json:"mode_code"`
+	Preview  string `json:"preview"`
+	Length   int    `json:"length"`
+}
+
+func runEnsembleDryRun(cmd *cobra.Command, opts ensembleSpawnOptions, manager *ensemble.EnsembleManager, agentMix map[string]int, projectDir string) error {
+	outputError := func(err error) error {
+		if IsJSONOutput() {
+			_ = output.PrintJSON(ensembleDryRunOutput{
+				Success:     false,
+				DryRun:      true,
+				GeneratedAt: output.Timestamp(),
+				Session:     opts.Session,
+				Error:       err.Error(),
+			})
+			return err
+		}
+		return err
+	}
+
+	ensembleCfg := &ensemble.EnsembleConfig{
+		SessionName:   opts.Session,
+		Question:      opts.Question,
+		Ensemble:      opts.Preset,
+		Modes:         opts.Modes,
+		AllowAdvanced: opts.AllowAdvanced,
+		ProjectDir:    projectDir,
+		AgentMix:      agentMix,
+		Assignment:    opts.Assignment,
+	}
+
+	// Apply config defaults
+	ensDefaults := config.Default().Ensemble
+	if cfg != nil {
+		ensDefaults = cfg.Ensemble
+	}
+	applyEnsembleConfigOverrides(ensembleCfg, ensDefaults)
+
+	if opts.NoCache {
+		ensembleCfg.Cache = ensemble.CacheConfig{Enabled: false}
+		ensembleCfg.CacheOverride = true
+	}
+
+	if strings.TrimSpace(opts.Synthesis) != "" {
+		strategy, err := ensemble.ValidateOrMigrateStrategy(strings.TrimSpace(opts.Synthesis))
+		if err != nil {
+			return outputError(err)
+		}
+		ensembleCfg.Synthesis.Strategy = strategy
+	}
+
+	if opts.BudgetPerMode > 0 {
+		ensembleCfg.Budget.MaxTokensPerMode = opts.BudgetPerMode
+	}
+	if opts.BudgetTotal > 0 {
+		ensembleCfg.Budget.MaxTotalTokens = opts.BudgetTotal
+	}
+
+	dryRunOpts := ensemble.DryRunOptions{
+		IncludePreambles:      opts.ShowPreambles,
+		PreamblePreviewLength: opts.PreamblePreviewN,
+	}
+
+	plan, err := manager.DryRunEnsemble(cmd.Context(), ensembleCfg, dryRunOpts)
+	if err != nil {
+		return outputError(err)
+	}
+
+	out := convertDryRunPlanToOutput(plan, projectDir)
+
+	if IsJSONOutput() {
+		_ = output.PrintJSON(out)
+		return nil
+	}
+
+	return renderEnsembleDryRunText(cmd.OutOrStdout(), out)
+}
+
+func convertDryRunPlanToOutput(plan *ensemble.DryRunPlan, projectDir string) ensembleDryRunOutput {
+	out := ensembleDryRunOutput{
+		Success:     plan.Validation.Valid,
+		DryRun:      true,
+		GeneratedAt: plan.GeneratedAt,
+		Session:     plan.SessionName,
+		ProjectDir:  projectDir,
+		Question:    plan.Question,
+		Preset:      plan.PresetUsed,
+		Modes:       make([]ensembleDryRunMode, 0, len(plan.Modes)),
+		Assignments: make([]ensembleDryRunAssign, 0, len(plan.Assignments)),
+		Budget: ensembleDryRunBudget{
+			MaxTokensPerMode:       plan.Budget.MaxTokensPerMode,
+			MaxTotalTokens:         plan.Budget.MaxTotalTokens,
+			SynthesisReserveTokens: plan.Budget.SynthesisReserveTokens,
+			ContextReserveTokens:   plan.Budget.ContextReserveTokens,
+			EstimatedTotalTokens:   plan.Budget.EstimatedTotalTokens,
+			ModeCount:              plan.Budget.ModeCount,
+		},
+		Synthesis: ensembleDryRunSynthesis{
+			Strategy:           plan.Synthesis.Strategy,
+			SynthesizerModeID:  plan.Synthesis.SynthesizerModeID,
+			MinConfidence:      plan.Synthesis.MinConfidence,
+			MaxFindings:        plan.Synthesis.MaxFindings,
+			ConflictResolution: plan.Synthesis.ConflictResolution,
+		},
+		Validation: ensembleDryRunValidation{
+			Valid:    plan.Validation.Valid,
+			Warnings: plan.Validation.Warnings,
+			Errors:   plan.Validation.Errors,
+		},
+	}
+
+	for _, m := range plan.Modes {
+		out.Modes = append(out.Modes, ensembleDryRunMode{
+			ID:        m.ID,
+			Code:      m.Code,
+			Name:      m.Name,
+			Category:  m.Category,
+			Tier:      m.Tier,
+			ShortDesc: m.ShortDesc,
+		})
+	}
+
+	for _, a := range plan.Assignments {
+		out.Assignments = append(out.Assignments, ensembleDryRunAssign{
+			ModeID:      a.ModeID,
+			ModeCode:    a.ModeCode,
+			AgentType:   a.AgentType,
+			PaneIndex:   a.PaneIndex,
+			TokenBudget: a.TokenBudget,
+		})
+	}
+
+	for _, p := range plan.Preambles {
+		out.Preambles = append(out.Preambles, ensembleDryRunPreamble{
+			ModeID:   p.ModeID,
+			ModeCode: p.ModeCode,
+			Preview:  p.Preview,
+			Length:   p.Length,
+		})
+	}
+
+	return out
+}
+
+func renderEnsembleDryRunText(w io.Writer, out ensembleDryRunOutput) error {
+	_, _ = fmt.Fprintln(w, "=== Ensemble Dry Run ===")
+	_, _ = fmt.Fprintln(w)
+
+	_, _ = fmt.Fprintf(w, "Session:    %s (will be created)\n", out.Session)
+	if out.Preset != "" {
+		_, _ = fmt.Fprintf(w, "Preset:     %s\n", out.Preset)
+	}
+	_, _ = fmt.Fprintf(w, "Question:   %s\n", out.Question)
+	_, _ = fmt.Fprintf(w, "Project:    %s\n", out.ProjectDir)
+	_, _ = fmt.Fprintln(w)
+
+	// Budget summary
+	_, _ = fmt.Fprintln(w, "Budget:")
+	_, _ = fmt.Fprintf(w, "  Per mode:       %d tokens\n", out.Budget.MaxTokensPerMode)
+	_, _ = fmt.Fprintf(w, "  Total cap:      %d tokens\n", out.Budget.MaxTotalTokens)
+	_, _ = fmt.Fprintf(w, "  Estimated use:  %d tokens (%d modes)\n", out.Budget.EstimatedTotalTokens, out.Budget.ModeCount)
+	_, _ = fmt.Fprintln(w)
+
+	// Synthesis
+	_, _ = fmt.Fprintf(w, "Synthesis:  %s\n", out.Synthesis.Strategy)
+	_, _ = fmt.Fprintln(w)
+
+	// Modes table
+	_, _ = fmt.Fprintf(w, "Modes (%d):\n", len(out.Modes))
+	modeTable := output.NewTable(w, "CODE", "ID", "NAME", "CATEGORY", "TIER")
+	for _, m := range out.Modes {
+		modeTable.AddRow(m.Code, m.ID, m.Name, m.Category, m.Tier)
+	}
+	modeTable.Render()
+	_, _ = fmt.Fprintln(w)
+
+	// Assignments table
+	_, _ = fmt.Fprintf(w, "Assignments (%d):\n", len(out.Assignments))
+	assignTable := output.NewTable(w, "PANE", "MODE", "CODE", "AGENT", "BUDGET")
+	for _, a := range out.Assignments {
+		assignTable.AddRow(
+			fmt.Sprintf("%d", a.PaneIndex),
+			a.ModeID,
+			a.ModeCode,
+			a.AgentType,
+			fmt.Sprintf("%d", a.TokenBudget),
+		)
+	}
+	assignTable.Render()
+	_, _ = fmt.Fprintln(w)
+
+	// Validation
+	if !out.Validation.Valid {
+		_, _ = fmt.Fprintln(w, "Validation FAILED:")
+		for _, e := range out.Validation.Errors {
+			_, _ = fmt.Fprintf(w, "  ERROR: %s\n", e)
+		}
+	}
+	if len(out.Validation.Warnings) > 0 {
+		_, _ = fmt.Fprintln(w, "Warnings:")
+		for _, w := range out.Validation.Warnings {
+			_, _ = fmt.Fprintf(w, "  WARN: %s\n", w)
+		}
+	}
+
+	// Preamble previews
+	if len(out.Preambles) > 0 {
+		_, _ = fmt.Fprintln(w)
+		_, _ = fmt.Fprintln(w, "Preamble Previews:")
+		for _, p := range out.Preambles {
+			_, _ = fmt.Fprintf(w, "\n--- %s (%s) [%d chars] ---\n", p.ModeID, p.ModeCode, p.Length)
+			_, _ = fmt.Fprintln(w, p.Preview)
+		}
+	}
+
+	_, _ = fmt.Fprintln(w)
+	_, _ = fmt.Fprintln(w, "To spawn this ensemble, run the same command without --dry-run")
+
+	return nil
 }

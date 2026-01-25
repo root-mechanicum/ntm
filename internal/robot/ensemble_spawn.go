@@ -13,7 +13,9 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
+	"github.com/Dicklesworthstone/ntm/internal/config"
 	"github.com/Dicklesworthstone/ntm/internal/ensemble"
 	"github.com/Dicklesworthstone/ntm/internal/tmux"
 )
@@ -66,7 +68,9 @@ type EnsembleSpawnBudget struct {
 }
 
 // PrintEnsembleSpawn spawns a reasoning ensemble session and returns structured JSON.
-func PrintEnsembleSpawn(opts EnsembleSpawnOptions) error {
+func PrintEnsembleSpawn(opts EnsembleSpawnOptions, cfg *config.Config) error {
+	opts = applyEnsembleSpawnDefaults(opts, cfg)
+
 	output := EnsembleSpawnOutput{
 		RobotResponse: NewRobotResponse(true),
 		Action:        "ensemble_spawn",
@@ -226,7 +230,7 @@ func PrintEnsembleSpawn(opts EnsembleSpawnOptions) error {
 		rawModes = normalized
 	}
 
-	cfg := &ensemble.EnsembleConfig{
+	ensembleCfg := &ensemble.EnsembleConfig{
 		SessionName:   output.Session,
 		Question:      output.Question,
 		Ensemble:      output.Preset,
@@ -237,23 +241,28 @@ func PrintEnsembleSpawn(opts EnsembleSpawnOptions) error {
 		Assignment:    output.Assignment,
 	}
 
+	if cfg == nil {
+		cfg = config.Default()
+	}
+	applyEnsembleConfigOverrides(ensembleCfg, cfg.Ensemble)
+
 	if opts.NoCache {
-		cfg.Cache = ensemble.CacheConfig{Enabled: false}
-		cfg.CacheOverride = true
+		ensembleCfg.Cache = ensemble.CacheConfig{Enabled: false}
+		ensembleCfg.CacheOverride = true
 	}
 	if opts.NoQuestions {
 		output.Warnings = append(output.Warnings, "no-questions is not implemented yet; flag ignored")
 	}
 	if opts.BudgetPerMode > 0 {
-		cfg.Budget.MaxTokensPerMode = opts.BudgetPerMode
+		ensembleCfg.Budget.MaxTokensPerMode = opts.BudgetPerMode
 	}
 	if opts.BudgetTotal > 0 {
-		cfg.Budget.MaxTotalTokens = opts.BudgetTotal
+		ensembleCfg.Budget.MaxTotalTokens = opts.BudgetTotal
 	}
 
-	output.Budget = resolveEnsembleSpawnBudget(cfg, registry)
+	output.Budget = resolveEnsembleSpawnBudget(ensembleCfg, registry)
 
-	state, spawnErr := manager.SpawnEnsemble(context.Background(), cfg)
+	state, spawnErr := manager.SpawnEnsemble(context.Background(), ensembleCfg)
 	if state != nil {
 		output.Status = state.Status.String()
 		output.Modes = buildSpawnModes(state.Assignments, catalog)
@@ -264,6 +273,94 @@ func PrintEnsembleSpawn(opts EnsembleSpawnOptions) error {
 	}
 
 	return outputJSON(output)
+}
+
+func applyEnsembleSpawnDefaults(opts EnsembleSpawnOptions, cfg *config.Config) EnsembleSpawnOptions {
+	if cfg == nil {
+		cfg = config.Default()
+	}
+	ensCfg := cfg.Ensemble
+
+	if strings.TrimSpace(opts.Preset) == "" && strings.TrimSpace(opts.Modes) == "" && strings.TrimSpace(ensCfg.DefaultEnsemble) != "" {
+		opts.Preset = ensCfg.DefaultEnsemble
+	}
+	if strings.TrimSpace(opts.Agents) == "" && strings.TrimSpace(ensCfg.AgentMix) != "" {
+		opts.Agents = ensCfg.AgentMix
+	}
+	if strings.TrimSpace(opts.Assignment) == "" && strings.TrimSpace(ensCfg.Assignment) != "" {
+		opts.Assignment = ensCfg.Assignment
+	}
+	if !opts.AllowAdvanced {
+		allow := ensCfg.AllowAdvanced
+		switch strings.ToLower(strings.TrimSpace(ensCfg.ModeTierDefault)) {
+		case "advanced", "experimental":
+			allow = true
+		}
+		opts.AllowAdvanced = allow
+	}
+	if opts.BudgetTotal == 0 && ensCfg.Budget.Total > 0 {
+		opts.BudgetTotal = ensCfg.Budget.Total
+	}
+	if opts.BudgetPerMode == 0 && ensCfg.Budget.PerAgent > 0 {
+		opts.BudgetPerMode = ensCfg.Budget.PerAgent
+	}
+	if !opts.NoCache && !ensCfg.Cache.Enabled {
+		opts.NoCache = true
+	}
+
+	return opts
+}
+
+func applyEnsembleConfigOverrides(target *ensemble.EnsembleConfig, ensCfg config.EnsembleConfig) {
+	if target == nil {
+		return
+	}
+
+	if target.Synthesis.Strategy == "" && strings.TrimSpace(ensCfg.Synthesis.Strategy) != "" {
+		target.Synthesis.Strategy = ensemble.SynthesisStrategy(strings.TrimSpace(ensCfg.Synthesis.Strategy))
+	}
+	if ensCfg.Synthesis.MinConfidence > 0 {
+		target.Synthesis.MinConfidence = ensCfg.Synthesis.MinConfidence
+	}
+	if ensCfg.Synthesis.MaxFindings > 0 {
+		target.Synthesis.MaxFindings = ensCfg.Synthesis.MaxFindings
+	}
+	if ensCfg.Synthesis.IncludeRawOutputs {
+		target.Synthesis.IncludeRawOutputs = true
+	}
+	if strings.TrimSpace(ensCfg.Synthesis.ConflictResolution) != "" {
+		target.Synthesis.ConflictResolution = strings.TrimSpace(ensCfg.Synthesis.ConflictResolution)
+	}
+
+	if ensCfg.Budget.Synthesis > 0 {
+		target.Budget.SynthesisReserveTokens = ensCfg.Budget.Synthesis
+	}
+	if ensCfg.Budget.ContextPack > 0 {
+		target.Budget.ContextReserveTokens = ensCfg.Budget.ContextPack
+	}
+
+	target.Cache.Enabled = ensCfg.Cache.Enabled
+	if ensCfg.Cache.TTLMinutes > 0 {
+		target.Cache.TTL = time.Duration(ensCfg.Cache.TTLMinutes) * time.Minute
+	}
+	if strings.TrimSpace(ensCfg.Cache.CacheDir) != "" {
+		target.Cache.CacheDir = config.ExpandHome(strings.TrimSpace(ensCfg.Cache.CacheDir))
+	}
+	if ensCfg.Cache.MaxEntries > 0 {
+		target.Cache.MaxEntries = ensCfg.Cache.MaxEntries
+	}
+	target.Cache.ShareAcrossModes = ensCfg.Cache.ShareAcrossModes
+	if ensCfg.Cache.CacheDir != "" || ensCfg.Cache.TTLMinutes > 0 || ensCfg.Cache.MaxEntries > 0 || !ensCfg.Cache.Enabled {
+		target.CacheOverride = true
+	}
+
+	target.EarlyStop = ensemble.EarlyStopConfig{
+		Enabled:             ensCfg.EarlyStop.Enabled,
+		MinAgentsBeforeStop: ensCfg.EarlyStop.MinAgents,
+		FindingsThreshold:   ensCfg.EarlyStop.FindingsThreshold,
+		SimilarityThreshold: ensCfg.EarlyStop.SimilarityThreshold,
+		WindowSize:          ensCfg.EarlyStop.WindowSize,
+	}
 }
 
 func resolveEnsembleSpawnBudget(cfg *ensemble.EnsembleConfig, registry *ensemble.EnsembleRegistry) EnsembleSpawnBudget {

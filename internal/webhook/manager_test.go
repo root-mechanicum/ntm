@@ -133,6 +133,7 @@ func TestBasicDispatch(t *testing.T) {
 	var received atomic.Int32
 	var mu sync.Mutex
 	var receivedPayload Event
+	done := make(chan struct{}, 1)
 
 	// Create test server
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -153,6 +154,12 @@ func TestBasicDispatch(t *testing.T) {
 		mu.Unlock()
 
 		w.WriteHeader(http.StatusOK)
+
+		// Signal completion
+		select {
+		case done <- struct{}{}:
+		default:
+		}
 	}))
 	defer ts.Close()
 
@@ -186,8 +193,13 @@ func TestBasicDispatch(t *testing.T) {
 		t.Errorf("dispatch failed: %v", err)
 	}
 
-	// Wait for delivery
-	time.Sleep(100 * time.Millisecond)
+	// Wait for delivery with timeout
+	select {
+	case <-done:
+		// Success
+	case <-time.After(5 * time.Second):
+		t.Fatalf("timeout waiting for delivery, got %d deliveries", received.Load())
+	}
 
 	if received.Load() != 1 {
 		t.Errorf("expected 1 delivery, got %d", received.Load())
@@ -447,10 +459,16 @@ func TestEventFiltering(t *testing.T) {
 	t.Parallel()
 
 	var received atomic.Int32
+	done := make(chan struct{}, 1)
 
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		received.Add(1)
 		w.WriteHeader(http.StatusOK)
+		// Signal on first delivery
+		select {
+		case done <- struct{}{}:
+		default:
+		}
 	}))
 	defer ts.Close()
 
@@ -480,7 +498,14 @@ func TestEventFiltering(t *testing.T) {
 	// Dispatch non-matching event
 	m.Dispatch(Event{Type: "event.b"})
 
-	time.Sleep(100 * time.Millisecond)
+	// Wait for matching event delivery
+	select {
+	case <-done:
+		// Success - wait a bit more to ensure non-matching event doesn't arrive
+		time.Sleep(50 * time.Millisecond)
+	case <-time.After(5 * time.Second):
+		t.Fatalf("timeout waiting for delivery, got %d deliveries", received.Load())
+	}
 
 	// Should only receive the matching event
 	if received.Load() != 1 {
@@ -493,12 +518,17 @@ func TestHMACSignature(t *testing.T) {
 
 	var receivedSignature string
 	var mu sync.Mutex
+	done := make(chan struct{}, 1)
 
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		mu.Lock()
 		receivedSignature = r.Header.Get("X-NTM-Signature")
 		mu.Unlock()
 		w.WriteHeader(http.StatusOK)
+		select {
+		case done <- struct{}{}:
+		default:
+		}
 	}))
 	defer ts.Close()
 
@@ -525,7 +555,13 @@ func TestHMACSignature(t *testing.T) {
 	// Dispatch event
 	m.Dispatch(Event{Type: "test.signed"})
 
-	time.Sleep(100 * time.Millisecond)
+	// Wait for delivery
+	select {
+	case <-done:
+		// Success
+	case <-time.After(5 * time.Second):
+		t.Fatal("timeout waiting for delivery")
+	}
 
 	mu.Lock()
 	sig := receivedSignature
@@ -544,6 +580,7 @@ func TestCustomTemplate(t *testing.T) {
 
 	var receivedBody string
 	var mu sync.Mutex
+	done := make(chan struct{}, 1)
 
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
@@ -551,6 +588,10 @@ func TestCustomTemplate(t *testing.T) {
 		receivedBody = string(body)
 		mu.Unlock()
 		w.WriteHeader(http.StatusOK)
+		select {
+		case done <- struct{}{}:
+		default:
+		}
 	}))
 	defer ts.Close()
 
@@ -580,7 +621,13 @@ func TestCustomTemplate(t *testing.T) {
 		Message: `Hello "world"`,
 	})
 
-	time.Sleep(100 * time.Millisecond)
+	// Wait for delivery
+	select {
+	case <-done:
+		// Success
+	case <-time.After(5 * time.Second):
+		t.Fatal("timeout waiting for delivery")
+	}
 
 	mu.Lock()
 	body := receivedBody
@@ -624,9 +671,17 @@ func TestStats(t *testing.T) {
 		m.Dispatch(Event{Type: "test.stats"})
 	}
 
-	time.Sleep(200 * time.Millisecond)
+	// Poll for stats to reach expected value (stats are updated after HTTP response)
+	deadline := time.Now().Add(5 * time.Second)
+	var stats Stats
+	for time.Now().Before(deadline) {
+		stats = m.Stats()
+		if stats.Deliveries >= 5 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
 
-	stats := m.Stats()
 	if stats.Deliveries != 5 {
 		t.Errorf("expected 5 deliveries, got %d", stats.Deliveries)
 	}

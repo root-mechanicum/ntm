@@ -190,19 +190,22 @@ func (p *parserImpl) detectStateFlags(output string, state *AgentState) {
 }
 
 // detectRateLimit checks if the agent hit an API usage limit.
+// We scan recent output (last 50 lines) to avoid stale errors triggering state.
 func (p *parserImpl) detectRateLimit(output string, agentType AgentType) bool {
+	recentOutput := getLastNLines(output, 50)
+
 	switch agentType {
 	case AgentTypeClaudeCode:
-		return matchAny(output, ccRateLimitPatterns)
+		return matchAny(recentOutput, ccRateLimitPatterns)
 	case AgentTypeCodex:
-		return matchAny(output, codRateLimitPatterns)
+		return matchAny(recentOutput, codRateLimitPatterns)
 	case AgentTypeGemini:
-		return matchAny(output, gmiRateLimitPatterns)
+		return matchAny(recentOutput, gmiRateLimitPatterns)
 	default:
 		// Check all patterns for unknown type
-		return matchAny(output, ccRateLimitPatterns) ||
-			matchAny(output, codRateLimitPatterns) ||
-			matchAny(output, gmiRateLimitPatterns)
+		return matchAny(recentOutput, ccRateLimitPatterns) ||
+			matchAny(recentOutput, codRateLimitPatterns) ||
+			matchAny(recentOutput, gmiRateLimitPatterns)
 	}
 }
 
@@ -272,18 +275,21 @@ func (p *parserImpl) detectError(output string, agentType AgentType) bool {
 
 // collectLimitIndicators returns the specific patterns that matched for rate limiting.
 func (p *parserImpl) collectLimitIndicators(output string, agentType AgentType) []string {
+	// Focus on recent output to match detection logic
+	recentOutput := getLastNLines(output, 50)
+
 	switch agentType {
 	case AgentTypeClaudeCode:
-		return collectMatches(output, ccRateLimitPatterns)
+		return collectMatches(recentOutput, ccRateLimitPatterns)
 	case AgentTypeCodex:
-		return collectMatches(output, codRateLimitPatterns)
+		return collectMatches(recentOutput, codRateLimitPatterns)
 	case AgentTypeGemini:
-		return collectMatches(output, gmiRateLimitPatterns)
+		return collectMatches(recentOutput, gmiRateLimitPatterns)
 	default:
 		// Collect from all for unknown type
-		matches := collectMatches(output, ccRateLimitPatterns)
-		matches = append(matches, collectMatches(output, codRateLimitPatterns)...)
-		matches = append(matches, collectMatches(output, gmiRateLimitPatterns)...)
+		matches := collectMatches(recentOutput, ccRateLimitPatterns)
+		matches = append(matches, collectMatches(recentOutput, codRateLimitPatterns)...)
+		matches = append(matches, collectMatches(recentOutput, gmiRateLimitPatterns)...)
 		return matches
 	}
 }

@@ -13,6 +13,7 @@ import (
 	"github.com/Dicklesworthstone/ntm/internal/bv"
 	"github.com/Dicklesworthstone/ntm/internal/config"
 	"github.com/Dicklesworthstone/ntm/internal/history"
+	"github.com/Dicklesworthstone/ntm/internal/kernel"
 	"github.com/Dicklesworthstone/ntm/internal/tmux"
 	"github.com/Dicklesworthstone/ntm/internal/tracker"
 )
@@ -840,19 +841,24 @@ func GetPalette(cfg *config.Config, opts PaletteOptions) (*PaletteOutput, error)
 		Categories:    []string{},
 	}
 
+	seen := make(map[string]struct{})
+	query := strings.ToLower(opts.SearchQuery)
+	matchesFilters := func(key, label, category string) bool {
+		if opts.Category != "" && category != opts.Category {
+			return false
+		}
+		if opts.SearchQuery == "" {
+			return true
+		}
+		return strings.Contains(strings.ToLower(label), query) ||
+			strings.Contains(strings.ToLower(key), query)
+	}
+
 	// Get commands from config
 	categorySet := make(map[string]struct{})
 	for _, cmd := range cfg.Palette {
-		// Apply filters
-		if opts.Category != "" && cmd.Category != opts.Category {
+		if !matchesFilters(cmd.Key, cmd.Label, cmd.Category) {
 			continue
-		}
-		if opts.SearchQuery != "" {
-			query := strings.ToLower(opts.SearchQuery)
-			if !strings.Contains(strings.ToLower(cmd.Label), query) &&
-				!strings.Contains(strings.ToLower(cmd.Key), query) {
-				continue
-			}
 		}
 
 		palCmd := PaletteCmd{
@@ -860,10 +866,57 @@ func GetPalette(cfg *config.Config, opts PaletteOptions) (*PaletteOutput, error)
 			Label:    cmd.Label,
 			Category: cmd.Category,
 			Prompt:   cmd.Prompt,
+			Tags:     cmd.Tags,
 		}
 
 		output.Commands = append(output.Commands, palCmd)
 		categorySet[cmd.Category] = struct{}{}
+		if cmd.Key != "" {
+			seen[cmd.Key] = struct{}{}
+		}
+	}
+
+	for _, cmd := range kernel.List() {
+		key := strings.TrimSpace(cmd.Name)
+		if key == "" {
+			continue
+		}
+		if _, exists := seen[key]; exists {
+			continue
+		}
+
+		label := strings.TrimSpace(cmd.Description)
+		if label == "" {
+			label = key
+		}
+		category := strings.TrimSpace(cmd.Category)
+		if category == "" {
+			category = "kernel"
+		}
+
+		if !matchesFilters(key, label, category) {
+			continue
+		}
+
+		prompt := ""
+		if len(cmd.Examples) > 0 {
+			prompt = strings.TrimSpace(cmd.Examples[0].Command)
+		}
+		if prompt == "" {
+			prompt = key
+		}
+
+		palCmd := PaletteCmd{
+			Key:      key,
+			Label:    label,
+			Category: category,
+			Prompt:   prompt,
+			Tags:     []string{"kernel"},
+		}
+
+		output.Commands = append(output.Commands, palCmd)
+		categorySet[category] = struct{}{}
+		seen[key] = struct{}{}
 	}
 
 	for cat := range categorySet {

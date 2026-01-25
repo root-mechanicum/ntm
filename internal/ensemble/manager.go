@@ -50,11 +50,6 @@ type EnsembleConfig struct {
 	EarlyStop     EarlyStopConfig
 }
 
-// EarlyStopConfig controls early stopping behavior for ensembles.
-type EarlyStopConfig struct {
-	Enabled bool `json:"enabled" toml:"enabled" yaml:"enabled"`
-}
-
 // EnsembleManager orchestrates ensemble session lifecycle steps.
 type EnsembleManager struct {
 	TmuxClient          *tmux.Client

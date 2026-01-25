@@ -31,6 +31,7 @@ import (
 	"github.com/Dicklesworthstone/ntm/internal/state"
 	"github.com/go-chi/chi/v5"
 	chimw "github.com/go-chi/chi/v5/middleware"
+	"github.com/gorilla/websocket"
 )
 
 // Server provides HTTP API and event streaming for NTM.
@@ -57,6 +58,9 @@ type Server struct {
 
 	// Chi router for /api/v1
 	router chi.Router
+
+	// WebSocket hub for real-time subscriptions
+	wsHub *WSHub
 }
 
 // AuthMode configures authentication for the server.
@@ -310,6 +314,262 @@ func (s *JobStore) Delete(id string) bool {
 	return true
 }
 
+// ============================================================================
+// WebSocket Hub + Subscription Protocol
+// ============================================================================
+
+// WSMessageType defines WebSocket message types.
+type WSMessageType string
+
+const (
+	WSMsgSubscribe   WSMessageType = "subscribe"
+	WSMsgUnsubscribe WSMessageType = "unsubscribe"
+	WSMsgEvent       WSMessageType = "event"
+	WSMsgError       WSMessageType = "error"
+	WSMsgAck         WSMessageType = "ack"
+	WSMsgPing        WSMessageType = "ping"
+	WSMsgPong        WSMessageType = "pong"
+)
+
+// WSMessage is the base WebSocket message envelope.
+type WSMessage struct {
+	Type      WSMessageType          `json:"type"`
+	Timestamp string                 `json:"ts"`
+	RequestID string                 `json:"request_id,omitempty"`
+	Data      map[string]interface{} `json:"data,omitempty"`
+}
+
+// WSSubscribeRequest is sent by clients to subscribe to topics.
+type WSSubscribeRequest struct {
+	Topics []string `json:"topics"`
+	Since  int64    `json:"since,omitempty"` // Cursor for replay (Unix ms)
+}
+
+// WSEvent is an event pushed to clients.
+type WSEvent struct {
+	Type      WSMessageType `json:"type"`
+	Timestamp string        `json:"ts"`
+	Seq       int64         `json:"seq"`
+	Topic     string        `json:"topic"`
+	EventType string        `json:"event_type"`
+	Data      interface{}   `json:"data"`
+}
+
+// WSError represents a WebSocket error frame.
+type WSError struct {
+	Type      WSMessageType `json:"type"`
+	Timestamp string        `json:"ts"`
+	RequestID string        `json:"request_id,omitempty"`
+	Code      string        `json:"code"`
+	Message   string        `json:"message"`
+}
+
+// WSClient represents a connected WebSocket client.
+type WSClient struct {
+	id         string
+	conn       *websocket.Conn
+	hub        *WSHub
+	send       chan []byte
+	topics     map[string]struct{}
+	topicsMu   sync.RWMutex
+	authClaims map[string]interface{}
+}
+
+// WSHub manages WebSocket connections and topic routing.
+type WSHub struct {
+	clients    map[*WSClient]struct{}
+	clientsMu  sync.RWMutex
+	register   chan *WSClient
+	unregister chan *WSClient
+	broadcast  chan *WSEvent
+	seq        int64
+	seqMu      sync.Mutex
+	done       chan struct{}
+}
+
+// NewWSHub creates a new WebSocket hub.
+func NewWSHub() *WSHub {
+	return &WSHub{
+		clients:    make(map[*WSClient]struct{}),
+		register:   make(chan *WSClient),
+		unregister: make(chan *WSClient),
+		broadcast:  make(chan *WSEvent, 256),
+		done:       make(chan struct{}),
+	}
+}
+
+// Run starts the hub's main event loop.
+func (h *WSHub) Run() {
+	for {
+		select {
+		case <-h.done:
+			return
+		case client := <-h.register:
+			h.clientsMu.Lock()
+			h.clients[client] = struct{}{}
+			h.clientsMu.Unlock()
+			log.Printf("ws client connected id=%s total=%d", client.id, len(h.clients))
+		case client := <-h.unregister:
+			h.clientsMu.Lock()
+			if _, ok := h.clients[client]; ok {
+				delete(h.clients, client)
+				close(client.send)
+			}
+			h.clientsMu.Unlock()
+			log.Printf("ws client disconnected id=%s total=%d", client.id, len(h.clients))
+		case event := <-h.broadcast:
+			h.broadcastEvent(event)
+		}
+	}
+}
+
+// Stop shuts down the hub.
+func (h *WSHub) Stop() {
+	close(h.done)
+}
+
+// nextSeq returns the next sequence number.
+func (h *WSHub) nextSeq() int64 {
+	h.seqMu.Lock()
+	defer h.seqMu.Unlock()
+	h.seq++
+	return h.seq
+}
+
+// broadcastEvent sends an event to all subscribed clients.
+func (h *WSHub) broadcastEvent(event *WSEvent) {
+	event.Seq = h.nextSeq()
+	data, err := json.Marshal(event)
+	if err != nil {
+		log.Printf("ws marshal error: %v", err)
+		return
+	}
+
+	h.clientsMu.RLock()
+	defer h.clientsMu.RUnlock()
+
+	for client := range h.clients {
+		if client.isSubscribed(event.Topic) {
+			select {
+			case client.send <- data:
+			default:
+				// Client buffer full, skip
+				log.Printf("ws client buffer full id=%s", client.id)
+			}
+		}
+	}
+}
+
+// Publish publishes an event to a topic.
+func (h *WSHub) Publish(topic, eventType string, data interface{}) {
+	event := &WSEvent{
+		Type:      WSMsgEvent,
+		Timestamp: time.Now().UTC().Format(time.RFC3339Nano),
+		Topic:     topic,
+		EventType: eventType,
+		Data:      data,
+	}
+	select {
+	case h.broadcast <- event:
+	default:
+		log.Printf("ws broadcast buffer full, dropping event topic=%s", topic)
+	}
+}
+
+// ClientCount returns the number of connected clients.
+func (h *WSHub) ClientCount() int {
+	h.clientsMu.RLock()
+	defer h.clientsMu.RUnlock()
+	return len(h.clients)
+}
+
+// isSubscribed checks if a client is subscribed to a topic.
+func (c *WSClient) isSubscribed(topic string) bool {
+	c.topicsMu.RLock()
+	defer c.topicsMu.RUnlock()
+
+	// Check exact match
+	if _, ok := c.topics[topic]; ok {
+		return true
+	}
+
+	// Check wildcard patterns
+	// "global" matches all global.* topics
+	// "sessions:*" matches all session topics
+	// "panes:*" matches all pane topics
+	for pattern := range c.topics {
+		if matchTopic(pattern, topic) {
+			return true
+		}
+	}
+	return false
+}
+
+// matchTopic checks if a pattern matches a topic.
+// Supports:
+//   - "*" matches everything
+//   - "prefix:*" matches prefix:anything
+//   - exact match
+func matchTopic(pattern, topic string) bool {
+	if pattern == "*" {
+		return true
+	}
+	if strings.HasSuffix(pattern, ":*") {
+		prefix := strings.TrimSuffix(pattern, "*")
+		return strings.HasPrefix(topic, prefix)
+	}
+	return pattern == topic
+}
+
+// Subscribe adds topics to the client's subscription.
+func (c *WSClient) Subscribe(topics []string) {
+	c.topicsMu.Lock()
+	defer c.topicsMu.Unlock()
+	for _, topic := range topics {
+		c.topics[topic] = struct{}{}
+	}
+	log.Printf("ws client subscribed id=%s topics=%v", c.id, topics)
+}
+
+// Unsubscribe removes topics from the client's subscription.
+func (c *WSClient) Unsubscribe(topics []string) {
+	c.topicsMu.Lock()
+	defer c.topicsMu.Unlock()
+	for _, topic := range topics {
+		delete(c.topics, topic)
+	}
+	log.Printf("ws client unsubscribed id=%s topics=%v", c.id, topics)
+}
+
+// Topics returns the client's subscribed topics.
+func (c *WSClient) Topics() []string {
+	c.topicsMu.RLock()
+	defer c.topicsMu.RUnlock()
+	topics := make([]string, 0, len(c.topics))
+	for t := range c.topics {
+		topics = append(topics, t)
+	}
+	return topics
+}
+
+// WebSocket upgrader configuration.
+var wsUpgrader = websocket.Upgrader{
+	ReadBufferSize:  1024,
+	WriteBufferSize: 1024,
+	CheckOrigin: func(r *http.Request) bool {
+		// Origin checking is handled by CORS middleware
+		return true
+	},
+}
+
+// WebSocket timeouts.
+const (
+	wsWriteWait      = 10 * time.Second
+	wsPongWait       = 60 * time.Second
+	wsPingPeriod     = (wsPongWait * 9) / 10
+	wsMaxMessageSize = 4096
+)
+
 func ParseAuthMode(raw string) (AuthMode, error) {
 	mode := AuthMode(strings.ToLower(strings.TrimSpace(raw)))
 	switch mode {
@@ -398,6 +658,7 @@ func New(cfg Config) *Server {
 		jwksCache:          newJWKSCache(cfg.Auth.OIDC.CacheTTL),
 		idempotencyStore:   NewIdempotencyStore(24 * time.Hour),
 		jobStore:           NewJobStore(),
+		wsHub:              NewWSHub(),
 	}
 	s.router = s.buildRouter()
 	return s
@@ -467,6 +728,9 @@ func (s *Server) buildRouter() chi.Router {
 			r.Get("/{id}", s.handleGetJob)
 			r.Delete("/{id}", s.handleCancelJob)
 		})
+
+		// WebSocket endpoint
+		r.Get("/ws", s.handleWebSocket)
 	})
 
 	return r
@@ -478,10 +742,20 @@ func (s *Server) Start(ctx context.Context) error {
 		return err
 	}
 
-	// Subscribe to events for SSE broadcasting
+	// Start WebSocket hub
+	go s.wsHub.Run()
+	defer s.wsHub.Stop()
+
+	// Subscribe to events for SSE and WebSocket broadcasting
 	if s.eventBus != nil {
 		unsubscribe := s.eventBus.SubscribeAll(func(e events.BusEvent) {
 			s.broadcastEvent(e)
+			// Also broadcast to WebSocket clients
+			topic := "global:events"
+			if session := e.EventSession(); session != "" {
+				topic = "sessions:" + session
+			}
+			s.wsHub.Publish(topic, e.EventType(), e)
 		})
 		defer unsubscribe()
 	}
@@ -1831,4 +2105,317 @@ func (s *Server) handleCancelJob(w http.ResponseWriter, r *http.Request) {
 // Router returns the chi router for testing.
 func (s *Server) Router() chi.Router {
 	return s.router
+}
+
+// ============================================================================
+// WebSocket Handler
+// ============================================================================
+
+// handleWebSocket handles WebSocket connections at /api/v1/ws.
+func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
+	// Upgrade HTTP connection to WebSocket
+	conn, err := wsUpgrader.Upgrade(w, r, nil)
+	if err != nil {
+		log.Printf("ws upgrade failed: %v", err)
+		return
+	}
+
+	// Generate client ID
+	clientID := generateRequestID()
+
+	// Create client
+	client := &WSClient{
+		id:         clientID,
+		conn:       conn,
+		hub:        s.wsHub,
+		send:       make(chan []byte, 256),
+		topics:     make(map[string]struct{}),
+		authClaims: extractAuthClaims(r),
+	}
+
+	// Register client with hub
+	s.wsHub.register <- client
+
+	// Start read and write pumps
+	go client.writePump()
+	go client.readPump()
+}
+
+// extractAuthClaims extracts auth claims from the request context.
+func extractAuthClaims(r *http.Request) map[string]interface{} {
+	// If using OIDC, extract claims from verified token
+	claims := make(map[string]interface{})
+	if authCtx := r.Context().Value(authContextKey); authCtx != nil {
+		if m, ok := authCtx.(map[string]interface{}); ok {
+			claims = m
+		}
+	}
+	return claims
+}
+
+// authContextKey is the context key for auth claims.
+type ctxKeyAuth struct{}
+
+var authContextKey = ctxKeyAuth{}
+
+// readPump reads messages from the WebSocket connection.
+func (c *WSClient) readPump() {
+	defer func() {
+		c.hub.unregister <- c
+		c.conn.Close()
+	}()
+
+	c.conn.SetReadLimit(wsMaxMessageSize)
+	c.conn.SetReadDeadline(time.Now().Add(wsPongWait))
+	c.conn.SetPongHandler(func(string) error {
+		c.conn.SetReadDeadline(time.Now().Add(wsPongWait))
+		return nil
+	})
+
+	for {
+		_, message, err := c.conn.ReadMessage()
+		if err != nil {
+			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
+				log.Printf("ws read error id=%s: %v", c.id, err)
+			}
+			break
+		}
+
+		c.handleMessage(message)
+	}
+}
+
+// writePump writes messages to the WebSocket connection.
+func (c *WSClient) writePump() {
+	ticker := time.NewTicker(wsPingPeriod)
+	defer func() {
+		ticker.Stop()
+		c.conn.Close()
+	}()
+
+	for {
+		select {
+		case message, ok := <-c.send:
+			c.conn.SetWriteDeadline(time.Now().Add(wsWriteWait))
+			if !ok {
+				// Hub closed the channel
+				c.conn.WriteMessage(websocket.CloseMessage, []byte{})
+				return
+			}
+
+			w, err := c.conn.NextWriter(websocket.TextMessage)
+			if err != nil {
+				return
+			}
+			w.Write(message)
+
+			// Drain queued messages
+			n := len(c.send)
+			for i := 0; i < n; i++ {
+				w.Write([]byte{'\n'})
+				w.Write(<-c.send)
+			}
+
+			if err := w.Close(); err != nil {
+				return
+			}
+		case <-ticker.C:
+			c.conn.SetWriteDeadline(time.Now().Add(wsWriteWait))
+			if err := c.conn.WriteMessage(websocket.PingMessage, nil); err != nil {
+				return
+			}
+		}
+	}
+}
+
+// handleMessage processes an incoming WebSocket message.
+func (c *WSClient) handleMessage(data []byte) {
+	var msg WSMessage
+	if err := json.Unmarshal(data, &msg); err != nil {
+		c.sendError("", "parse_error", "invalid JSON message")
+		return
+	}
+
+	switch msg.Type {
+	case WSMsgSubscribe:
+		c.handleSubscribe(msg)
+	case WSMsgUnsubscribe:
+		c.handleUnsubscribe(msg)
+	case WSMsgPing:
+		c.sendPong(msg.RequestID)
+	default:
+		c.sendError(msg.RequestID, "unknown_type", fmt.Sprintf("unknown message type: %s", msg.Type))
+	}
+}
+
+// handleSubscribe processes a subscribe request.
+func (c *WSClient) handleSubscribe(msg WSMessage) {
+	// Extract topics from data
+	topicsRaw, ok := msg.Data["topics"]
+	if !ok {
+		c.sendError(msg.RequestID, "missing_topics", "subscribe requires topics array")
+		return
+	}
+
+	topicsSlice, ok := topicsRaw.([]interface{})
+	if !ok {
+		c.sendError(msg.RequestID, "invalid_topics", "topics must be an array")
+		return
+	}
+
+	topics := make([]string, 0, len(topicsSlice))
+	for _, t := range topicsSlice {
+		if str, ok := t.(string); ok {
+			// Validate topic format
+			if !isValidTopic(str) {
+				c.sendError(msg.RequestID, "invalid_topic", fmt.Sprintf("invalid topic: %s", str))
+				return
+			}
+			topics = append(topics, str)
+		}
+	}
+
+	if len(topics) == 0 {
+		c.sendError(msg.RequestID, "empty_topics", "at least one topic required")
+		return
+	}
+
+	// Check RBAC for topics
+	for _, topic := range topics {
+		if !c.canSubscribe(topic) {
+			c.sendError(msg.RequestID, "unauthorized", fmt.Sprintf("not authorized for topic: %s", topic))
+			return
+		}
+	}
+
+	c.Subscribe(topics)
+	c.sendAck(msg.RequestID, map[string]interface{}{
+		"subscribed": topics,
+		"total":      len(c.Topics()),
+	})
+}
+
+// handleUnsubscribe processes an unsubscribe request.
+func (c *WSClient) handleUnsubscribe(msg WSMessage) {
+	topicsRaw, ok := msg.Data["topics"]
+	if !ok {
+		c.sendError(msg.RequestID, "missing_topics", "unsubscribe requires topics array")
+		return
+	}
+
+	topicsSlice, ok := topicsRaw.([]interface{})
+	if !ok {
+		c.sendError(msg.RequestID, "invalid_topics", "topics must be an array")
+		return
+	}
+
+	topics := make([]string, 0, len(topicsSlice))
+	for _, t := range topicsSlice {
+		if str, ok := t.(string); ok {
+			topics = append(topics, str)
+		}
+	}
+
+	c.Unsubscribe(topics)
+	c.sendAck(msg.RequestID, map[string]interface{}{
+		"unsubscribed": topics,
+		"total":        len(c.Topics()),
+	})
+}
+
+// isValidTopic checks if a topic string is valid.
+// Valid topics: global, global:*, sessions:*, sessions:{name}, panes:*,
+// panes:{session}:{idx}, agent:{type}
+func isValidTopic(topic string) bool {
+	if topic == "" {
+		return false
+	}
+	if topic == "*" || topic == "global" || topic == "global:*" {
+		return true
+	}
+	// sessions:* or sessions:{name}
+	if strings.HasPrefix(topic, "sessions:") {
+		return true
+	}
+	// panes:* or panes:{session}:{idx}
+	if strings.HasPrefix(topic, "panes:") {
+		return true
+	}
+	// agent:{type}
+	if strings.HasPrefix(topic, "agent:") {
+		return true
+	}
+	return false
+}
+
+// canSubscribe checks if the client is authorized to subscribe to a topic.
+func (c *WSClient) canSubscribe(topic string) bool {
+	// For now, allow all authenticated clients to subscribe to any topic.
+	// Future: implement RBAC based on auth claims.
+	// Example checks:
+	// - Check if user has access to specific session
+	// - Check if user has agent-type filter permissions
+	return true
+}
+
+// sendError sends a WebSocket error frame.
+func (c *WSClient) sendError(requestID, code, message string) {
+	errMsg := WSError{
+		Type:      WSMsgError,
+		Timestamp: time.Now().UTC().Format(time.RFC3339Nano),
+		RequestID: requestID,
+		Code:      code,
+		Message:   message,
+	}
+	data, err := json.Marshal(errMsg)
+	if err != nil {
+		return
+	}
+	select {
+	case c.send <- data:
+	default:
+		log.Printf("ws client buffer full, dropping error id=%s", c.id)
+	}
+}
+
+// sendAck sends a WebSocket acknowledgment frame.
+func (c *WSClient) sendAck(requestID string, data map[string]interface{}) {
+	ack := WSMessage{
+		Type:      WSMsgAck,
+		Timestamp: time.Now().UTC().Format(time.RFC3339Nano),
+		RequestID: requestID,
+		Data:      data,
+	}
+	msg, err := json.Marshal(ack)
+	if err != nil {
+		return
+	}
+	select {
+	case c.send <- msg:
+	default:
+		log.Printf("ws client buffer full, dropping ack id=%s", c.id)
+	}
+}
+
+// sendPong sends a WebSocket pong response.
+func (c *WSClient) sendPong(requestID string) {
+	pong := WSMessage{
+		Type:      WSMsgPong,
+		Timestamp: time.Now().UTC().Format(time.RFC3339Nano),
+		RequestID: requestID,
+	}
+	data, err := json.Marshal(pong)
+	if err != nil {
+		return
+	}
+	select {
+	case c.send <- data:
+	default:
+		// Buffer full, skip
+	}
+}
+
+// WSHub returns the WebSocket hub for testing.
+func (s *Server) WSHub() *WSHub {
+	return s.wsHub
 }

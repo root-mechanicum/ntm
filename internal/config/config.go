@@ -828,15 +828,15 @@ func DefaultAssignConfig() AssignConfig {
 
 // EnsembleConfig holds configuration defaults for reasoning ensembles.
 type EnsembleConfig struct {
-	DefaultEnsemble string                   `toml:"default_ensemble"`
-	AgentMix        string                   `toml:"agent_mix"`
-	Assignment      string                   `toml:"assignment"`
-	ModeTierDefault string                   `toml:"mode_tier_default"` // core|advanced|experimental
-	AllowAdvanced   bool                     `toml:"allow_advanced"`
-	Synthesis       EnsembleSynthesisConfig  `toml:"synthesis"`
-	Cache           EnsembleCacheConfig      `toml:"cache"`
-	Budget          EnsembleBudgetConfig     `toml:"budget"`
-	EarlyStop       EnsembleEarlyStopConfig  `toml:"early_stop"`
+	DefaultEnsemble string                  `toml:"default_ensemble"`
+	AgentMix        string                  `toml:"agent_mix"`
+	Assignment      string                  `toml:"assignment"`
+	ModeTierDefault string                  `toml:"mode_tier_default"` // core|advanced|experimental
+	AllowAdvanced   bool                    `toml:"allow_advanced"`
+	Synthesis       EnsembleSynthesisConfig `toml:"synthesis"`
+	Cache           EnsembleCacheConfig     `toml:"cache"`
+	Budget          EnsembleBudgetConfig    `toml:"budget"`
+	EarlyStop       EnsembleEarlyStopConfig `toml:"early_stop"`
 }
 
 // EnsembleSynthesisConfig configures synthesis defaults for ensembles.
@@ -850,11 +850,11 @@ type EnsembleSynthesisConfig struct {
 
 // EnsembleCacheConfig configures context pack caching defaults.
 type EnsembleCacheConfig struct {
-	Enabled         bool   `toml:"enabled"`
-	TTLMinutes      int    `toml:"ttl_minutes"`
-	CacheDir        string `toml:"cache_dir"`
-	MaxEntries      int    `toml:"max_entries"`
-	ShareAcrossModes bool  `toml:"share_across_modes"`
+	Enabled          bool   `toml:"enabled"`
+	TTLMinutes       int    `toml:"ttl_minutes"`
+	CacheDir         string `toml:"cache_dir"`
+	MaxEntries       int    `toml:"max_entries"`
+	ShareAcrossModes bool   `toml:"share_across_modes"`
 }
 
 // EnsembleBudgetConfig configures token budgets for ensembles.
@@ -886,10 +886,10 @@ func DefaultEnsembleConfig() EnsembleConfig {
 			Strategy: "deliberative",
 		},
 		Cache: EnsembleCacheConfig{
-			Enabled:         true,
-			TTLMinutes:      60,
-			CacheDir:        "~/.cache/ntm/context-packs",
-			MaxEntries:      32,
+			Enabled:          true,
+			TTLMinutes:       60,
+			CacheDir:         "~/.cache/ntm/context-packs",
+			MaxEntries:       32,
 			ShareAcrossModes: true,
 		},
 		Budget: EnsembleBudgetConfig{
