@@ -11,10 +11,45 @@ import (
 
 	"github.com/BurntSushi/toml"
 
-	"github.com/Dicklesworthstone/ntm/internal/ensemble"
 	"github.com/Dicklesworthstone/ntm/internal/notify"
 	"github.com/Dicklesworthstone/ntm/internal/util"
 )
+
+// validSynthesisStrategies defines the canonical synthesis strategy names.
+// This is kept in sync with ensemble.strategyRegistry to break the import cycle.
+var validSynthesisStrategies = map[string]bool{
+	"manual":         true,
+	"adversarial":    true,
+	"consensus":      true,
+	"creative":       true,
+	"analytical":     true,
+	"deliberative":   true,
+	"prioritized":    true,
+	"dialectical":    true,
+	"meta-reasoning": true,
+	"voting":         true,
+	"argumentation":  true,
+}
+
+// deprecatedSynthesisStrategies maps deprecated names to their replacements.
+var deprecatedSynthesisStrategies = map[string]string{
+	"debate":     "dialectical",
+	"weighted":   "prioritized",
+	"sequential": "manual",
+	"best-of":    "prioritized",
+}
+
+// validateSynthesisStrategy validates a synthesis strategy name.
+// Returns nil if valid, or an error with migration hints for deprecated names.
+func validateSynthesisStrategy(name string) error {
+	if validSynthesisStrategies[name] {
+		return nil
+	}
+	if replacement, ok := deprecatedSynthesisStrategies[name]; ok {
+		return fmt.Errorf("strategy %q is deprecated; use %q instead", name, replacement)
+	}
+	return fmt.Errorf("unknown synthesis strategy %q", name)
+}
 
 // Config represents the main configuration
 type Config struct {
@@ -510,7 +545,7 @@ func ValidateEnsembleConfig(cfg *EnsembleConfig) error {
 	}
 
 	if cfg.Synthesis.Strategy != "" {
-		if _, err := ensemble.ValidateOrMigrateStrategy(cfg.Synthesis.Strategy); err != nil {
+		if err := validateSynthesisStrategy(cfg.Synthesis.Strategy); err != nil {
 			return fmt.Errorf("synthesis.strategy: %w", err)
 		}
 	}

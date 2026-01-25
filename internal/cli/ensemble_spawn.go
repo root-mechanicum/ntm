@@ -156,7 +156,7 @@ func applyEnsembleConfigOverrides(target *ensemble.EnsembleConfig, ensCfg config
 		target.Synthesis.Strategy = ensemble.SynthesisStrategy(strings.TrimSpace(ensCfg.Synthesis.Strategy))
 	}
 	if ensCfg.Synthesis.MinConfidence > 0 {
-		target.Synthesis.MinConfidence = ensCfg.Synthesis.MinConfidence
+		target.Synthesis.MinConfidence = ensemble.Confidence(ensCfg.Synthesis.MinConfidence)
 	}
 	if ensCfg.Synthesis.MaxFindings > 0 {
 		target.Synthesis.MaxFindings = ensCfg.Synthesis.MaxFindings
@@ -806,8 +806,8 @@ func renderEnsembleDryRunText(w io.Writer, out ensembleDryRunOutput) error {
 	}
 	if len(out.Validation.Warnings) > 0 {
 		_, _ = fmt.Fprintln(w, "Warnings:")
-		for _, w := range out.Validation.Warnings {
-			_, _ = fmt.Fprintf(w, "  WARN: %s\n", w)
+		for _, warn := range out.Validation.Warnings {
+			_, _ = fmt.Fprintf(w, "  WARN: %s\n", warn)
 		}
 	}
 

@@ -320,7 +320,7 @@ func applyEnsembleConfigOverrides(target *ensemble.EnsembleConfig, ensCfg config
 		target.Synthesis.Strategy = ensemble.SynthesisStrategy(strings.TrimSpace(ensCfg.Synthesis.Strategy))
 	}
 	if ensCfg.Synthesis.MinConfidence > 0 {
-		target.Synthesis.MinConfidence = ensCfg.Synthesis.MinConfidence
+		target.Synthesis.MinConfidence = ensemble.Confidence(ensCfg.Synthesis.MinConfidence)
 	}
 	if ensCfg.Synthesis.MaxFindings > 0 {
 		target.Synthesis.MaxFindings = ensCfg.Synthesis.MaxFindings

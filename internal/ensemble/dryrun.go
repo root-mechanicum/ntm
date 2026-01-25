@@ -114,8 +114,8 @@ func (m *EnsembleManager) DryRunEnsemble(ctx context.Context, cfg *EnsembleConfi
 	// Synthesis config
 	plan.Synthesis = DryRunSynthesis{
 		Strategy:           resolvedCfg.synthesis.Strategy.String(),
-		SynthesizerModeID:  resolvedCfg.synthesis.SynthesizerModeID,
-		MinConfidence:      resolvedCfg.synthesis.MinConfidence,
+		SynthesizerModeID:  "", // Synthesizer mode determined at runtime by strategy
+		MinConfidence:      float64(resolvedCfg.synthesis.MinConfidence),
 		MaxFindings:        resolvedCfg.synthesis.MaxFindings,
 		ConflictResolution: resolvedCfg.synthesis.ConflictResolution,
 	}

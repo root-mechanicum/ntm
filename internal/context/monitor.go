@@ -445,6 +445,16 @@ func (m *ContextMonitor) RegisterAgent(agentID, paneID, model string) *ContextSt
 	return state
 }
 
+// SetAgentType updates the agent type for a monitored agent.
+func (m *ContextMonitor) SetAgentType(agentID, agentType string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if state, exists := m.states[agentID]; exists {
+		state.AgentType = agentType
+	}
+}
+
 // UnregisterAgent removes an agent from monitoring.
 func (m *ContextMonitor) UnregisterAgent(agentID string) {
 	m.mu.Lock()
