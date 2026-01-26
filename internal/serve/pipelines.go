@@ -200,7 +200,7 @@ func (s *Server) handleExecPipeline(w http.ResponseWriter, r *http.Request) {
 
 	slog.Info("pipeline exec",
 		"request_id", reqID,
-		"workflow_id", req.Workflow.ID,
+		"workflow_id", req.Workflow.Name,
 		"session", req.Session,
 	)
 
@@ -304,10 +304,8 @@ func (s *Server) handleCancelPipeline(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Cancel the pipeline
-	if exec.CancelFn() != nil {
-		exec.CancelFn()()
-	}
+	// Cancel the pipeline using the executor's Cancel method
+	pipeline.CancelPipeline(runID)
 
 	writeSuccessResponse(w, http.StatusOK, map[string]interface{}{
 		"run_id":  runID,
@@ -388,8 +386,8 @@ func (s *Server) handleValidatePipeline(w http.ResponseWriter, r *http.Request) 
 	var validation pipeline.ValidationResult
 
 	if req.WorkflowContent != "" {
-		// Parse inline content
-		wf, err := pipeline.ParseYAML([]byte(req.WorkflowContent))
+		// Parse inline content (assume YAML format for inline content)
+		wf, err := pipeline.ParseString(req.WorkflowContent, "yaml")
 		if err != nil {
 			writeErrorResponse(w, http.StatusBadRequest, ErrCodeInvalidWorkflow, "failed to parse workflow", map[string]interface{}{
 				"parse_error": err.Error(),
@@ -417,19 +415,18 @@ func (s *Server) handleValidatePipeline(w http.ResponseWriter, r *http.Request) 
 	errors := make([]map[string]interface{}, 0, len(validation.Errors))
 	for _, e := range validation.Errors {
 		errors = append(errors, map[string]interface{}{
-			"step_id":  e.StepID,
-			"field":    e.Field,
-			"message":  e.Message,
-			"severity": e.Severity,
+			"field":   e.Field,
+			"message": e.Message,
+			"hint":    e.Hint,
 		})
 	}
 
 	warnings := make([]map[string]interface{}, 0, len(validation.Warnings))
 	for _, w := range validation.Warnings {
 		warnings = append(warnings, map[string]interface{}{
-			"step_id": w.StepID,
 			"field":   w.Field,
 			"message": w.Message,
+			"hint":    w.Hint,
 		})
 	}
 
@@ -441,7 +438,7 @@ func (s *Server) handleValidatePipeline(w http.ResponseWriter, r *http.Request) 
 		"step_count":  0,
 	}
 	if workflow != nil {
-		resp["workflow_id"] = workflow.ID
+		resp["workflow_id"] = workflow.Name
 		resp["step_count"] = len(workflow.Steps)
 	}
 
@@ -538,7 +535,7 @@ func runPipelineWithResult(opts pipeline.PipelineRunOptions) pipeline.PipelineRu
 	if opts.DryRun {
 		validation := executor.Validate(workflow)
 		output.RobotResponse = pipeline.NewRobotResponse(validation.Valid)
-		output.WorkflowID = workflow.ID
+		output.WorkflowID = workflow.Name
 		output.Status = "validated"
 		output.DryRun = true
 		return output
@@ -546,7 +543,7 @@ func runPipelineWithResult(opts pipeline.PipelineRunOptions) pipeline.PipelineRu
 
 	// Start execution
 	output.RobotResponse = pipeline.NewRobotResponse(true)
-	output.WorkflowID = workflow.ID
+	output.WorkflowID = workflow.Name
 	output.Session = opts.Session
 	output.Status = "started"
 	output.Progress = pipeline.PipelineProgress{
@@ -586,7 +583,7 @@ func execPipelineInline(workflow *pipeline.Workflow, session string, variables m
 	executor := pipeline.NewExecutor(config)
 
 	output.RobotResponse = pipeline.NewRobotResponse(true)
-	output.WorkflowID = workflow.ID
+	output.WorkflowID = workflow.Name
 	output.Session = session
 	output.Status = "started"
 	output.Progress = pipeline.PipelineProgress{
