@@ -3849,7 +3849,11 @@ func buildCorrelationGraph() *GraphCorrelation {
 			if i >= maxSummaries {
 				break
 			}
-			summary, err := agentMailClient.SummarizeThread(ctx, wd, tid, false)
+			summary, err := agentMailClient.SummarizeThread(ctx, agentmail.SummarizeThreadOptions{
+				ProjectKey:      wd,
+				ThreadID:        tid,
+				IncludeExamples: false,
+			})
 			if err != nil {
 				corr.Errors = append(corr.Errors, fmt.Sprintf("summarize_thread %s: %v", tid, err))
 				continue
