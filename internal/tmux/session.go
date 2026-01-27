@@ -138,17 +138,20 @@ func detectAgentFromCommand(command string) AgentType {
 	cmd := strings.ToLower(command)
 
 	// Claude Code variants
-	if cmd == "claude" || strings.HasPrefix(cmd, "claude ") || strings.Contains(cmd, "/claude") {
+	if cmd == "claude" || strings.HasPrefix(cmd, "claude ") || strings.Contains(cmd, "/claude") ||
+		cmd == "cc" || strings.HasPrefix(cmd, "cc ") {
 		return AgentClaude
 	}
 
 	// Codex CLI
-	if cmd == "codex" || strings.HasPrefix(cmd, "codex ") || strings.Contains(cmd, "/codex") {
+	if cmd == "codex" || strings.HasPrefix(cmd, "codex ") || strings.Contains(cmd, "/codex") ||
+		cmd == "cod" || strings.HasPrefix(cmd, "cod ") {
 		return AgentCodex
 	}
 
 	// Gemini CLI
-	if cmd == "gemini" || strings.HasPrefix(cmd, "gemini ") || strings.Contains(cmd, "/gemini") {
+	if cmd == "gemini" || strings.HasPrefix(cmd, "gemini ") || strings.Contains(cmd, "/gemini") ||
+		cmd == "gmi" || strings.HasPrefix(cmd, "gmi ") {
 		return AgentGemini
 	}
 

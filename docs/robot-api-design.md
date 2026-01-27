@@ -594,6 +594,80 @@ Use this checklist when adding or modifying a robot command:
 
 ---
 
+## 15. JSON Schema Generation
+
+NTM provides built-in JSON Schema generation for all robot command outputs. This enables:
+
+- **Type-safe integration** - Generate client types from schemas
+- **Validation** - Validate responses against canonical schemas
+- **Documentation** - Auto-generate API docs from schemas
+
+### Usage
+
+```bash
+# Simple form (recommended)
+ntm --schema status              # Schema for status output
+ntm --schema all                 # All available schemas
+
+# Long form (equivalent)
+ntm --robot-schema=status
+ntm --robot-schema=all
+```
+
+### Available Schema Types
+
+| Type | Description | Command |
+|------|-------------|---------|
+| `status` | Full system status | `--robot-status` |
+| `snapshot` | Unified state dump | `--robot-snapshot` |
+| `version` | Version information | `--robot-version` |
+| `spawn` | Session creation | `--robot-spawn` |
+| `send` | Message delivery | `--robot-send` |
+| `interrupt` | Agent interruption | `--robot-interrupt` |
+| `tail` | Pane output capture | `--robot-tail` |
+| `ack` | Send acknowledgment | `--robot-ack` |
+| `inspect` | Pane inspection | `--robot-inspect-pane` |
+| `ensemble` | Ensemble state | `--robot-ensemble` |
+| `ensemble_spawn` | Ensemble creation | `--robot-ensemble-spawn` |
+| `beads_list` | Bead listing | `--robot-bead-list` |
+| `assign` | Work assignment | `--robot-assign` |
+| `triage` | Triage analysis | `--robot-triage` |
+| `health` | Health check | `--robot-health` |
+| `diagnose` | Diagnostic report | `--robot-diagnose` |
+| `agent_health` | Agent health | `--robot-agent-health` |
+| `is_working` | Working state | `--robot-is-working` |
+| `all` | All schemas | - |
+
+### Example Output
+
+```bash
+ntm --schema status | jq '.schema.properties | keys'
+[
+  "_meta",
+  "agent_mail",
+  "alerts",
+  "beads",
+  "error",
+  "error_code",
+  "generated_at",
+  "sessions",
+  "success",
+  "summary",
+  "system",
+  "timestamp",
+  "version"
+]
+```
+
+### Schema Versioning
+
+All schemas include:
+- `$schema`: JSON Schema draft version (draft-07)
+- `title`: Human-readable schema title
+- Schema output includes `version` field (currently `1.0.0`)
+
+---
+
 ## Quick Reference Card
 
 ```
@@ -602,6 +676,7 @@ GLOBAL COMMANDS (bool flags)
   --robot-version         Version info
   --robot-snapshot        Unified state dump
   --robot-capabilities    API discovery
+  --schema=TYPE           JSON Schema generation
 
 SESSION COMMANDS (=SESSION syntax)
   --robot-send=S          Send prompts
@@ -630,5 +705,5 @@ OUTPUT FORMAT
 
 ---
 
-*Last updated: 2026-01-23*
-*Reference: bd-3045p*
+*Last updated: 2026-01-27*
+*Reference: bd-3045p, bd-12nbo*
