@@ -54,14 +54,16 @@ const (
 	PermReadWebSocket    Permission = "ws:read"
 	PermReadMail         Permission = "mail:read"
 	PermReadReservations Permission = "reservations:read"
+	PermReadBeads        Permission = "beads:read"
 
 	// Write/operation permissions
-	PermWriteSessions   Permission = "sessions:write"
-	PermWriteAgents     Permission = "agents:write"
-	PermWritePipelines  Permission = "pipelines:write"
+	PermWriteSessions     Permission = "sessions:write"
+	PermWriteAgents       Permission = "agents:write"
+	PermWritePipelines    Permission = "pipelines:write"
 	PermWriteJobs         Permission = "jobs:write"
 	PermWriteMail         Permission = "mail:write"
 	PermWriteReservations Permission = "reservations:write"
+	PermWriteBeads        Permission = "beads:write"
 	PermApproveRequests   Permission = "approvals:approve"
 
 	// Dangerous operations (require admin or approval)
@@ -84,6 +86,7 @@ var rolePermissions = map[Role][]Permission{
 		PermReadWebSocket,
 		PermReadMail,
 		PermReadReservations,
+		PermReadBeads,
 	},
 	RoleOperator: {
 		// Viewer permissions
@@ -97,6 +100,7 @@ var rolePermissions = map[Role][]Permission{
 		PermReadWebSocket,
 		PermReadMail,
 		PermReadReservations,
+		PermReadBeads,
 		// Operator permissions
 		PermWriteSessions,
 		PermWriteAgents,
@@ -104,6 +108,7 @@ var rolePermissions = map[Role][]Permission{
 		PermWriteJobs,
 		PermWriteMail,
 		PermWriteReservations,
+		PermWriteBeads,
 	},
 	RoleAdmin: {
 		// All viewer and operator permissions
@@ -117,12 +122,14 @@ var rolePermissions = map[Role][]Permission{
 		PermReadWebSocket,
 		PermReadMail,
 		PermReadReservations,
+		PermReadBeads,
 		PermWriteSessions,
 		PermWriteAgents,
 		PermWritePipelines,
 		PermWriteJobs,
 		PermWriteMail,
 		PermWriteReservations,
+		PermWriteBeads,
 		// Admin-only permissions
 		PermApproveRequests,
 		PermDangerousOps,
