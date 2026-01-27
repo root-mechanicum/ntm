@@ -138,7 +138,7 @@ func detectAgentFromCommand(command string) AgentType {
 	cmd := strings.ToLower(command)
 
 	// Claude Code variants
-	if strings.Contains(cmd, "claude") {
+	if cmd == "claude" || strings.HasPrefix(cmd, "claude ") || strings.Contains(cmd, "/claude") {
 		return AgentClaude
 	}
 
@@ -379,6 +379,81 @@ func GetPanes(session string) ([]Pane, error) {
 // GetPanesContext returns all panes in a session with cancellation support (default client).
 func GetPanesContext(ctx context.Context, session string) ([]Pane, error) {
 	return DefaultClient.GetPanesContext(ctx, session)
+}
+
+// GetAllPanesContext returns all panes from all sessions, grouped by session name.
+func (c *Client) GetAllPanesContext(ctx context.Context) (map[string][]Pane, error) {
+	sep := FieldSeparator
+	// Add session_name at the beginning
+	format := fmt.Sprintf("#{session_name}%[1]s#{pane_id}%[1]s#{pane_index}%[1]s#{pane_title}%[1]s#{pane_current_command}%[1]s#{pane_width}%[1]s#{pane_height}%[1]s#{pane_active}%[1]s#{pane_pid}", sep)
+	output, err := c.RunContext(ctx, "list-panes", "-a", "-F", format)
+	if err != nil {
+		return nil, err
+	}
+
+	panesBySession := make(map[string][]Pane)
+
+	for _, line := range strings.Split(output, "\n") {
+		if line == "" {
+			continue
+		}
+
+		parts := strings.Split(line, sep)
+		if len(parts) < 9 {
+			continue
+		}
+
+		sessionName := parts[0]
+		index, err := strconv.Atoi(parts[2])
+		if err != nil {
+			continue
+		}
+		width, err := strconv.Atoi(parts[5])
+		if err != nil {
+			continue
+		}
+		height, err := strconv.Atoi(parts[6])
+		if err != nil {
+			continue
+		}
+		active := parts[7] == "1"
+		pid, err := strconv.Atoi(parts[8])
+		if err != nil {
+			continue
+		}
+
+		pane := Pane{
+			ID:      parts[1],
+			Index:   index,
+			Title:   parts[3],
+			Command: parts[4],
+			Width:   width,
+			Height:  height,
+			Active:  active,
+			PID:     pid,
+		}
+
+		// Parse pane title using regex to extract type, index, variant, and tags
+		// Format: {session}__{type}_{index} or {session}__{type}_{index}_{variant}
+		pane.Type, pane.NTMIndex, pane.Variant, pane.Tags = parseAgentFromTitle(pane.Title)
+
+		// Fallback: if title didn't match NTM format, try detecting from process command
+		// This handles cases where shell prompts or tmux hooks change the pane title
+		if pane.Type == AgentUser && pane.Command != "" {
+			if detected := detectAgentFromCommand(pane.Command); detected != AgentUser {
+				pane.Type = detected
+			}
+		}
+
+		panesBySession[sessionName] = append(panesBySession[sessionName], pane)
+	}
+
+	return panesBySession, nil
+}
+
+// GetAllPanes returns all panes from all sessions (default client)
+func GetAllPanes() (map[string][]Pane, error) {
+	return DefaultClient.GetAllPanesContext(context.Background())
 }
 
 // GetFirstWindow returns the first window index for a session
