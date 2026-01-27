@@ -159,10 +159,11 @@ const (
 
 // IdempotencyStore caches responses by idempotency key.
 type IdempotencyStore struct {
-	mu      sync.RWMutex
-	entries map[string]*idempotencyEntry
-	ttl     time.Duration
-	stop    chan struct{}
+	mu       sync.RWMutex
+	entries  map[string]*idempotencyEntry
+	ttl      time.Duration
+	stop     chan struct{}
+	stopOnce sync.Once
 }
 
 type idempotencyEntry struct {
@@ -187,8 +188,11 @@ func NewIdempotencyStore(ttl time.Duration) *IdempotencyStore {
 }
 
 // Stop terminates the cleanup goroutine. Call this when the store is no longer needed.
+// Safe to call multiple times.
 func (s *IdempotencyStore) Stop() {
-	close(s.stop)
+	s.stopOnce.Do(func() {
+		close(s.stop)
+	})
 }
 
 func (s *IdempotencyStore) cleanup() {
@@ -2163,11 +2167,21 @@ func (s *Server) checkWSOrigin(r *http.Request) bool {
 		return false
 	}
 
+	// Reject malformed origins (e.g., "//example.com" or "https://")
+	if originURL.Scheme == "" || originURL.Host == "" {
+		log.Printf("ws: malformed origin %q (missing scheme or host)", origin)
+		return false
+	}
+
 	// Check against configured allowed origins using full URL comparison
 	// (not prefix matching, which would allow https://evil.com to match https://e)
 	for _, allowed := range s.corsAllowedOrigins {
 		allowedURL, err := url.Parse(allowed)
 		if err != nil {
+			continue
+		}
+		// Skip malformed allowed origins
+		if allowedURL.Scheme == "" || allowedURL.Host == "" {
 			continue
 		}
 		// Compare scheme and host (host includes port if specified)
