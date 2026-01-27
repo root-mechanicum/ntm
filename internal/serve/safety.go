@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -931,14 +932,14 @@ func (s *Server) handleApprovalsListV1(w http.ResponseWriter, r *http.Request) {
 	// Filter by status
 	status := r.URL.Query().Get("status")
 
-	approvalsLock.RLock()
-	defer approvalsLock.RUnlock()
+	approvalsLock.Lock()
+	defer approvalsLock.Unlock()
 
 	var result []Approval
 	now := time.Now()
 
 	for _, a := range approvals {
-		// Check if expired
+		// Check if expired (now safe to modify since we hold the write lock)
 		if a.Status == "pending" && now.After(a.ExpiresAt) {
 			a.Status = "expired"
 		}
@@ -987,9 +988,14 @@ func (s *Server) handleApprovalsHistoryV1(w http.ResponseWriter, r *http.Request
 		}
 	}
 
-	// Limit results
+	// Sort by CreatedAt descending (most recent first)
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].CreatedAt.After(result[j].CreatedAt)
+	})
+
+	// Limit results (take the first N, which are the most recent)
 	if len(result) > limit {
-		result = result[len(result)-limit:]
+		result = result[:limit]
 	}
 
 	resp := ApprovalsListResponse{
@@ -1017,22 +1023,24 @@ func (s *Server) handleApprovalGetV1(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	approvalsLock.RLock()
+	approvalsLock.Lock()
 	approval, ok := approvals[id]
-	approvalsLock.RUnlock()
-
 	if !ok {
+		approvalsLock.Unlock()
 		writeErrorResponse(w, http.StatusNotFound, ErrCodeNotFound,
 			fmt.Sprintf("approval '%s' not found", id), nil, reqID)
 		return
 	}
 
-	// Check if expired
+	// Check if expired (safe to modify since we hold the write lock)
 	if approval.Status == "pending" && time.Now().After(approval.ExpiresAt) {
 		approval.Status = "expired"
 	}
+	// Copy the approval data while holding the lock
+	approvalCopy := *approval
+	approvalsLock.Unlock()
 
-	data, err := toJSONMap(approval)
+	data, err := toJSONMap(approvalCopy)
 	if err != nil {
 		writeErrorResponse(w, http.StatusInternalServerError, ErrCodeInternalError,
 			"failed to serialize response", nil, reqID)

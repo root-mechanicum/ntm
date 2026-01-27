@@ -868,7 +868,14 @@ func (s *Server) buildRouter() chi.Router {
 
 		// WebSocket endpoint (requires read permission)
 		r.With(s.RequirePermission(PermReadWebSocket)).Get("/ws", s.handleWebSocket)
+
+		// OpenAPI specification endpoint
+		r.With(s.RequirePermission(PermReadHealth)).Get("/openapi.json", s.handleOpenAPISpec)
 	})
+
+	// Swagger UI documentation (outside /api/v1, no auth required)
+	r.Get("/docs", s.handleSwaggerUI)
+	r.Get("/docs/", s.handleSwaggerUI)
 
 	return r
 }

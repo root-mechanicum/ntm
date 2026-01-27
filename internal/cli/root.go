@@ -2400,6 +2400,7 @@ func init() {
 		newSafetyCmd(),
 		newPolicyCmd(),
 		newKernelCmd(),
+		newOpenAPICmd(),
 		newGuardsCmd(),
 		newApproveCmd(),
 		newServeCmd(),

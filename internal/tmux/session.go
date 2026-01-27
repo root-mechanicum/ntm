@@ -41,7 +41,7 @@ const (
 )
 
 // FieldSeparator is used to separate fields in tmux format strings.
-const FieldSeparator = ":::"
+const FieldSeparator = "_NTM_SEP_"
 
 // Pane represents a tmux pane
 type Pane struct {
@@ -153,12 +153,12 @@ func detectAgentFromCommand(command string) AgentType {
 	}
 
 	// Cursor
-	if strings.Contains(cmd, "cursor") {
+	if cmd == "cursor" || strings.HasPrefix(cmd, "cursor ") || strings.Contains(cmd, "/cursor") {
 		return AgentCursor
 	}
 
 	// Windsurf
-	if strings.Contains(cmd, "windsurf") {
+	if cmd == "windsurf" || strings.HasPrefix(cmd, "windsurf ") || strings.Contains(cmd, "/windsurf") {
 		return AgentWindsurf
 	}
 
@@ -324,11 +324,23 @@ func (c *Client) GetPanesContext(ctx context.Context, session string) ([]Pane, e
 			continue
 		}
 
-		index, _ := strconv.Atoi(parts[1])
-		width, _ := strconv.Atoi(parts[4])
-		height, _ := strconv.Atoi(parts[5])
+		index, err := strconv.Atoi(parts[1])
+		if err != nil {
+			continue
+		}
+		width, err := strconv.Atoi(parts[4])
+		if err != nil {
+			continue
+		}
+		height, err := strconv.Atoi(parts[5])
+		if err != nil {
+			continue
+		}
 		active := parts[6] == "1"
-		pid, _ := strconv.Atoi(parts[7])
+		pid, err := strconv.Atoi(parts[7])
+		if err != nil {
+			continue
+		}
 
 		pane := Pane{
 			ID:      parts[0],
@@ -717,9 +729,19 @@ func (c *Client) PasteKeys(target, content string, enter bool) error {
 	return c.SendKeys(target, content, enter)
 }
 
+// PasteKeysWithDelay pastes content to a pane with a configurable delay before Enter.
+func (c *Client) PasteKeysWithDelay(target, content string, enter bool, enterDelay time.Duration) error {
+	return c.SendKeysWithDelay(target, content, enter, enterDelay)
+}
+
 // PasteKeys pastes content to a pane (default client)
 func PasteKeys(target, content string, enter bool) error {
 	return DefaultClient.PasteKeys(target, content, enter)
+}
+
+// PasteKeysWithDelay pastes content to a pane with a configurable delay (default client)
+func PasteKeysWithDelay(target, content string, enter bool, enterDelay time.Duration) error {
+	return DefaultClient.PasteKeysWithDelay(target, content, enter, enterDelay)
 }
 
 // SendInterrupt sends Ctrl+C to a pane
@@ -994,12 +1016,24 @@ func (c *Client) GetPanesWithActivityContext(ctx context.Context, session string
 			continue
 		}
 
-		index, _ := strconv.Atoi(parts[1])
-		width, _ := strconv.Atoi(parts[4])
-		height, _ := strconv.Atoi(parts[5])
+		index, err := strconv.Atoi(parts[1])
+		if err != nil {
+			continue
+		}
+		width, err := strconv.Atoi(parts[4])
+		if err != nil {
+			continue
+		}
+		height, err := strconv.Atoi(parts[5])
+		if err != nil {
+			continue
+		}
 		active := parts[6] == "1"
 		rawTimestamp := strings.TrimSpace(parts[7])
-		pid, _ := strconv.Atoi(parts[8])
+		pid, err := strconv.Atoi(parts[8])
+		if err != nil {
+			continue
+		}
 		now := time.Now()
 		lastActivity, err := parsePaneActivityTimestamp(rawTimestamp, now)
 		if err != nil {
