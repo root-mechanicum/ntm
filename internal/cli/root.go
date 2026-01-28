@@ -1851,6 +1851,12 @@ var (
 	// Robot-restart-pane flag
 	robotRestartPane string // session name for pane restart
 
+	// Robot-probe flags for active pane responsiveness testing (bd-1cu1f)
+	robotProbe          string // session name to probe
+	robotProbeMethod    string // probe method: keystroke_echo, interrupt_test
+	robotProbeTimeout   int    // probe timeout in ms
+	robotProbeAggressive bool  // fallback to interrupt_test if keystroke_echo fails
+
 	// Robot-is-working flags for agent work state detection (bd-16ptx)
 	robotIsWorking        string // session name to check
 	robotIsWorkingVerbose bool   // include raw sample output
