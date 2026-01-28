@@ -1009,6 +1009,10 @@ func spawnSessionLogic(opts SpawnOptions) error {
 				}
 				return outputError(fmt.Errorf("creating pane: %w", err))
 			}
+			if (testPacing.paneDelay > 0 || testPacing.agentDelay > 0) && !IsJSONOutput() {
+				fmt.Printf("[E2E-SPAWN] event=pane_split session=%s seq=%d ts_ms=%d\n",
+					opts.Session, i+1, time.Now().UnixMilli())
+			}
 		}
 		if !IsJSONOutput() {
 			steps.Done()
