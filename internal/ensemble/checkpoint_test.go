@@ -122,6 +122,46 @@ func TestCheckpointStore_SaveAndLoadMetadata(t *testing.T) {
 	t.Logf("TEST: %s - assertion: metadata save/load works", t.Name())
 }
 
+func TestCheckpointStore_SaveAndLoadSynthesisCheckpoint(t *testing.T) {
+	t.Logf("TEST: %s - starting", t.Name())
+
+	tmpDir := t.TempDir()
+	store, err := NewCheckpointStore(tmpDir)
+	if err != nil {
+		t.Fatalf("NewCheckpointStore failed: %v", err)
+	}
+
+	runID := "test-synth-run"
+	checkpoint := SynthesisCheckpoint{
+		RunID:       runID,
+		SessionName: "test-session",
+		LastIndex:   7,
+		Error:       "context canceled",
+		CreatedAt:   time.Now().UTC(),
+	}
+
+	if err := store.SaveSynthesisCheckpoint(runID, checkpoint); err != nil {
+		t.Fatalf("SaveSynthesisCheckpoint failed: %v", err)
+	}
+
+	loaded, err := store.LoadSynthesisCheckpoint(runID)
+	if err != nil {
+		t.Fatalf("LoadSynthesisCheckpoint failed: %v", err)
+	}
+
+	if loaded.LastIndex != checkpoint.LastIndex {
+		t.Errorf("LastIndex = %d, want %d", loaded.LastIndex, checkpoint.LastIndex)
+	}
+	if loaded.Error != checkpoint.Error {
+		t.Errorf("Error = %q, want %q", loaded.Error, checkpoint.Error)
+	}
+	if loaded.UpdatedAt.IsZero() {
+		t.Error("UpdatedAt is zero")
+	}
+
+	t.Logf("TEST: %s - assertion: synthesis checkpoint save/load works", t.Name())
+}
+
 func TestCheckpointStore_LoadCheckpoint_NotFound(t *testing.T) {
 	t.Logf("TEST: %s - starting", t.Name())
 

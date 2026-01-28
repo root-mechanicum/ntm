@@ -150,6 +150,34 @@ func TestRunBrCreateParsesID(t *testing.T) {
 	}
 }
 
+func TestApplyResumeIndex(t *testing.T) {
+	tests := []struct {
+		name        string
+		resumeIndex int
+		chunkIndex  int
+		wantOK      bool
+		wantIndex   int
+	}{
+		{name: "no resume", resumeIndex: 0, chunkIndex: 1, wantOK: true, wantIndex: 1},
+		{name: "skip earlier", resumeIndex: 2, chunkIndex: 1, wantOK: false, wantIndex: 1},
+		{name: "skip equal", resumeIndex: 2, chunkIndex: 2, wantOK: false, wantIndex: 2},
+		{name: "emit after", resumeIndex: 2, chunkIndex: 3, wantOK: true, wantIndex: 3},
+		{name: "negative resume", resumeIndex: -1, chunkIndex: 4, wantOK: true, wantIndex: 4},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			chunk, ok := applyResumeIndex(ensemble.SynthesisChunk{Index: tt.chunkIndex}, tt.resumeIndex)
+			if ok != tt.wantOK {
+				t.Fatalf("ok = %v, want %v", ok, tt.wantOK)
+			}
+			if chunk.Index != tt.wantIndex {
+				t.Fatalf("index = %d, want %d", chunk.Index, tt.wantIndex)
+			}
+		})
+	}
+}
+
 func TestFormatBeadDescriptionIncludesProvenance(t *testing.T) {
 	ctx := &exportFindingsContext{
 		Question: "What are the security risks?",

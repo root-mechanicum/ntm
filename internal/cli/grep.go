@@ -22,6 +22,10 @@ type GrepMatch struct {
 	Line    int      `json:"line"`
 	Content string   `json:"content"`
 	Context []string `json:"context,omitempty"`
+	// ContextBefore/After track how many lines in Context are before/after the match.
+	// This avoids assuming a symmetric split when only -A or -B is provided.
+	ContextBefore int `json:"context_before,omitempty"`
+	ContextAfter  int `json:"context_after,omitempty"`
 }
 
 // GrepResult contains all matches from a grep operation
@@ -58,7 +62,11 @@ func (r *GrepResult) Text(w io.Writer) error {
 
 		// Print context before (if any)
 		if len(m.Context) > 0 {
-			contextBefore := len(m.Context) / 2
+			contextBefore := m.ContextBefore
+			if contextBefore < 0 || contextBefore > len(m.Context) ||
+				(contextBefore == 0 && m.ContextAfter == 0) {
+				contextBefore = len(m.Context) / 2
+			}
 			for j := 0; j < contextBefore && j < len(m.Context); j++ {
 				lineNum := m.Line - contextBefore + j
 				if lineNum > 0 {
@@ -75,7 +83,11 @@ func (r *GrepResult) Text(w io.Writer) error {
 
 		// Print context after (if any)
 		if len(m.Context) > 0 {
-			contextBefore := len(m.Context) / 2
+			contextBefore := m.ContextBefore
+			if contextBefore < 0 || contextBefore > len(m.Context) ||
+				(contextBefore == 0 && m.ContextAfter == 0) {
+				contextBefore = len(m.Context) / 2
+			}
 			for j := contextBefore; j < len(m.Context); j++ {
 				lineNum := m.Line + j - contextBefore + 1
 				fmt.Fprintf(w, "%s%s/%s:%d-%s %s\n",
@@ -282,6 +294,8 @@ func runGrep(pattern, session string, opts GrepOptions) error {
 					if !opts.ListOnly {
 						// Build context
 						var context []string
+						actualBefore := 0
+						actualAfter := 0
 						beforeCount := opts.BeforeLines
 						afterCount := opts.AfterLines
 						if opts.ContextLines > 0 {
@@ -292,19 +306,23 @@ func runGrep(pattern, session string, opts GrepOptions) error {
 						// Get lines before
 						for j := i - beforeCount; j < i && j >= 0; j++ {
 							context = append(context, lines[j])
+							actualBefore++
 						}
 						// Get lines after
 						for j := i + 1; j <= i+afterCount && j < len(lines); j++ {
 							context = append(context, lines[j])
+							actualAfter++
 						}
 
 						allMatches = append(allMatches, GrepMatch{
-							Session: sess,
-							Pane:    pane.Title,
-							PaneID:  pane.ID,
-							Line:    i + 1, // 1-indexed
-							Content: line,
-							Context: context,
+							Session:       sess,
+							Pane:          pane.Title,
+							PaneID:        pane.ID,
+							Line:          i + 1, // 1-indexed
+							Content:       line,
+							Context:       context,
+							ContextBefore: actualBefore,
+							ContextAfter:  actualAfter,
 						})
 					}
 				}
