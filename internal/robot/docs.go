@@ -133,7 +133,7 @@ This separation enables reliable parsing while providing useful context for debu
 				Heading: "API Design Principles",
 				Body: `1. Global commands use bool flags: --robot-status, --robot-plan
 2. Session-scoped commands use =SESSION syntax: --robot-send=myproj
-3. Modifiers use unprefixed flags: --limit, --since, --type
+3. Modifiers use unprefixed flags: --limit, --offset, --since, --type
 4. Output is JSON by default, with TOON format for token efficiency`,
 			},
 			{
