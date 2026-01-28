@@ -2,6 +2,7 @@ package ensemble
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -200,8 +201,7 @@ func TestSynthesizer_StreamSynthesize_Canceled(t *testing.T) {
 
 	if err, ok := <-errs; !ok || err == nil {
 		t.Fatalf("expected cancellation error")
-	}
-	if !strings.Contains(errsToString(errs, err), context.Canceled.Error()) {
+	} else if !errors.Is(err, context.Canceled) {
 		t.Fatalf("expected context canceled error, got %v", err)
 	}
 }
