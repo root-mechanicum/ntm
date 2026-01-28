@@ -29,9 +29,9 @@ setup_env() {
 
     mkdir -p "$PROJECTS_DIR" "$BIN_DIR"
 
-    cat <<EOF >"$STUB_BIN"
+cat <<EOF >"$STUB_BIN"
 #!/usr/bin/env bash
-echo "Error: rate limit exceeded. Retry-After: 4"
+echo "Error: rate limit exceeded. Retry-After: 10"
 sleep 5
 EOF
     chmod +x "$STUB_BIN"
@@ -60,6 +60,7 @@ main() {
     require_tmux
 
     setup_env
+    log_info "${E2E_TAG} bead=${BEAD_ID} config=${NTM_CONFIG} projects_base=${NTM_PROJECTS_BASE}"
 
     local session="${TEST_PREFIX}-cooldown"
     CREATED_SESSIONS+=("$session")
@@ -73,7 +74,7 @@ main() {
 
     local rate_limits="${PROJECTS_DIR}/${session}/.ntm/rate_limits.json"
     log_info "${E2E_TAG} bead=${BEAD_ID} session=${session} step=await_tracker path=${rate_limits}"
-    if wait_for 8 "rate limit tracker file" test -f "$rate_limits"; then
+    if wait_for 6 "rate limit tracker file" test -f "$rate_limits"; then
         log_assert_eq "yes" "yes" "rate_limits.json created"
     else
         log_assert_eq "no" "yes" "rate_limits.json created"
@@ -98,7 +99,7 @@ main() {
 
     log_assert_eq "$exit_code" "0" "spawn completes successfully after cooldown"
     log_assert_contains "$output" "Codex cooldown active; waiting" "spawn honors codex cooldown"
-    if [[ $elapsed -ge 3 ]]; then
+    if [[ $elapsed -ge 4 ]]; then
         log_assert_eq "yes" "yes" "spawn waited for cooldown (elapsed=${elapsed}s)"
     else
         log_assert_eq "no" "yes" "spawn waited for cooldown (elapsed=${elapsed}s)"
