@@ -86,12 +86,17 @@ if [[ -n "${json_output:-}" && -n "${toon_output:-}" ]]; then
     # Only test round-trip if TOON output doesn't look like JSON
     if [[ "${toon_output:0:1}" != "{" && "${toon_output:0:1}" != "[" ]]; then
         if decoded=$(echo "$toon_output" | tru --decode 2>/dev/null); then
-            orig_sorted=$(echo "$json_output" | jq -S . 2>/dev/null || echo "{}")
-            decoded_sorted=$(echo "$decoded" | jq -S . 2>/dev/null || echo "{}")
+            # Note: output_format field will differ (json vs toon) - exclude it from comparison
+            # The test verifies data integrity, not metadata
+            orig_sorted=$(echo "$json_output" | jq -S 'del(.output_format)' 2>/dev/null || echo "{}")
+            decoded_sorted=$(echo "$decoded" | jq -S 'del(.output_format)' 2>/dev/null || echo "{}")
 
             if [[ "$orig_sorted" == "$decoded_sorted" ]]; then
-                record_pass "Round-trip preserves health data"
+                record_pass "Round-trip preserves data (excluding output_format)"
             else
+                # Show diff for debugging
+                log_info "Round-trip diff (first 5 lines):"
+                diff <(echo "$orig_sorted" | head -20) <(echo "$decoded_sorted" | head -20) | head -5 || true
                 record_fail "Round-trip mismatch"
             fi
         else
