@@ -1,12 +1,15 @@
 package tutorial
 
 import (
+	"math"
 	"regexp"
 	"strings"
 	"testing"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+
+	"github.com/Dicklesworthstone/ntm/internal/tui/layout"
 )
 
 func stripANSI(s string) string {
