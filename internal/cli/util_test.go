@@ -104,7 +104,7 @@ func TestResolveExplicitSessionName(t *testing.T) {
 	}
 }
 
-func TestTruncateWithEllipsis(t *testing.T) {
+func TestTruncateWithEllipsis_Util(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -134,7 +134,7 @@ func TestTruncateWithEllipsis(t *testing.T) {
 	}
 }
 
-func TestUniqueStrings(t *testing.T) {
+func TestUniqueStrings_Util(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -167,7 +167,7 @@ func TestUniqueStrings(t *testing.T) {
 	}
 }
 
-func TestCountAgentStates(t *testing.T) {
+func TestCountAgentStates_Util(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
