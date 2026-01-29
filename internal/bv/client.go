@@ -1,5 +1,5 @@
 // Package bv provides integration with the beads_viewer (bv) tool.
-// client.go implements a client-oriented API for bv --robot-triage integration.
+// client.go implements a client-oriented API for bv -robot-triage integration.
 package bv
 
 import (
@@ -127,7 +127,7 @@ func (c *BVClient) IsAvailable() bool {
 	return cmd.Run() == nil
 }
 
-// GetRecommendations returns task recommendations from bv --robot-triage.
+// GetRecommendations returns task recommendations from bv -robot-triage.
 // Results are cached according to the client's CacheTTL.
 func (c *BVClient) GetRecommendations(opts RecommendationOpts) ([]Recommendation, error) {
 	// Set defaults
@@ -164,7 +164,7 @@ func (c *BVClient) GetRecommendations(opts RecommendationOpts) ([]Recommendation
 
 // GetInsights returns graph analysis insights.
 func (c *BVClient) GetInsights() (*Insights, error) {
-	// Try to get insights from bv --robot-insights
+	// Try to get insights from bv -robot-insights
 	insightsResp, err := GetInsights(c.workDir())
 	if err != nil {
 		// Fall back to triage data if insights fail
@@ -271,7 +271,7 @@ func (c *BVClient) getTriage() (*TriageResponse, error) {
 	return resp, nil
 }
 
-// fetchTriage executes bv --robot-triage and parses the response.
+// fetchTriage executes bv -robot-triage and parses the response.
 func (c *BVClient) fetchTriage(dir string) (*TriageResponse, error) {
 	if !IsInstalled() {
 		return nil, fmt.Errorf("%w: bv is not installed. Install it with: go install github.com/Dicklesworthstone/beads_viewer@latest", ErrNotInstalled)
@@ -280,7 +280,7 @@ func (c *BVClient) fetchTriage(dir string) (*TriageResponse, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), c.Timeout)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, "bv", "--robot-triage")
+	cmd := exec.CommandContext(ctx, "bv", "-robot-triage")
 	if dir != "" {
 		cmd.Dir = dir
 	}
@@ -294,7 +294,7 @@ func (c *BVClient) fetchTriage(dir string) (*TriageResponse, error) {
 		if ctx.Err() == context.DeadlineExceeded {
 			return nil, fmt.Errorf("%w after %v", ErrTimeout, c.Timeout)
 		}
-		return nil, fmt.Errorf("bv --robot-triage failed: %w: %s", err, stderr.String())
+		return nil, fmt.Errorf("bv -robot-triage failed: %w: %s", err, stderr.String())
 	}
 
 	// Validate and parse JSON

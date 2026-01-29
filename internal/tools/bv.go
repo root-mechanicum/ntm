@@ -171,27 +171,27 @@ func (a *BVAdapter) Info(ctx context.Context) (*ToolInfo, error) {
 
 // GetTriage returns the robot-triage output
 func (a *BVAdapter) GetTriage(ctx context.Context, dir string) (json.RawMessage, error) {
-	return a.runRobotCommand(ctx, dir, "--robot-triage")
+	return a.runRobotCommand(ctx, dir, "-robot-triage")
 }
 
 // GetPlan returns the robot-plan output
 func (a *BVAdapter) GetPlan(ctx context.Context, dir string) (json.RawMessage, error) {
-	return a.runRobotCommand(ctx, dir, "--robot-plan")
+	return a.runRobotCommand(ctx, dir, "-robot-plan")
 }
 
 // GetInsights returns the robot-insights output
 func (a *BVAdapter) GetInsights(ctx context.Context, dir string) (json.RawMessage, error) {
-	return a.runRobotCommand(ctx, dir, "--robot-insights")
+	return a.runRobotCommand(ctx, dir, "-robot-insights")
 }
 
 // GetNext returns the robot-next output (single top pick)
 func (a *BVAdapter) GetNext(ctx context.Context, dir string) (json.RawMessage, error) {
-	return a.runRobotCommand(ctx, dir, "--robot-next")
+	return a.runRobotCommand(ctx, dir, "-robot-next")
 }
 
 // Analysis mode methods for advanced BV analysis
 func (a *BVAdapter) GetAlerts(ctx context.Context, dir string, opts BVAlertOptions) (json.RawMessage, error) {
-	args := []string{"--robot-alerts"}
+	args := []string{"-robot-alerts"}
 	if opts.AlertType != "" {
 		args = append(args, "--alert-type", opts.AlertType)
 	}
@@ -205,7 +205,7 @@ func (a *BVAdapter) GetAlerts(ctx context.Context, dir string, opts BVAlertOptio
 }
 
 func (a *BVAdapter) GetGraph(ctx context.Context, dir string, opts BVGraphOptions) (json.RawMessage, error) {
-	args := []string{"--robot-graph"}
+	args := []string{"-robot-graph"}
 	if opts.Format != "" {
 		args = append(args, "--graph-format", opts.Format)
 	}
@@ -214,20 +214,20 @@ func (a *BVAdapter) GetGraph(ctx context.Context, dir string, opts BVGraphOption
 
 func (a *BVAdapter) GetGroupedTriage(ctx context.Context, dir string, opts BVGroupedTriageOptions) (json.RawMessage, error) {
 	if opts.ByLabel {
-		return a.runRobotCommand(ctx, dir, "--robot-triage-by-label")
+		return a.runRobotCommand(ctx, dir, "-robot-triage-by-label")
 	}
 	if opts.ByTrack {
-		return a.runRobotCommand(ctx, dir, "--robot-triage-by-track")
+		return a.runRobotCommand(ctx, dir, "-robot-triage-by-track")
 	}
-	return a.runRobotCommand(ctx, dir, "--robot-triage")
+	return a.runRobotCommand(ctx, dir, "-robot-triage")
 }
 
 func (a *BVAdapter) GetHistory(ctx context.Context, dir string) (json.RawMessage, error) {
-	return a.runRobotCommand(ctx, dir, "--robot-history")
+	return a.runRobotCommand(ctx, dir, "-robot-history")
 }
 
 func (a *BVAdapter) GetBurndown(ctx context.Context, dir string, sprint string) (json.RawMessage, error) {
-	args := []string{"--robot-burndown"}
+	args := []string{"-robot-burndown"}
 	if sprint != "" {
 		args = append(args, sprint)
 	}
@@ -235,15 +235,15 @@ func (a *BVAdapter) GetBurndown(ctx context.Context, dir string, sprint string) 
 }
 
 func (a *BVAdapter) GetForecast(ctx context.Context, dir string, target string) (json.RawMessage, error) {
-	return a.runRobotCommand(ctx, dir, "--robot-forecast", target)
+	return a.runRobotCommand(ctx, dir, "-robot-forecast", target)
 }
 
 func (a *BVAdapter) GetSuggestions(ctx context.Context, dir string) (json.RawMessage, error) {
-	return a.runRobotCommand(ctx, dir, "--robot-suggest")
+	return a.runRobotCommand(ctx, dir, "-robot-suggest")
 }
 
 func (a *BVAdapter) GetImpact(ctx context.Context, dir string, filePath string) (json.RawMessage, error) {
-	return a.runRobotCommand(ctx, dir, "--robot-impact", filePath)
+	return a.runRobotCommand(ctx, dir, "-robot-impact", filePath)
 }
 
 func (a *BVAdapter) GetSearch(ctx context.Context, dir string, query string) (json.RawMessage, error) {
@@ -251,7 +251,7 @@ func (a *BVAdapter) GetSearch(ctx context.Context, dir string, query string) (js
 }
 
 func (a *BVAdapter) GetSearchWithOptions(ctx context.Context, dir string, opts BVSearchOptions) (json.RawMessage, error) {
-	args := []string{"--robot-search"}
+	args := []string{"-robot-search"}
 	if opts.Query != "" {
 		args = append(args, "--search", opts.Query)
 	}
@@ -266,28 +266,28 @@ func (a *BVAdapter) GetSearchWithOptions(ctx context.Context, dir string, opts B
 
 // Label mode methods for label-based analysis
 func (a *BVAdapter) GetLabelAttention(ctx context.Context, dir string, limit int) (json.RawMessage, error) {
-	return a.runRobotCommand(ctx, dir, "--robot-label-attention", fmt.Sprintf("--attention-limit=%d", limit))
+	return a.runRobotCommand(ctx, dir, "-robot-label-attention", fmt.Sprintf("--attention-limit=%d", limit))
 }
 
 func (a *BVAdapter) GetLabelFlow(ctx context.Context, dir string) (json.RawMessage, error) {
-	return a.runRobotCommand(ctx, dir, "--robot-label-flow")
+	return a.runRobotCommand(ctx, dir, "-robot-label-flow")
 }
 
 func (a *BVAdapter) GetLabelHealth(ctx context.Context, dir string) (json.RawMessage, error) {
-	return a.runRobotCommand(ctx, dir, "--robot-label-health")
+	return a.runRobotCommand(ctx, dir, "-robot-label-health")
 }
 
 // File mode methods for file-based analysis
 func (a *BVAdapter) GetFileBeads(ctx context.Context, dir string, filePath string, limit int) (json.RawMessage, error) {
-	return a.runRobotCommand(ctx, dir, "--robot-file-beads", filePath, fmt.Sprintf("--file-beads-limit=%d", limit))
+	return a.runRobotCommand(ctx, dir, "-robot-file-beads", filePath, fmt.Sprintf("--file-beads-limit=%d", limit))
 }
 
 func (a *BVAdapter) GetFileHotspots(ctx context.Context, dir string, limit int) (json.RawMessage, error) {
-	return a.runRobotCommand(ctx, dir, "--robot-file-hotspots", fmt.Sprintf("--hotspots-limit=%d", limit))
+	return a.runRobotCommand(ctx, dir, "-robot-file-hotspots", fmt.Sprintf("--hotspots-limit=%d", limit))
 }
 
 func (a *BVAdapter) GetFileRelations(ctx context.Context, dir string, filePath string, limit int, threshold float64) (json.RawMessage, error) {
-	return a.runRobotCommand(ctx, dir, "--robot-file-relations", filePath,
+	return a.runRobotCommand(ctx, dir, "-robot-file-relations", filePath,
 		fmt.Sprintf("--relations-limit=%d", limit),
 		fmt.Sprintf("--relations-threshold=%.2f", threshold))
 }

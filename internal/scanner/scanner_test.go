@@ -334,3 +334,58 @@ func TestCollectAssignmentMatches(t *testing.T) {
 		t.Fatalf("unexpected matched file: %s", items[0].Finding.File)
 	}
 }
+
+func TestMatchAssignmentPattern(t *testing.T) {
+	tests := []struct {
+		name    string
+		pattern string
+		file    string
+		want    bool
+	}{
+		{
+			name:    "double star deep match",
+			pattern: "internal/**/*.go",
+			file:    "internal/scanner/notify.go",
+			want:    true,
+		},
+		{
+			name:    "double star any depth",
+			pattern: "**/*.go",
+			file:    "internal/scanner/notify.go",
+			want:    true,
+		},
+		{
+			name:    "single star segment mismatch",
+			pattern: "internal/*.go",
+			file:    "internal/scanner/notify.go",
+			want:    false,
+		},
+		{
+			name:    "suffix under dir",
+			pattern: "internal/**",
+			file:    "internal/scanner/notify.go",
+			want:    true,
+		},
+		{
+			name:    "basename match",
+			pattern: "notify.go",
+			file:    "internal/scanner/notify.go",
+			want:    true,
+		},
+		{
+			name:    "prefix mismatch",
+			pattern: "internal/**",
+			file:    "cmd/ntm/main.go",
+			want:    false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := matchAssignmentPattern(tt.pattern, tt.file)
+			if got != tt.want {
+				t.Fatalf("matchAssignmentPattern(%q, %q) = %v, want %v", tt.pattern, tt.file, got, tt.want)
+			}
+		})
+	}
+}
