@@ -15,8 +15,14 @@ func TestCheckDrift_EarlyValidation(t *testing.T) {
 		if res.Status != DriftNoBaseline {
 			t.Fatalf("Status = %v, want %v", res.Status, DriftNoBaseline)
 		}
-		if !strings.Contains(res.Message, "project directory does not exist") {
-			t.Fatalf("Message = %q, want contains %q", res.Message, "project directory does not exist")
+		if IsInstalled() {
+			if !strings.Contains(res.Message, "project directory does not exist") {
+				t.Fatalf("Message = %q, want contains %q", res.Message, "project directory does not exist")
+			}
+		} else {
+			if !strings.Contains(res.Message, "bv not installed") {
+				t.Fatalf("Message = %q, want contains %q", res.Message, "bv not installed")
+			}
 		}
 	})
 
@@ -28,8 +34,14 @@ func TestCheckDrift_EarlyValidation(t *testing.T) {
 		if res.Status != DriftNoBaseline {
 			t.Fatalf("Status = %v, want %v", res.Status, DriftNoBaseline)
 		}
-		if !strings.Contains(res.Message, "no .beads directory") {
-			t.Fatalf("Message = %q, want contains %q", res.Message, "no .beads directory")
+		if IsInstalled() {
+			if !strings.Contains(res.Message, "no .beads directory") {
+				t.Fatalf("Message = %q, want contains %q", res.Message, "no .beads directory")
+			}
+		} else {
+			if !strings.Contains(res.Message, "bv not installed") {
+				t.Fatalf("Message = %q, want contains %q", res.Message, "bv not installed")
+			}
 		}
 	})
 }
