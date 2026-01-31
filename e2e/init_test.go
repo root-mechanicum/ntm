@@ -70,6 +70,10 @@ type InitTestSuite struct {
 	stepCurrent int
 	steps       []initStepEvent
 
+	ntmPath           string
+	initHelpCached    string
+	initHelpCachedSet bool
+
 	lastCommand []string
 	lastOutput  []byte
 }
@@ -78,16 +82,56 @@ type InitTestSuite struct {
 func NewInitTestSuite(t *testing.T, scenario string) *InitTestSuite {
 	logger := NewTestLogger(t, scenario)
 
+	ntmPath, err := exec.LookPath("ntm")
+	if err != nil {
+		t.Skip("ntm binary not found in PATH")
+	}
+
 	s := &InitTestSuite{
 		t:         t,
 		logger:    logger,
 		scenario:  scenario,
 		startTime: time.Now(),
+		ntmPath:   ntmPath,
 	}
 
 	t.Cleanup(s.Cleanup)
 
 	return s
+}
+
+func (s *InitTestSuite) initHelp() string {
+	if s.initHelpCachedSet {
+		return s.initHelpCached
+	}
+	out, _ := exec.Command(s.ntmPath, "init", "--help").CombinedOutput()
+	s.initHelpCached = string(out)
+	s.initHelpCachedSet = true
+	return s.initHelpCached
+}
+
+func (s *InitTestSuite) RequireProjectInit() {
+	help := s.initHelp()
+	// Older ntm versions use `init` for shell integration; project initialization uses `shell` instead.
+	if strings.Contains(help, "Generate shell integration") || strings.Contains(help, "ntm init <shell>") {
+		s.t.Skip("project init workflow not supported by this ntm version (init is shell integration)")
+	}
+	if !strings.Contains(help, "[path]") && !strings.Contains(help, "project directory") {
+		s.t.Skip("project init workflow not supported by this ntm version")
+	}
+}
+
+func (s *InitTestSuite) RequireNoHooksFlag() {
+	if !strings.Contains(s.initHelp(), "--no-hooks") {
+		s.t.Skip("--no-hooks flag not supported by this ntm version")
+	}
+}
+
+func (s *InitTestSuite) NoHooksArgs() []string {
+	if strings.Contains(s.initHelp(), "--no-hooks") {
+		return []string{"--no-hooks"}
+	}
+	return nil
 }
 
 func (s *InitTestSuite) SetSteps(total int) {
@@ -219,7 +263,7 @@ func (s *InitTestSuite) TempDir() string {
 func (s *InitTestSuite) RunInit(args ...string) ([]byte, error) {
 	allArgs := append([]string{"init"}, args...)
 	s.lastCommand = append([]string{"ntm"}, allArgs...)
-	cmd := exec.Command("ntm", allArgs...)
+	cmd := exec.Command(s.ntmPath, allArgs...)
 	cmd.Dir = s.tempDir
 
 	s.logger.Log("[E2E-INIT] Running: ntm %v", allArgs)
@@ -260,12 +304,15 @@ type configValidateReport struct {
 }
 
 func (s *InitTestSuite) RunConfigValidateJSON() (*configValidateReport, error) {
-	cmd := exec.Command("ntm", "config", "validate", "--json")
+	cmd := exec.Command(s.ntmPath, "config", "validate", "--json")
 	cmd.Dir = s.tempDir
 	s.logger.Log("[E2E-INIT] Running: ntm config validate --json")
 	out, err := cmd.CombinedOutput()
 	s.logger.Log("[E2E-INIT] Output: %s", string(out))
 	if err != nil {
+		if strings.Contains(string(out), "unknown command") {
+			s.t.Skip("ntm config validate not supported by this ntm version")
+		}
 		return nil, fmt.Errorf("config validate failed: %w: %s", err, strings.TrimSpace(string(out)))
 	}
 
@@ -374,13 +421,14 @@ func TestInitBasicRun(t *testing.T) {
 	SkipIfNoNTM(t)
 
 	suite := NewInitTestSuite(t, "init-basic")
+	suite.RequireProjectInit()
 	if err := suite.Setup(); err != nil {
 		t.Fatalf("[E2E-INIT] Setup failed: %v", err)
 	}
 	defer suite.Cleanup()
 
 	// Run init with --no-hooks to avoid git hook installation issues
-	_, err := suite.RunInit("--no-hooks")
+	_, err := suite.RunInit(suite.NoHooksArgs()...)
 	if err != nil {
 		t.Fatalf("[E2E-INIT] Init command failed: %v", err)
 	}
@@ -401,6 +449,7 @@ func TestInitScenarioFreshProjectDetailedLogging(t *testing.T) {
 	SkipIfNoNTM(t)
 
 	suite := NewInitTestSuite(t, "init-scenario-fresh-detailed")
+	suite.RequireProjectInit()
 	defer suite.Cleanup()
 
 	suite.SetSteps(4)
@@ -410,7 +459,7 @@ func TestInitScenarioFreshProjectDetailedLogging(t *testing.T) {
 	}
 
 	suite.Step("Run ntm init (fresh project)")
-	result, err := suite.RunInitJSON("--no-hooks")
+	result, err := suite.RunInitJSON(suite.NoHooksArgs()...)
 	if err != nil {
 		t.Fatalf("[E2E-INIT] Init command failed: %v", err)
 	}
@@ -452,12 +501,13 @@ func TestInitJSONOutput(t *testing.T) {
 	SkipIfNoNTM(t)
 
 	suite := NewInitTestSuite(t, "init-json")
+	suite.RequireProjectInit()
 	if err := suite.Setup(); err != nil {
 		t.Fatalf("[E2E-INIT] Setup failed: %v", err)
 	}
 	defer suite.Cleanup()
 
-	result, err := suite.RunInitJSON("--no-hooks")
+	result, err := suite.RunInitJSON(suite.NoHooksArgs()...)
 	if err != nil {
 		t.Fatalf("[E2E-INIT] Init command failed: %v", err)
 	}
@@ -491,12 +541,13 @@ func TestInitCreatesConfigFile(t *testing.T) {
 	SkipIfNoNTM(t)
 
 	suite := NewInitTestSuite(t, "init-config")
+	suite.RequireProjectInit()
 	if err := suite.Setup(); err != nil {
 		t.Fatalf("[E2E-INIT] Setup failed: %v", err)
 	}
 	defer suite.Cleanup()
 
-	result, err := suite.RunInitJSON("--no-hooks")
+	result, err := suite.RunInitJSON(suite.NoHooksArgs()...)
 	if err != nil {
 		t.Fatalf("[E2E-INIT] Init command failed: %v", err)
 	}
@@ -527,13 +578,14 @@ func TestInitIdempotency(t *testing.T) {
 	SkipIfNoNTM(t)
 
 	suite := NewInitTestSuite(t, "init-idempotency")
+	suite.RequireProjectInit()
 	if err := suite.Setup(); err != nil {
 		t.Fatalf("[E2E-INIT] Setup failed: %v", err)
 	}
 	defer suite.Cleanup()
 
 	// First init should succeed
-	_, err := suite.RunInit("--no-hooks")
+	_, err := suite.RunInit(suite.NoHooksArgs()...)
 	if err != nil {
 		t.Fatalf("[E2E-INIT] First init failed: %v", err)
 	}
@@ -541,7 +593,7 @@ func TestInitIdempotency(t *testing.T) {
 	suite.logger.Log("[E2E-INIT] First init succeeded")
 
 	// Second init without --force should fail
-	output, err := suite.RunInit("--no-hooks")
+	output, err := suite.RunInit(suite.NoHooksArgs()...)
 	if err == nil {
 		t.Error("[E2E-INIT] Expected second init to fail without --force")
 	}
@@ -560,13 +612,14 @@ func TestInitForceFlag(t *testing.T) {
 	SkipIfNoNTM(t)
 
 	suite := NewInitTestSuite(t, "init-force")
+	suite.RequireProjectInit()
 	if err := suite.Setup(); err != nil {
 		t.Fatalf("[E2E-INIT] Setup failed: %v", err)
 	}
 	defer suite.Cleanup()
 
 	// First init
-	_, err := suite.RunInit("--no-hooks")
+	_, err := suite.RunInit(suite.NoHooksArgs()...)
 	if err != nil {
 		t.Fatalf("[E2E-INIT] First init failed: %v", err)
 	}
@@ -580,7 +633,8 @@ func TestInitForceFlag(t *testing.T) {
 
 	// Second init with --force should succeed
 	suite.logger.Log("[E2E] Step 2/4: Re-run init with --force")
-	result, err := suite.RunInitJSON("--force", "--no-hooks")
+	args := append([]string{"--force"}, suite.NoHooksArgs()...)
+	result, err := suite.RunInitJSON(args...)
 	if err != nil {
 		t.Fatalf("[E2E-INIT] Init with --force failed: %v", err)
 	}
@@ -613,6 +667,7 @@ func TestInitScenarioPartialStructure(t *testing.T) {
 	SkipIfNoNTM(t)
 
 	suite := NewInitTestSuite(t, "init-scenario-partial-structure")
+	suite.RequireProjectInit()
 	defer suite.Cleanup()
 
 	suite.SetSteps(5)
@@ -643,7 +698,7 @@ func TestInitScenarioPartialStructure(t *testing.T) {
 	suite.logger.Log("[E2E] Creating directory: %s", templatesDir)
 
 	suite.Step("Run ntm init to fill missing pieces")
-	result, err := suite.RunInitJSON("--no-hooks")
+	result, err := suite.RunInitJSON(suite.NoHooksArgs()...)
 	if err != nil {
 		t.Fatalf("[E2E-INIT] Init command failed: %v", err)
 	}
@@ -692,6 +747,7 @@ func TestInitScenarioFlywheelToolIntegration(t *testing.T) {
 	}
 
 	suite := NewInitTestSuite(t, "init-scenario-flywheel-integration")
+	suite.RequireProjectInit()
 	defer suite.Cleanup()
 
 	suite.SetSteps(6)
@@ -701,7 +757,7 @@ func TestInitScenarioFlywheelToolIntegration(t *testing.T) {
 	}
 
 	suite.Step("Run ntm init (records Agent Mail registration outcome)")
-	result, err := suite.RunInitJSON("--no-hooks")
+	result, err := suite.RunInitJSON(suite.NoHooksArgs()...)
 	if err != nil {
 		t.Fatalf("[E2E-INIT] Init command failed: %v", err)
 	}
@@ -772,6 +828,7 @@ func TestInitWithGitHooks(t *testing.T) {
 	SkipIfNoNTM(t)
 
 	suite := NewInitTestSuite(t, "init-hooks")
+	suite.RequireProjectInit()
 	if err := suite.SetupWithGit(); err != nil {
 		t.Fatalf("[E2E-INIT] Setup failed: %v", err)
 	}
@@ -806,6 +863,8 @@ func TestInitNoHooksFlag(t *testing.T) {
 	SkipIfNoNTM(t)
 
 	suite := NewInitTestSuite(t, "init-no-hooks")
+	suite.RequireProjectInit()
+	suite.RequireNoHooksFlag()
 	if err := suite.SetupWithGit(); err != nil {
 		t.Fatalf("[E2E-INIT] Setup failed: %v", err)
 	}
@@ -833,6 +892,7 @@ func TestInitNonGitRepo(t *testing.T) {
 	SkipIfNoNTM(t)
 
 	suite := NewInitTestSuite(t, "init-non-git")
+	suite.RequireProjectInit()
 	if err := suite.Setup(); err != nil {
 		t.Fatalf("[E2E-INIT] Setup failed: %v", err)
 	}
@@ -862,12 +922,13 @@ func TestInitCreatedDirsPopulated(t *testing.T) {
 	SkipIfNoNTM(t)
 
 	suite := NewInitTestSuite(t, "init-dirs")
+	suite.RequireProjectInit()
 	if err := suite.Setup(); err != nil {
 		t.Fatalf("[E2E-INIT] Setup failed: %v", err)
 	}
 	defer suite.Cleanup()
 
-	result, err := suite.RunInitJSON("--no-hooks")
+	result, err := suite.RunInitJSON(suite.NoHooksArgs()...)
 	if err != nil {
 		t.Fatalf("[E2E-INIT] Init command failed: %v", err)
 	}
@@ -886,12 +947,13 @@ func TestInitCreatedFilesPopulated(t *testing.T) {
 	SkipIfNoNTM(t)
 
 	suite := NewInitTestSuite(t, "init-files")
+	suite.RequireProjectInit()
 	if err := suite.Setup(); err != nil {
 		t.Fatalf("[E2E-INIT] Setup failed: %v", err)
 	}
 	defer suite.Cleanup()
 
-	result, err := suite.RunInitJSON("--no-hooks")
+	result, err := suite.RunInitJSON(suite.NoHooksArgs()...)
 	if err != nil {
 		t.Fatalf("[E2E-INIT] Init command failed: %v", err)
 	}
@@ -1016,6 +1078,7 @@ func TestInitTargetDirectory(t *testing.T) {
 	SkipIfNoNTM(t)
 
 	suite := NewInitTestSuite(t, "init-target")
+	suite.RequireProjectInit()
 	if err := suite.Setup(); err != nil {
 		t.Fatalf("[E2E-INIT] Setup failed: %v", err)
 	}
@@ -1028,7 +1091,10 @@ func TestInitTargetDirectory(t *testing.T) {
 	}
 
 	// Run init with explicit target
-	cmd := exec.Command("ntm", "init", subDir, "--no-hooks", "--json")
+	args := []string{"init", subDir}
+	args = append(args, suite.NoHooksArgs()...)
+	args = append(args, "--json")
+	cmd := exec.Command(suite.ntmPath, args...)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("[E2E-INIT] Init with target failed: %v, output: %s", err, string(output))
@@ -1086,13 +1152,16 @@ func TestInitNonExistentDirectory(t *testing.T) {
 	SkipIfNoNTM(t)
 
 	suite := NewInitTestSuite(t, "init-nonexistent")
+	suite.RequireProjectInit()
 	if err := suite.Setup(); err != nil {
 		t.Fatalf("[E2E-INIT] Setup failed: %v", err)
 	}
 	defer suite.Cleanup()
 
 	nonExistent := filepath.Join(suite.TempDir(), "does-not-exist")
-	cmd := exec.Command("ntm", "init", nonExistent, "--no-hooks")
+	args := []string{"init", nonExistent}
+	args = append(args, suite.NoHooksArgs()...)
+	cmd := exec.Command(suite.ntmPath, args...)
 	output, err := cmd.CombinedOutput()
 
 	if err == nil {
@@ -1114,12 +1183,13 @@ func TestInitOutputFormat(t *testing.T) {
 	SkipIfNoNTM(t)
 
 	suite := NewInitTestSuite(t, "init-format")
+	suite.RequireProjectInit()
 	if err := suite.Setup(); err != nil {
 		t.Fatalf("[E2E-INIT] Setup failed: %v", err)
 	}
 	defer suite.Cleanup()
 
-	output, err := suite.RunInit("--no-hooks")
+	output, err := suite.RunInit(suite.NoHooksArgs()...)
 	if err != nil {
 		t.Fatalf("[E2E-INIT] Init command failed: %v", err)
 	}
