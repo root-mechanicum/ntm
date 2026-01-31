@@ -24,6 +24,7 @@ func newSwarmCmd() *cobra.Command {
 		sessionsPerType int
 		panesPerSession int
 		outputPath      string
+		autoRotate      bool
 	)
 
 	cmd := &cobra.Command{
@@ -52,6 +53,7 @@ Examples:
 				SessionsPerType: sessionsPerType,
 				PanesPerSession: panesPerSession,
 				OutputPath:      outputPath,
+				AutoRotate:      autoRotate,
 			})
 		},
 	}
@@ -65,6 +67,10 @@ Examples:
 	if cfg != nil && cfg.Swarm.SessionsPerType > 0 {
 		defaultSessionsPerType = cfg.Swarm.SessionsPerType
 	}
+	defaultAutoRotate := false
+	if cfg != nil {
+		defaultAutoRotate = cfg.Swarm.AutoRotateAccounts
+	}
 
 	cmd.Flags().StringVar(&scanDir, "scan-dir", defaultScanDir, "Directory to scan for projects")
 	cmd.Flags().StringSliceVar(&projects, "projects", nil, "Explicit list of project paths (comma-separated)")
@@ -74,6 +80,7 @@ Examples:
 	cmd.Flags().IntVar(&sessionsPerType, "sessions-per-type", defaultSessionsPerType, "Number of tmux sessions per agent type (default: 3)")
 	cmd.Flags().IntVar(&panesPerSession, "panes-per-session", 0, "Max panes per session (0 = auto-calculate from total agents)")
 	cmd.Flags().StringVar(&outputPath, "output", "", "Write swarm plan to JSON file (optional)")
+	cmd.PersistentFlags().BoolVar(&autoRotate, "auto-rotate-accounts", defaultAutoRotate, "Automatically rotate accounts on usage limit hit (requires caam)")
 
 	// Add subcommands
 	cmd.AddCommand(newSwarmPlanCmd())
@@ -92,6 +99,7 @@ type swarmOptions struct {
 	SessionsPerType int
 	PanesPerSession int
 	OutputPath      string
+	AutoRotate      bool
 }
 
 // SwarmPlanOutput is the JSON output format for swarm plan
@@ -141,6 +149,8 @@ func runSwarm(opts swarmOptions) error {
 	if !swarmCfg.Enabled && !opts.DryRun {
 		return fmt.Errorf("swarm orchestration is disabled in config; set swarm.enabled=true or use --dry-run")
 	}
+	swarmCfg.AutoRotateAccounts = opts.AutoRotate
+	logger.Info("account rotation configuration", "auto_rotate_accounts", swarmCfg.AutoRotateAccounts)
 
 	if opts.SessionsPerType < 1 {
 		return fmt.Errorf("--sessions-per-type must be at least 1, got %d", opts.SessionsPerType)
@@ -372,11 +382,16 @@ func newSwarmPlanCmd() *cobra.Command {
 		Use:   "plan",
 		Short: "Preview swarm allocation plan without executing",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			autoRotate, err := cmd.Flags().GetBool("auto-rotate-accounts")
+			if err != nil {
+				return err
+			}
 			return runSwarm(swarmOptions{
 				ScanDir:    scanDir,
 				Projects:   projects,
 				DryRun:     true,
 				JSONOutput: jsonOutput,
+				AutoRotate: autoRotate,
 			})
 		},
 	}

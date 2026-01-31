@@ -15,6 +15,7 @@ func createTestSession(t *testing.T) string {
 	if !IsInstalled() {
 		t.Skip("tmux not installed")
 	}
+	acquireGlobalTmuxTestLock(t)
 	name := fmt.Sprintf("ntm_test_%d", time.Now().UnixNano())
 	t.Cleanup(func() {
 		_ = KillSession(name) // ignore error on cleanup
@@ -158,6 +159,7 @@ func TestCreateSession(t *testing.T) {
 
 func TestCreateSessionWithDir(t *testing.T) {
 	skipIfNoTmux(t)
+	acquireGlobalTmuxTestLock(t)
 
 	// Create temp directory
 	tmpDir := t.TempDir()
@@ -187,6 +189,7 @@ func TestSessionExistsNonExistent(t *testing.T) {
 
 func TestKillSession(t *testing.T) {
 	skipIfNoTmux(t)
+	acquireGlobalTmuxTestLock(t)
 
 	name := fmt.Sprintf("ntm_test_kill_%d", time.Now().UnixNano())
 

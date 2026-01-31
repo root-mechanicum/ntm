@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Dicklesworthstone/ntm/internal/config"
 	"github.com/Dicklesworthstone/ntm/internal/swarm"
 )
 
@@ -60,5 +61,29 @@ func TestWritePlanToFileNilPlan(t *testing.T) {
 
 	if err := writePlanToFile(nil, path); err == nil {
 		t.Fatal("expected error for nil plan, got nil")
+	}
+}
+
+func TestSwarmCmd_AutoRotateAccountsFlag_DefaultFromConfig(t *testing.T) {
+	prevCfg := cfg
+	t.Cleanup(func() { cfg = prevCfg })
+
+	cfg = &config.Config{
+		Swarm: config.DefaultSwarmConfig(),
+	}
+	cfg.Swarm.AutoRotateAccounts = true
+
+	cmd := newSwarmCmd()
+
+	if cmd.PersistentFlags().Lookup("auto-rotate-accounts") == nil {
+		t.Fatal("expected --auto-rotate-accounts flag to exist")
+	}
+
+	got, err := cmd.PersistentFlags().GetBool("auto-rotate-accounts")
+	if err != nil {
+		t.Fatalf("GetBool(auto-rotate-accounts) error: %v", err)
+	}
+	if got != true {
+		t.Errorf("auto-rotate-accounts default = %v, want true", got)
 	}
 }
