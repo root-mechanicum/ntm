@@ -888,12 +888,10 @@ func (r *AutoRespawner) waitForAgentReady(sessionPane, agentType string) error {
 
 	patterns := agentReadyPatterns(agentType)
 
-	for time.Now().Before(deadline) {
-		<-ticker.C
-
+	checkReady := func() bool {
 		output := r.capturePaneOutput(sessionPane, 20)
 		if output == "" {
-			continue
+			return false
 		}
 
 		for _, pattern := range patterns {
@@ -901,8 +899,20 @@ func (r *AutoRespawner) waitForAgentReady(sessionPane, agentType string) error {
 				r.logger().Info("[AutoRespawner] agent_ready",
 					"session_pane", sessionPane,
 					"pattern", pattern)
-				return nil
+				return true
 			}
+		}
+		return false
+	}
+
+	if checkReady() {
+		return nil
+	}
+
+	for time.Now().Before(deadline) {
+		<-ticker.C
+		if checkReady() {
+			return nil
 		}
 	}
 

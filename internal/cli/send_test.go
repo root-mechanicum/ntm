@@ -352,53 +352,54 @@ func TestTruncatePrompt(t *testing.T) {
 	}
 }
 
-func TestExtractLikelyCommand(t *testing.T) {
+func TestExtractLikelyCommands(t *testing.T) {
 	tests := []struct {
-		name   string
-		input  string
-		want   string
-		wantOK bool
+		name  string
+		input string
+		want  []string
 	}{
 		{
-			name:   "simple git command",
-			input:  "git status",
-			want:   "git status",
-			wantOK: true,
+			name:  "simple git command",
+			input: "git status",
+			want:  []string{"git status"},
 		},
 		{
-			name:   "prefixed shell prompt",
-			input:  "  $ rm -rf /tmp",
-			want:   "rm -rf /tmp",
-			wantOK: true,
+			name:  "prefixed shell prompt",
+			input: "  $ rm -rf /tmp",
+			want:  []string{"rm -rf /tmp"},
 		},
 		{
-			name:   "command in fenced block",
-			input:  "```bash\nrm -rf /var/tmp\n```",
-			want:   "rm -rf /var/tmp",
-			wantOK: true,
+			name:  "command in fenced block",
+			input: "```bash\nrm -rf /var/tmp\n```",
+			want:  []string{"rm -rf /var/tmp"},
 		},
 		{
-			name:   "flag-only heuristic",
-			input:  "deploy --force",
-			want:   "deploy --force",
-			wantOK: true,
+			name:  "flag-only heuristic",
+			input: "deploy --force",
+			want:  []string{"deploy --force"},
 		},
 		{
-			name:   "non-command text",
-			input:  "please review the changes",
-			want:   "",
-			wantOK: false,
+			name:  "non-command text",
+			input: "please review the changes",
+			want:  nil,
+		},
+		{
+			name:  "multiple commands",
+			input: "git status\nrm -rf /tmp\njust some text",
+			want:  []string{"git status", "rm -rf /tmp"},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, ok := extractLikelyCommand(tt.input)
-			if ok != tt.wantOK {
-				t.Fatalf("extractLikelyCommand ok=%v, want %v", ok, tt.wantOK)
+			got := extractLikelyCommands(tt.input)
+			if len(got) != len(tt.want) {
+				t.Fatalf("extractLikelyCommands got %d commands, want %d: got=%v", len(got), len(tt.want), got)
 			}
-			if got != tt.want {
-				t.Fatalf("extractLikelyCommand = %q, want %q", got, tt.want)
+			for i := range got {
+				if got[i] != tt.want[i] {
+					t.Fatalf("extractLikelyCommands[%d] = %q, want %q", i, got[i], tt.want[i])
+				}
 			}
 		})
 	}

@@ -1895,32 +1895,33 @@ func maybeBlockSendWithDCG(prompt, session string, panes []tmux.Pane) error {
 	if !hasNonClaudeTargets(panes) {
 		return nil
 	}
-	command, ok := extractLikelyCommand(prompt)
-	if !ok {
+	commands := extractLikelyCommands(prompt)
+	if len(commands) == 0 {
 		return nil
 	}
 
 	adapter := tools.NewDCGAdapter()
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	if !adapter.IsAvailable(ctx) {
 		return nil
 	}
 
-	blocked, err := adapter.CheckCommand(ctx, command)
-	if err != nil {
-		return err
+	for _, command := range commands {
+		blocked, err := adapter.CheckCommand(ctx, command)
+		if err != nil {
+			return err
+		}
+		if blocked != nil {
+			logDCGBlocked(command, session, panes, blocked)
+			reason := strings.TrimSpace(blocked.Reason)
+			if reason == "" {
+				reason = "blocked by dcg"
+			}
+			return fmt.Errorf("blocked by dcg: %s", reason)
+		}
 	}
-	if blocked == nil {
-		return nil
-	}
-
-	logDCGBlocked(command, session, panes, blocked)
-	reason := strings.TrimSpace(blocked.Reason)
-	if reason == "" {
-		reason = "blocked by dcg"
-	}
-	return fmt.Errorf("blocked by dcg: %s", reason)
+	return nil
 }
 
 func hasNonClaudeTargets(panes []tmux.Pane) bool {
@@ -1939,17 +1940,18 @@ func isNonClaudeAgent(p tmux.Pane) bool {
 	return p.Type != tmux.AgentClaude
 }
 
-func extractLikelyCommand(prompt string) (string, bool) {
+func extractLikelyCommands(prompt string) []string {
+	var commands []string
 	for _, line := range strings.Split(prompt, "\n") {
 		candidate := normalizeCommandLine(line)
 		if candidate == "" {
 			continue
 		}
 		if looksLikeShellCommand(candidate) {
-			return candidate, true
+			commands = append(commands, candidate)
 		}
 	}
-	return "", false
+	return commands
 }
 
 func normalizeCommandLine(line string) string {

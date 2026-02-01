@@ -165,9 +165,17 @@ func (m *Monitor) getAgentPanes() ([]tmux.Pane, error) {
 		return nil, err
 	}
 
+	// Find minimum pane index to identify control pane
+	minIdx := -1
+	for _, p := range allPanes {
+		if minIdx == -1 || p.Index < minIdx {
+			minIdx = p.Index
+		}
+	}
+
 	var agentPanes []tmux.Pane
 	for _, p := range allPanes {
-		if p.Index > 0 { // Skip control pane
+		if p.Index != minIdx { // Skip control pane (first pane)
 			agentPanes = append(agentPanes, p)
 		}
 	}

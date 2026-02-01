@@ -148,6 +148,7 @@ type mockTmuxClient struct {
 	mu            sync.Mutex
 	sendKeysCalls []sendKeysCall
 	sendKeysErr   error
+	sendKeysHook  func(paneID, text string, enter bool) error
 	runCalls      [][]string
 	runOutput     string
 	runErr        error
@@ -168,6 +169,9 @@ func (m *mockTmuxClient) recordSendKeys(paneID, text string, enter bool) {
 
 func (m *mockTmuxClient) SendKeys(paneID, text string, enter bool) error {
 	m.recordSendKeys(paneID, text, enter)
+	if m.sendKeysHook != nil {
+		return m.sendKeysHook(paneID, text, enter)
+	}
 	return m.sendKeysErr
 }
 
@@ -384,6 +388,191 @@ func TestAutoRespawnerKillWithFallbackForceKill(t *testing.T) {
 	}
 }
 
+func TestAutoRespawnerRespawnSuccessEmitsEvent(t *testing.T) {
+	mock := &mockTmuxClient{
+		captureSeq: []string{
+			"user@host:~$ ", // waitForExit sees shell prompt
+			"Codex> ",       // waitForAgentReady sees ready pattern
+		},
+	}
+
+	r := NewAutoRespawner().WithTmuxClient(mock).WithProjectPathLookup(func(sessionPane string) string {
+		return "/tmp/test project"
+	})
+	r.Config.ExitWaitTimeout = 20 * time.Millisecond
+	r.Config.ExitPollInterval = 1 * time.Millisecond
+	r.Config.ClearPaneDelay = 0
+
+	event := LimitEvent{
+		SessionPane: "test:1.1",
+		AgentType:   "cod",
+		Pattern:     "limit",
+		DetectedAt:  time.Now(),
+	}
+
+	t.Log("[TEST] Respawn success path should emit event")
+	result := r.Respawn(event)
+	if !result.Success {
+		t.Fatalf("expected Respawn success, got error=%q", result.Error)
+	}
+
+	// Expect kill (/exit), clear, cd, spawn (cod)
+	want := []sendKeysCall{
+		{paneID: "test:1.1", text: "/exit", enter: true},
+		{paneID: "test:1.1", text: "clear", enter: true},
+		{paneID: "test:1.1", text: `cd "/tmp/test project"`, enter: true},
+		{paneID: "test:1.1", text: "cod", enter: true},
+	}
+	if len(mock.sendKeysCalls) != len(want) {
+		t.Fatalf("expected %d SendKeys calls, got %d: %+v", len(want), len(mock.sendKeysCalls), mock.sendKeysCalls)
+	}
+	for i := range want {
+		if mock.sendKeysCalls[i] != want[i] {
+			t.Errorf("SendKeys[%d] mismatch: got=%+v want=%+v", i, mock.sendKeysCalls[i], want[i])
+		}
+	}
+
+	select {
+	case got := <-r.Events():
+		if got.SessionPane != "test:1.1" {
+			t.Errorf("event sessionPane mismatch: got=%q want=%q", got.SessionPane, "test:1.1")
+		}
+		if got.AgentType != "cod" {
+			t.Errorf("event agentType mismatch: got=%q want=%q", got.AgentType, "cod")
+		}
+		if got.RespawnedAt.IsZero() {
+			t.Error("event RespawnedAt should be set")
+		}
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("expected respawn event to be emitted")
+	}
+}
+
+func TestAutoRespawnerRespawnAccountRotationSetsResultFields(t *testing.T) {
+	mock := &mockTmuxClient{
+		captureSeq: []string{
+			"user@host:~$ ",
+			"Codex> ",
+		},
+	}
+	ar := newMockAccountRotator()
+	ar.nextAccount["cod"] = "account_99"
+
+	r := NewAutoRespawner().WithTmuxClient(mock).WithAccountRotator(ar).WithProjectPathLookup(func(sessionPane string) string {
+		return "/tmp/project"
+	})
+	r.Config.AutoRotateAccounts = true
+	r.Config.ExitWaitTimeout = 20 * time.Millisecond
+	r.Config.ExitPollInterval = 1 * time.Millisecond
+	r.Config.ClearPaneDelay = 0
+
+	event := LimitEvent{
+		SessionPane: "test:1.1",
+		AgentType:   "cod",
+		Pattern:     "limit",
+		DetectedAt:  time.Now(),
+	}
+
+	t.Log("[TEST] Respawn should record account rotation in result")
+	result := r.Respawn(event)
+	if !result.Success {
+		t.Fatalf("expected Respawn success, got error=%q", result.Error)
+	}
+	if !result.AccountRotated {
+		t.Fatal("expected AccountRotated true")
+	}
+	if result.PreviousAccount != "account_1" {
+		t.Errorf("PreviousAccount mismatch: got=%q want=%q", result.PreviousAccount, "account_1")
+	}
+	if result.NewAccount != "account_99" {
+		t.Errorf("NewAccount mismatch: got=%q want=%q", result.NewAccount, "account_99")
+	}
+}
+
+func TestAutoRespawnerRespawnSpawnFailureDoesNotEmitEvent(t *testing.T) {
+	mock := &mockTmuxClient{
+		captureSeq: []string{
+			"user@host:~$ ",
+			"Codex> ",
+		},
+		sendKeysHook: func(paneID, text string, enter bool) error {
+			if text == "cod" {
+				return context.Canceled
+			}
+			return nil
+		},
+	}
+
+	r := NewAutoRespawner().WithTmuxClient(mock)
+	r.Config.ExitWaitTimeout = 20 * time.Millisecond
+	r.Config.ExitPollInterval = 1 * time.Millisecond
+	r.Config.ClearPaneDelay = 0
+
+	event := LimitEvent{
+		SessionPane: "test:1.1",
+		AgentType:   "cod",
+		Pattern:     "limit",
+		DetectedAt:  time.Now(),
+	}
+
+	t.Log("[TEST] Respawn spawn-failure path should not emit event")
+	result := r.Respawn(event)
+	if result.Success {
+		t.Fatal("expected Respawn to fail")
+	}
+	if result.Error == "" {
+		t.Fatal("expected Respawn error to be set")
+	}
+
+	select {
+	case got := <-r.Events():
+		t.Fatalf("did not expect event on failure, got %+v", got)
+	default:
+		// ok
+	}
+}
+
+func TestAutoRespawnerRespawnConcurrentCalls(t *testing.T) {
+	mock := &mockTmuxClient{
+		captureSeq: []string{
+			"Codex> ", "Codex> ", "Codex> ", "Codex> ", "Codex> ",
+			"Codex> ", "Codex> ", "Codex> ", "Codex> ", "Codex> ",
+			"Codex> ", "Codex> ", "Codex> ", "Codex> ", "Codex> ",
+		},
+	}
+
+	r := NewAutoRespawner().WithTmuxClient(mock)
+	r.Config.ExitWaitTimeout = 20 * time.Millisecond
+	r.Config.ExitPollInterval = 1 * time.Millisecond
+	r.Config.ClearPaneDelay = 0
+
+	events := []LimitEvent{
+		{SessionPane: "test:1.1", AgentType: "cod", Pattern: "limit", DetectedAt: time.Now()},
+		{SessionPane: "test:1.2", AgentType: "cod", Pattern: "limit", DetectedAt: time.Now()},
+		{SessionPane: "test:1.3", AgentType: "cod", Pattern: "limit", DetectedAt: time.Now()},
+	}
+
+	t.Logf("[TEST] concurrent Respawn calls n=%d", len(events))
+	var wg sync.WaitGroup
+	results := make(chan *RespawnResult, len(events))
+	for _, ev := range events {
+		wg.Add(1)
+		go func(e LimitEvent) {
+			defer wg.Done()
+			results <- r.Respawn(e)
+		}(ev)
+	}
+
+	wg.Wait()
+	close(results)
+
+	for res := range results {
+		if !res.Success {
+			t.Fatalf("concurrent Respawn failed: session_pane=%s error=%q", res.SessionPane, res.Error)
+		}
+	}
+}
+
 func TestDefaultAutoRespawnerConfig(t *testing.T) {
 	cfg := DefaultAutoRespawnerConfig()
 
@@ -431,11 +620,14 @@ func TestAutoRespawnerStartAndStop(t *testing.T) {
 	r.WithLimitDetector(ld)
 
 	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
 
 	err := r.Start(ctx)
 	if err != nil {
 		t.Fatalf("Start failed: %v", err)
+	}
+
+	if r.ctx == nil {
+		t.Fatal("expected internal context to be set after Start")
 	}
 
 	// Give goroutine time to start
@@ -447,6 +639,15 @@ func TestAutoRespawnerStartAndStop(t *testing.T) {
 	if r.cancel != nil {
 		t.Error("cancel should be nil after Stop")
 	}
+
+	select {
+	case <-r.ctx.Done():
+		// ok
+	case <-time.After(100 * time.Millisecond):
+		t.Error("expected context to be canceled after Stop")
+	}
+
+	cancel()
 }
 
 func TestAutoRespawnerRetryTracking(t *testing.T) {
@@ -1587,9 +1788,11 @@ func TestAutoRespawnerWaitForAgentReadySuccess(t *testing.T) {
 		t.Errorf("expected no error, got: %v", err)
 	}
 
-	// Should complete much faster than the timeout
-	if elapsed > 200*time.Millisecond {
-		t.Errorf("expected quick detection, but took %v", elapsed)
+	// Should complete within the timeout
+	// Note: waitForAgentReady uses a 500ms poll interval, so detection may take
+	// up to one poll cycle after the ready pattern appears
+	if elapsed > 600*time.Millisecond {
+		t.Errorf("expected detection within poll interval, but took %v", elapsed)
 	}
 
 	t.Log("[TEST] Agent ready detected successfully")

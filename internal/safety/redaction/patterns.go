@@ -32,6 +32,7 @@ var defaultPatterns = []patternDef{
 
 	// Cloud provider credentials
 	{CategoryAWSAccessKey, `AKIA[0-9A-Z]{16}`, 90},
+	{CategoryAWSAccessKey, `ASIA[0-9A-Z]{16}`, 90},
 	{CategoryAWSSecretKey, `(?i)(aws_secret|secret_access_key|secret_key)\s*[=:]\s*["']?[a-zA-Z0-9/+=]{40}["']?`, 90},
 
 	// Authentication tokens

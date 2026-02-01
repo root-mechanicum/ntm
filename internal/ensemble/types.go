@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 )
@@ -687,6 +688,18 @@ func NewModeCatalog(modes []ReasoningMode, version string) (*ModeCatalog, error)
 		if mode.Tier != "" {
 			c.byTier[mode.Tier] = append(c.byTier[mode.Tier], ptr)
 		}
+	}
+
+	// Sort lists to ensure deterministic ordering
+	for _, modes := range c.byCat {
+		sort.Slice(modes, func(i, j int) bool {
+			return modes[i].ID < modes[j].ID
+		})
+	}
+	for _, modes := range c.byTier {
+		sort.Slice(modes, func(i, j int) bool {
+			return modes[i].ID < modes[j].ID
+		})
 	}
 
 	return c, nil

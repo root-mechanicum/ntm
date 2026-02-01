@@ -185,7 +185,11 @@ func (o *SessionOrchestrator) createSession(client *tmux.Client, spec SessionSpe
 		// Split the window to create a new pane
 		paneID, err := client.SplitWindow(spec.Name, paneDir)
 		if err != nil {
-			// Log error but continue with other panes
+			slog.Warn("[SessionOrchestrator] split_window_failed",
+				"session", spec.Name,
+				"pane_index", i,
+				"directory", paneDir,
+				"error", err)
 			continue
 		}
 

@@ -14,26 +14,53 @@ This document defines the canonical set of detection categories, patterns, and r
 
 ---
 
+## Prior Art: Existing Checkpoint Export Patterns (Regression Set)
+
+NTM already ships a small set of secret redaction patterns used by checkpoint export
+(`internal/checkpoint/export.go`, `--redact-secrets`). The unified engine MUST cover these
+patterns (or stricter supersets) to avoid regressions when the checkpoint exporter migrates.
+
+| Source Regex (current) | Canonical Category |
+|------------------------|-------------------|
+| `(?i)(api[_-]?key|apikey)\\s*[:=]\\s*['\"]?[\\w-]{20,}['\"]?` | `GENERIC_API_KEY` |
+| `(?i)(secret|password|passwd|pwd)\\s*[:=]\\s*['\"]?[^\\s'\"]{8,}['\"]?` | `PASSWORD` |
+| `(?i)(token|bearer)\\s*[:=]\\s*['\"]?[\\w-]{20,}['\"]?` | `BEARER_TOKEN` |
+| `(?i)Authorization:\\s*Bearer\\s+[\\w-]+` | `BEARER_TOKEN` |
+| `(?i)(aws_secret|aws_access)\\s*[:=]\\s*['\"]?[\\w/+=]{20,}['\"]?` | `AWS_SECRET_KEY` |
+| `ghp_[a-zA-Z0-9]{36}` | `GITHUB_TOKEN` |
+| `sk-[a-zA-Z0-9]{48}` | `OPENAI_KEY` (legacy) |
+| `sk-ant-[a-zA-Z0-9-]{95}` | `ANTHROPIC_KEY` |
+| `AKIA[A-Z0-9]{16}` | `AWS_ACCESS_KEY` |
+| `-----BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY-----` | `PRIVATE_KEY` |
+
+Notes:
+- The current checkpoint exporter replaces matches with a generic `[REDACTED]` string.
+- The unified engine will emit category-aware placeholders (see below) and structured findings.
+
+---
+
 ## Detection Categories
 
 ### 1. Provider API Keys
 
 #### OpenAI
 ```
-Pattern: sk-[a-zA-Z0-9]{20,}T3BlbkFJ[a-zA-Z0-9]{20,}
+Pattern: sk-[a-zA-Z0-9]{48}                     # legacy (shipped in checkpoint export)
+         sk-[a-zA-Z0-9]{20,}T3BlbkFJ[a-zA-Z0-9]{20,}
          sk-proj-[a-zA-Z0-9_-]{80,}
 Category: OPENAI_KEY
 Examples:
-  - sk-abc123...T3BlbkFJ...xyz789
-  - sk-proj-ABC_def-123...
+  - sk-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+  - sk-12345678901234567890T3BlbkFJ12345678901234567890
+  - sk-proj-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 ```
 
 #### Anthropic
 ```
-Pattern: sk-ant-[a-zA-Z0-9_-]{93,}
+Pattern: sk-ant-[a-zA-Z0-9_-]{95,}              # must match legacy {95} pattern
 Category: ANTHROPIC_KEY
 Examples:
-  - sk-ant-api03-AbCdEf...
+  - sk-ant-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 ```
 
 #### Google/Gemini
@@ -41,7 +68,7 @@ Examples:
 Pattern: AIza[a-zA-Z0-9_-]{35}
 Category: GOOGLE_API_KEY
 Examples:
-  - AIzaSyD-abc123_XYZ...
+  - AIzaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 ```
 
 #### GitHub
@@ -97,6 +124,7 @@ Examples:
 #### OAuth Bearer Tokens
 ```
 Pattern: (?i)(bearer|token|authorization)\s*[=:]\s*["']?[a-zA-Z0-9._-]{20,}["']?
+         (?i)Authorization:\s*Bearer\s+[a-zA-Z0-9._-]{20,}
 Category: BEARER_TOKEN
 ```
 
@@ -277,25 +305,37 @@ NTM_REDACTION_ALLOWLIST="sk-test-.*,EXAMPLE.*" ntm send ...
 ### True Positives (should detect)
 
 ```
+# NOTE: These are synthetic fixtures, not real credentials.
+
 # Category: OPENAI_KEY
-sk-abc123...T3Blbk...xyz789abc
-sk-proj-ABC123_def456-ghi789_jkl012_mno345pqr678stu901vwx234yz567abc890
+sk-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+sk-12345678901234567890T3BlbkFJ12345678901234567890
+sk-proj-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+OPENAI_API_KEY=sk-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 
 # Category: ANTHROPIC_KEY
-sk-ant-api03-AbCdEfGhIjKlMnOpQrStUvWxYz0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUV
+sk-ant-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+
+# Category: GOOGLE_API_KEY
+AIzaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 
 # Category: GITHUB_TOKEN
-ghp_1234567890abcdefghijklmnopqrstuvwxyz
-github_pat_11ABCDEFG0123456789AB_abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJKLMNOPQRSTUVWXY
+ghp_abcdefghijklmnopqrstuvwxyz0123456789
+github_pat_11ABCDEFG0123456789ABC_abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJKLMNOPQRSTUVW
 
 # Category: AWS_ACCESS_KEY
 AKIAIOSFODNN7EXAMPLE
 
 # Category: AWS_SECRET_KEY
-aws_secret_access_key = "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
+aws_secret_access_key="wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
+aws_access="aaaaaaaaaaaaaaaaaaaa/+/=AAAAAAAAAAAAAAAAAAAA"
 
 # Category: JWT
 eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c
+
+# Category: BEARER_TOKEN
+Authorization: Bearer abcdefghijklmnopqrstuvwxyzABCDE
+token="abcdef1234567890_abcdef1234567890"
 
 # Category: DATABASE_URL
 postgres://myuser:mypassword@localhost:5432/mydb
@@ -303,19 +343,16 @@ mongodb://admin:secretPassword123@mongo.example.com:27017/production
 
 # Category: PRIVATE_KEY
 -----BEGIN RSA PRIVATE KEY-----
-MIIEowIBAAKCAQEA0Z3VS5JJcds3xfn/ygWyF8PbnGy...
+MIIEowIBAAKCAQEA0Z3VS5JJcds3xfn/ygWyF8PbnGyLXJ8B+l0DGKx7mN0wbP6zXuF9S4xGz
 -----END RSA PRIVATE KEY-----
 
 # Category: PASSWORD
 password=SuperSecretP@ssw0rd!
-DATABASE_PASSWORD: "hunter2"
+DATABASE_PASSWORD="hunter2"
 
 # Category: GENERIC_API_KEY
 MY_API_KEY=abcdef123456789abcdef
-stripe_api_key: "sk_live_abcdefghijklmnop"
-
-# Category: GOOGLE_API_KEY
-AIzaSyD-abc123_XYZ456_789-defGHI012jkl
+stripe_api_key="sk_live_abcdefghijklmnop"
 ```
 
 ### True Negatives (should NOT detect)
@@ -351,26 +388,23 @@ The pattern sk-* is for OpenAI
 ```
 # Multiline private key (should detect full block)
 -----BEGIN RSA PRIVATE KEY-----
-MIIEowIBAAKCAQEA0Z3VS5JJcds3xfn/ygWyF8PbnGy
-LXJ8B+l0DGKx7mN0wbP6zXuF9S4xGz...
+MIIEowIBAAKCAQEA0Z3VS5JJcds3xfn/ygWyF8PbnGyLXJ8B+l0DGKx7mN0wbP6zXuF9S4xGz
 -----END RSA PRIVATE KEY-----
 
 # Key in JSON (should detect)
-{"api_key": "sk-abc123...T3Blbk...xyz789abc"}
+{"api_key":"sk-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}
 
 # Key in environment export (should detect)
-export OPENAI_API_KEY=sk-abc123...T3Blbk...xyz789abc
+export OPENAI_API_KEY=sk-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 
 # Multiple keys in one line (should detect all)
-OPENAI_KEY=sk-abc... ANTHROPIC_KEY=sk-ant-...
+OPENAI_KEY=sk-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa ANTHROPIC_KEY=sk-ant-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 
 # Key with surrounding whitespace (should detect)
-   sk-abc123...T3Blbk...xyz789abc
+   sk-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 
-# Key in markdown code block (should detect)
-```bash
-export API_KEY=sk-abc123...
-```
+# Key in code-like text (should detect)
+export API_KEY=sk-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 ```
 
 ---
@@ -379,10 +413,9 @@ export API_KEY=sk-abc123...
 
 ### Regex Performance
 
-All patterns must:
-1. Avoid unbounded repetition with overlapping alternatives
-2. Use possessive quantifiers or atomic groups where supported
-3. Complete scanning of 1MB input in < 100ms
+NTM is written in Go; the standard `regexp` engine is RE2 (no backtracking).
+Even so, patterns should remain specific enough to avoid broad false positives and
+should be fast on large inputs (target: scan 1MB in <100ms on a typical dev machine).
 
 ### Pattern Compilation
 
