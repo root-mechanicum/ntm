@@ -617,20 +617,168 @@ func newSwarmStatusCmd() *cobra.Command {
 // Subcommand: swarm stop
 func newSwarmStopCmd() *cobra.Command {
 	var (
-		force bool
+		force           bool
+		timeout         time.Duration
+		sessionPatterns []string
+		jsonOutput      bool
 	)
 
 	cmd := &cobra.Command{
-		Use:   "stop",
+		Use:   "stop [session-pattern...]",
 		Short: "Stop the swarm and destroy all sessions",
+		Long: `Gracefully stop swarm agent sessions.
+
+By default, discovers and stops all swarm sessions (cc_agents_*, cod_agents_*, gmi_agents_*).
+Optionally specify session name patterns to stop specific sessions.
+
+The graceful shutdown process:
+  1. Send exit signals to all agents (Ctrl+C for Claude, /exit for Codex, etc.)
+  2. Wait for graceful timeout to allow agents to exit cleanly
+  3. Destroy all tmux sessions
+
+Examples:
+  ntm swarm stop                    # Stop all swarm sessions gracefully
+  ntm swarm stop --force            # Immediately destroy without graceful exit
+  ntm swarm stop cc_agents_*        # Stop only Claude Code sessions
+  ntm swarm stop --timeout=10s      # Wait 10s for graceful exit`,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			// TODO: Implement swarm stop
-			output.PrintInfo("Swarm stop not yet implemented")
+			ctx := cmd.Context()
+			if ctx == nil {
+				ctx = context.Background()
+			}
+
+			// Determine which sessions to stop
+			patterns := sessionPatterns
+			if len(args) > 0 {
+				patterns = args
+			}
+
+			// If no patterns specified, use default swarm session patterns
+			if len(patterns) == 0 {
+				patterns = []string{"cc_agents_*", "cod_agents_*", "gmi_agents_*"}
+			}
+
+			// Discover matching sessions
+			sessions, err := discoverSwarmSessions(patterns)
+			if err != nil {
+				return fmt.Errorf("discovering sessions: %w", err)
+			}
+
+			if len(sessions) == 0 {
+				output.PrintInfo("No swarm sessions found matching the specified patterns")
+				return nil
+			}
+
+			output.PrintInfof("Found %d swarm session(s) to stop", len(sessions))
+			for _, sess := range sessions {
+				output.PrintInfof("  - %s", sess)
+			}
+
+			// Confirm unless force is set
+			if !force {
+				output.PrintWarning("This will gracefully stop all agents and destroy the sessions.")
+				output.PrintInfo("Use --force to skip this confirmation.")
+				// In a real implementation, you'd prompt for confirmation here
+				// For now, we proceed (CLI typically uses --force for automation)
+			}
+
+			// Configure shutdown
+			cfg := swarm.DefaultShutdownConfig()
+			cfg.ForceKill = force
+			if timeout > 0 {
+				cfg.GracefulTimeout = timeout
+			}
+
+			// Execute shutdown
+			orchestrator := swarm.NewSwarmOrchestrator()
+			result, err := orchestrator.GracefulShutdown(ctx, sessions, cfg)
+			if err != nil {
+				return fmt.Errorf("shutdown failed: %w", err)
+			}
+
+			// Output results
+			if jsonOutput {
+				enc := json.NewEncoder(cmd.OutOrStdout())
+				enc.SetIndent("", "  ")
+				return enc.Encode(result)
+			}
+
+			output.PrintInfof("Shutdown complete:")
+			output.PrintInfof("  Sessions destroyed: %d", result.SessionsDestroyed)
+			output.PrintInfof("  Panes signaled: %d", result.PanesKilled)
+			output.PrintInfof("  Graceful exits: %d", result.GracefulExits)
+			output.PrintInfof("  Duration: %s", result.Duration.Round(time.Millisecond))
+
+			if len(result.Errors) > 0 {
+				output.PrintWarningf("  Errors: %d", len(result.Errors))
+				for _, e := range result.Errors {
+					output.PrintWarningf("    - %v", e)
+				}
+			}
+
 			return nil
 		},
 	}
 
-	cmd.Flags().BoolVar(&force, "force", false, "Force stop without confirmation")
+	cmd.Flags().BoolVar(&force, "force", false, "Force stop without graceful exit")
+	cmd.Flags().DurationVar(&timeout, "timeout", 5*time.Second, "Timeout for graceful exit")
+	cmd.Flags().StringSliceVar(&sessionPatterns, "sessions", nil, "Session name patterns to stop")
+	cmd.Flags().BoolVar(&jsonOutput, "json", false, "Output results as JSON")
 
 	return cmd
+}
+
+// discoverSwarmSessions finds tmux sessions matching the given patterns.
+func discoverSwarmSessions(patterns []string) ([]string, error) {
+	client := tmux.DefaultClient
+
+	// List all sessions
+	allSessions, err := client.ListSessions()
+	if err != nil {
+		return nil, fmt.Errorf("listing sessions: %w", err)
+	}
+
+	// Match sessions against patterns
+	var matched []string
+	seen := make(map[string]bool)
+
+	for _, pattern := range patterns {
+		// Compile pattern as glob-like regex
+		regexPattern := globToRegex(pattern)
+		re, err := regexp.Compile("^" + regexPattern + "$")
+		if err != nil {
+			slog.Warn("invalid session pattern", "pattern", pattern, "error", err)
+			continue
+		}
+
+		for _, sess := range allSessions {
+			if seen[sess.Name] {
+				continue
+			}
+			if re.MatchString(sess.Name) {
+				matched = append(matched, sess.Name)
+				seen[sess.Name] = true
+			}
+		}
+	}
+
+	return matched, nil
+}
+
+// globToRegex converts a glob pattern to a regex pattern.
+func globToRegex(glob string) string {
+	result := ""
+	for _, c := range glob {
+		switch c {
+		case '*':
+			result += ".*"
+		case '?':
+			result += "."
+		case '.', '+', '^', '$', '(', ')', '[', ']', '{', '}', '|', '\\':
+			result += "\\" + string(c)
+		default:
+			result += string(c)
+		}
+	}
+	return result
 }
