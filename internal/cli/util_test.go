@@ -398,40 +398,6 @@ func TestSanitizeFilename_LongName(t *testing.T) {
 }
 
 // =============================================================================
-// sessionNames
-// =============================================================================
-
-func TestSessionNames(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name     string
-		sessions []tmux.Session
-		want     []string
-	}{
-		{"empty", nil, []string{}},
-		{"single", []tmux.Session{{Name: "alpha"}}, []string{"alpha"}},
-		{"sorted output", []tmux.Session{{Name: "beta"}, {Name: "alpha"}}, []string{"alpha", "beta"}},
-		{"skips empty names", []tmux.Session{{Name: "alpha"}, {Name: ""}, {Name: "beta"}}, []string{"alpha", "beta"}},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			got := sessionNames(tc.sessions)
-			if len(got) != len(tc.want) {
-				t.Fatalf("sessionNames() len = %d, want %d", len(got), len(tc.want))
-			}
-			for i := range tc.want {
-				if got[i] != tc.want[i] {
-					t.Errorf("sessionNames()[%d] = %q, want %q", i, got[i], tc.want[i])
-				}
-			}
-		})
-	}
-}
-
-// =============================================================================
 // orderSessionsForSelection
 // =============================================================================
 

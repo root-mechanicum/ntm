@@ -23,6 +23,8 @@ import (
 func resetFlags() {
 	jsonOutput = false
 	noColor = false
+	redactMode = ""
+	allowSecret = false
 	robotHelp = false
 	robotStatus = false
 	robotVersion = false
