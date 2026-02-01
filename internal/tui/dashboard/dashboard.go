@@ -8,6 +8,7 @@ import (
 	"log"
 	"os"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -25,11 +26,13 @@ import (
 	"github.com/Dicklesworthstone/ntm/internal/checkpoint"
 	"github.com/Dicklesworthstone/ntm/internal/config"
 	ctxmon "github.com/Dicklesworthstone/ntm/internal/context"
+	"github.com/Dicklesworthstone/ntm/internal/cost"
 	"github.com/Dicklesworthstone/ntm/internal/health"
 	"github.com/Dicklesworthstone/ntm/internal/history"
 	"github.com/Dicklesworthstone/ntm/internal/integrations/pt"
 	"github.com/Dicklesworthstone/ntm/internal/robot"
 	"github.com/Dicklesworthstone/ntm/internal/scanner"
+	sessionPkg "github.com/Dicklesworthstone/ntm/internal/session"
 	"github.com/Dicklesworthstone/ntm/internal/state"
 	"github.com/Dicklesworthstone/ntm/internal/status"
 	"github.com/Dicklesworthstone/ntm/internal/tmux"
@@ -448,6 +451,7 @@ type Model struct {
 	// Panels
 	beadsPanel           *panels.BeadsPanel
 	alertsPanel          *panels.AlertsPanel
+	costPanel            *panels.CostPanel
 	metricsPanel         *panels.MetricsPanel
 	historyPanel         *panels.HistoryPanel
 	cassPanel            *panels.CASSPanel
@@ -462,11 +466,23 @@ type Model struct {
 	beadsSummary  bv.BeadsSummary
 	beadsReady    []bv.BeadPreview
 	activeAlerts  []alerts.Alert
+	costData      panels.CostPanelData
+	costError     error
 	metricsData   panels.MetricsData // Cached full metrics data for panel
 	cmdHistory    []history.HistoryEntry
 	fileChanges   []tracker.RecordedFileChange
 	cassContext   []cass.SearchHit
 	routingScores map[string]RoutingScore // keyed by pane ID
+
+	// Cost tracking (estimated; derived from prompt history + pane output deltas)
+	costInputTokens         map[string]int     // paneID -> estimated input tokens
+	costOutputTokens        map[string]int     // paneID -> estimated output tokens
+	costModels              map[string]string  // paneID -> model name (for pricing)
+	costLastCosts           map[string]float64 // paneID -> last computed USD cost
+	costLastPromptTimestamp time.Time          // last processed prompt timestamp
+	costLastPromptRead      time.Time          // last time we attempted to read prompt history
+	costSnapshots           []costSnapshot     // rolling window for last-hour computations
+	costDailyBudgetUSD      float64            // 0 disables budget display
 
 	// Process triage health states (from pt.HealthMonitor)
 	healthStates map[string]*pt.AgentState // pane -> health state
@@ -521,7 +537,7 @@ type Model struct {
 	routingError     error
 
 	// Activity state tracking for adaptive tick rate (fixes #32 - dashboard flicker)
-	lastActivity time.Time     // When user last interacted (key/mouse/pane output)
+	lastActivity  time.Time     // When user last interacted (key/mouse/pane output)
 	activityState ActivityState // current activity state
 	reduceMotion  bool          // NTM_REDUCE_MOTION=1 disables animations
 	baseTick      time.Duration // Base tick interval when active (default 100ms)
@@ -556,6 +572,11 @@ type PaneStatus struct {
 	// Rotation tracking
 	IsRotating bool       // True when agent rotation is in progress
 	RotatedAt  *time.Time // When agent was last rotated (nil if never)
+}
+
+type costSnapshot struct {
+	At       time.Time
+	TotalUSD float64
 }
 
 // AgentMailLockInfo represents a file lock for dashboard display
@@ -617,6 +638,7 @@ const (
 	SpawnActiveRefreshInterval = 500 * time.Millisecond // Poll frequently when spawn is active
 	SpawnIdleRefreshInterval   = 2 * time.Second        // Poll slowly when no spawn is active
 	MailInboxRefreshInterval   = 30 * time.Second
+	CostPromptRefreshInterval  = 5 * time.Second // Poll ~/.ntm/sessions/<session>/prompts.json
 )
 
 func (m *Model) initRenderer(width int) {
@@ -677,6 +699,10 @@ func New(session, projectDir string) Model {
 		paneStatus:                 make(map[int]PaneStatus),
 		detector:                   status.NewDetector(),
 		agentStatuses:              make(map[string]status.AgentStatus),
+		costInputTokens:            make(map[string]int),
+		costOutputTokens:           make(map[string]int),
+		costModels:                 make(map[string]string),
+		costLastCosts:              make(map[string]float64),
 		refreshInterval:            DefaultRefreshInterval,
 		paneRefreshInterval:        PaneRefreshInterval,
 		contextRefreshInterval:     ContextRefreshInterval,
@@ -708,6 +734,7 @@ func New(session, projectDir string) Model {
 		}),
 		beadsPanel:           panels.NewBeadsPanel(),
 		alertsPanel:          panels.NewAlertsPanel(),
+		costPanel:            panels.NewCostPanel(),
 		metricsPanel:         panels.NewMetricsPanel(),
 		historyPanel:         panels.NewHistoryPanel(),
 		cassPanel:            panels.NewCASSPanel(),
@@ -2340,11 +2367,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Process compaction checks, context tracking, AND live status updates
 			timelineUpdated := false
 			for _, data := range msg.Outputs {
+				prevOutput := ""
 				if data.PaneID != "" {
-					m.paneOutputCache[data.PaneID] = data.Output
-					if !data.LastActivity.IsZero() {
-						m.paneOutputLastCaptured[data.PaneID] = data.LastActivity
-					}
+					prevOutput = m.paneOutputCache[data.PaneID]
 				}
 
 				// Find the pane to get the variant
@@ -2385,6 +2410,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// Use variant if available
 				if found && currentPane.Variant != "" {
 					modelName = currentPane.Variant
+				}
+
+				// Record estimated output delta tokens for cost tracking BEFORE updating caches.
+				if data.PaneID != "" && data.Output != "" {
+					m.recordCostOutputDelta(data.PaneID, modelName, prevOutput, data.Output)
+				}
+
+				// Update output caches after cost tracking
+				if data.PaneID != "" {
+					m.paneOutputCache[data.PaneID] = data.Output
+					if !data.LastActivity.IsZero() {
+						m.paneOutputLastCaptured[data.PaneID] = data.LastActivity
+					}
 				}
 
 				// Get or create pane status
@@ -2431,6 +2469,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if timelineUpdated {
 				m.refreshTimelinePanel()
 			}
+
+			// Refresh cost panel from prompt history + accumulated output deltas.
+			now := time.Now()
+			m.updateCostFromPrompts(now)
+			m.refreshCostPanel(now)
 		}
 		return m, followUp
 
@@ -2885,6 +2928,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			} else if m.cassPanel != nil && m.cassPanel.IsFocused() {
 				var cmd tea.Cmd
 				_, cmd = m.cassPanel.Update(keyMsg)
+				if cmd != nil {
+					cmds = append(cmds, cmd)
+				}
+			} else if m.costPanel != nil && m.costPanel.IsFocused() {
+				var cmd tea.Cmd
+				_, cmd = m.costPanel.Update(keyMsg)
 				if cmd != nil {
 					cmds = append(cmds, cmd)
 				}
@@ -4539,6 +4588,9 @@ func (m *Model) resizeSidebarPanels(width, height int) {
 	if m.spawnPanel != nil {
 		m.spawnPanel.SetSize(width, height)
 	}
+	if m.costPanel != nil {
+		m.costPanel.SetSize(width, height)
+	}
 	if m.metricsPanel != nil {
 		m.metricsPanel.SetSize(width, height)
 	}
@@ -4610,6 +4662,302 @@ func refreshDue(last time.Time, interval time.Duration) bool {
 		return true
 	}
 	return time.Since(last) >= interval
+}
+
+func tailDelta(prev, current string) string {
+	if current == "" {
+		return ""
+	}
+	if prev == "" {
+		curLines := strings.Split(current, "\n")
+		if len(curLines) > 0 && curLines[len(curLines)-1] == "" {
+			curLines = curLines[:len(curLines)-1]
+		}
+		if len(curLines) == 0 {
+			return ""
+		}
+		return strings.Join(curLines, "\n")
+	}
+	if prev == current {
+		return ""
+	}
+
+	prevLines := strings.Split(prev, "\n")
+	curLines := strings.Split(current, "\n")
+	if len(prevLines) > 0 && prevLines[len(prevLines)-1] == "" {
+		prevLines = prevLines[:len(prevLines)-1]
+	}
+	if len(curLines) > 0 && curLines[len(curLines)-1] == "" {
+		curLines = curLines[:len(curLines)-1]
+	}
+	if len(curLines) == 0 {
+		return ""
+	}
+
+	maxOverlap := len(prevLines)
+	if len(curLines) < maxOverlap {
+		maxOverlap = len(curLines)
+	}
+
+	overlap := 0
+	for k := maxOverlap; k > 0; k-- {
+		if slicesEqual(prevLines[len(prevLines)-k:], curLines[:k]) {
+			overlap = k
+			break
+		}
+	}
+
+	deltaLines := curLines[overlap:]
+	if len(deltaLines) == 0 {
+		return ""
+	}
+	return strings.Join(deltaLines, "\n")
+}
+
+func slicesEqual(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
+func (m *Model) recordCostOutputDelta(paneID, modelName, prevOutput, currentOutput string) {
+	if paneID == "" || currentOutput == "" {
+		return
+	}
+	if m.costOutputTokens == nil {
+		m.costOutputTokens = make(map[string]int)
+	}
+	if m.costModels == nil {
+		m.costModels = make(map[string]string)
+	}
+
+	delta := tailDelta(prevOutput, currentOutput)
+	if delta == "" {
+		return
+	}
+
+	deltaTokens := cost.EstimateTokens(delta)
+	if deltaTokens <= 0 {
+		return
+	}
+	m.costOutputTokens[paneID] += deltaTokens
+	if modelName != "" {
+		m.costModels[paneID] = modelName
+	}
+}
+
+func (m *Model) updateCostFromPrompts(now time.Time) {
+	if m.session == "" {
+		return
+	}
+	if !m.costLastPromptRead.IsZero() && now.Sub(m.costLastPromptRead) < CostPromptRefreshInterval {
+		return
+	}
+	m.costLastPromptRead = now
+
+	if m.costInputTokens == nil {
+		m.costInputTokens = make(map[string]int)
+	}
+
+	history, err := sessionPkg.LoadPromptHistory(m.session)
+	if err != nil {
+		m.costError = err
+		return
+	}
+
+	// Index panes by index for history targets.
+	paneByIndex := make(map[int]tmux.Pane, len(m.panes))
+	for _, p := range m.panes {
+		paneByIndex[p.Index] = p
+	}
+
+	lastTs := m.costLastPromptTimestamp
+	maxTs := lastTs
+
+	for _, entry := range history.Prompts {
+		if !entry.Timestamp.After(lastTs) {
+			continue
+		}
+
+		promptTokens := cost.EstimateTokens(entry.Content)
+		if promptTokens <= 0 {
+			if entry.Timestamp.After(maxTs) {
+				maxTs = entry.Timestamp
+			}
+			continue
+		}
+
+		for _, target := range entry.Targets {
+			target = strings.TrimSpace(target)
+			if target == "" {
+				continue
+			}
+
+			if strings.EqualFold(target, "all") {
+				for _, p := range m.panes {
+					if p.Type == tmux.AgentUser {
+						continue
+					}
+					m.costInputTokens[p.ID] += promptTokens
+				}
+				continue
+			}
+
+			idx, err := strconv.Atoi(target)
+			if err != nil {
+				continue
+			}
+			pane, ok := paneByIndex[idx]
+			if !ok || pane.Type == tmux.AgentUser {
+				continue
+			}
+			m.costInputTokens[pane.ID] += promptTokens
+		}
+
+		if entry.Timestamp.After(maxTs) {
+			maxTs = entry.Timestamp
+		}
+	}
+
+	if maxTs.After(lastTs) {
+		m.costLastPromptTimestamp = maxTs
+	}
+	m.costError = nil
+}
+
+func (m *Model) resolveCostModelForPane(pane tmux.Pane) string {
+	if pane.Variant != "" {
+		return pane.Variant
+	}
+
+	switch pane.Type {
+	case tmux.AgentClaude:
+		if m.cfg != nil && m.cfg.Models.DefaultClaude != "" {
+			return m.cfg.Models.DefaultClaude
+		}
+		return "claude-sonnet-4-20250514"
+	case tmux.AgentCodex:
+		if m.cfg != nil && m.cfg.Models.DefaultCodex != "" {
+			return m.cfg.Models.DefaultCodex
+		}
+		return "gpt-4"
+	case tmux.AgentGemini:
+		if m.cfg != nil && m.cfg.Models.DefaultGemini != "" {
+			return m.cfg.Models.DefaultGemini
+		}
+		return "gemini-2.0-flash"
+	default:
+		return ""
+	}
+}
+
+func (m *Model) refreshCostPanel(now time.Time) {
+	if m.costPanel == nil {
+		return
+	}
+	if m.costInputTokens == nil {
+		m.costInputTokens = make(map[string]int)
+	}
+	if m.costOutputTokens == nil {
+		m.costOutputTokens = make(map[string]int)
+	}
+	if m.costModels == nil {
+		m.costModels = make(map[string]string)
+	}
+	if m.costLastCosts == nil {
+		m.costLastCosts = make(map[string]float64)
+	}
+
+	var rows []panels.CostAgentRow
+	var total float64
+
+	for _, p := range m.panes {
+		if p.Type == tmux.AgentUser {
+			continue
+		}
+
+		modelName := m.costModels[p.ID]
+		if modelName == "" {
+			modelName = m.resolveCostModelForPane(p)
+			if modelName != "" {
+				m.costModels[p.ID] = modelName
+			}
+		}
+
+		inputTokens := m.costInputTokens[p.ID]
+		outputTokens := m.costOutputTokens[p.ID]
+
+		pricing := cost.GetModelPricing(modelName)
+		costUSD := (float64(inputTokens)/1000.0)*pricing.InputPer1K + (float64(outputTokens)/1000.0)*pricing.OutputPer1K
+		total += costUSD
+
+		prevCost := m.costLastCosts[p.ID]
+		delta := costUSD - prevCost
+		trend := panels.CostTrendFlat
+		if delta > 0.001 {
+			trend = panels.CostTrendUp
+		} else if delta < -0.001 {
+			trend = panels.CostTrendDown
+		}
+		m.costLastCosts[p.ID] = costUSD
+
+		rows = append(rows, panels.CostAgentRow{
+			PaneTitle:    p.Title,
+			Model:        modelName,
+			InputTokens:  inputTokens,
+			OutputTokens: outputTokens,
+			CostUSD:      costUSD,
+			Trend:        trend,
+		})
+	}
+
+	lastHour := m.updateCostSnapshots(now, total)
+
+	data := panels.CostPanelData{
+		Agents:          rows,
+		SessionTotalUSD: total,
+		LastHourUSD:     lastHour,
+		DailyBudgetUSD:  m.costDailyBudgetUSD,
+		BudgetUsedUSD:   total,
+	}
+
+	m.costData = data
+	m.costPanel.SetData(data, m.costError)
+}
+
+func (m *Model) updateCostSnapshots(now time.Time, total float64) float64 {
+	if m.costSnapshots == nil {
+		m.costSnapshots = make([]costSnapshot, 0, 128)
+	}
+
+	if len(m.costSnapshots) == 0 || total != m.costSnapshots[len(m.costSnapshots)-1].TotalUSD {
+		m.costSnapshots = append(m.costSnapshots, costSnapshot{At: now, TotalUSD: total})
+	}
+
+	cutoff := now.Add(-1 * time.Hour)
+	pruneIdx := 0
+	for pruneIdx < len(m.costSnapshots) && m.costSnapshots[pruneIdx].At.Before(cutoff) {
+		pruneIdx++
+	}
+	if pruneIdx > 0 {
+		m.costSnapshots = m.costSnapshots[pruneIdx:]
+	}
+
+	if len(m.costSnapshots) == 0 {
+		return 0
+	}
+
+	delta := total - m.costSnapshots[0].TotalUSD
+	if delta < 0 {
+		return 0
+	}
+	return delta
 }
 
 func (m *Model) recordTimelineStatus(pane tmux.Pane, st status.AgentStatus) bool {
@@ -4996,6 +5344,26 @@ func (m Model) renderSidebar(width, height int) string {
 	if m.scanStatus != "" && m.scanStatus != "unavailable" {
 		lines = append(lines, lipgloss.NewStyle().Foreground(t.Blue).Bold(true).Render("Scan Status"))
 		lines = append(lines, m.renderScanBadge())
+	}
+
+	// Cost tracking (best-effort, height-gated)
+	if m.costPanel != nil && height > 0 && (m.costPanel.HasData() || m.costDailyBudgetUSD > 0) {
+		used := lipgloss.Height(strings.Join(lines, "\n"))
+		spacer := 1
+		panelHeight := height - used - spacer
+		if panelHeight >= m.costPanel.Config().MinHeight {
+			if panelHeight > 14 {
+				panelHeight = 14
+			}
+
+			if m.focusedPanel == PanelSidebar {
+				m.costPanel.Focus()
+			} else {
+				m.costPanel.Blur()
+			}
+			m.costPanel.SetSize(width, panelHeight)
+			lines = append(lines, "", m.costPanel.View())
+		}
 	}
 
 	// Metrics (best-effort, height-gated)

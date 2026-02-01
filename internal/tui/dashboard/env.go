@@ -77,6 +77,11 @@ func applyDashboardEnvOverrides(m *Model) {
 	if ms, ok := envPositiveInt("NTM_DASH_SPAWN_REFRESH_MS"); ok {
 		m.spawnRefreshInterval = time.Duration(ms) * time.Millisecond
 	}
+
+	// NTM_DASH_BUDGET_DAILY_USD: enable budget display/alerts for the cost panel
+	if usd, ok := envNonNegativeFloat("NTM_DASH_BUDGET_DAILY_USD"); ok {
+		m.costDailyBudgetUSD = usd
+	}
 }
 
 func envPositiveInt(name string) (int, bool) {
@@ -100,6 +105,20 @@ func envNonNegativeInt(name string) (int, bool) {
 	}
 
 	parsed, err := strconv.Atoi(value)
+	if err != nil || parsed < 0 {
+		return 0, false
+	}
+
+	return parsed, true
+}
+
+func envNonNegativeFloat(name string) (float64, bool) {
+	value := strings.TrimSpace(os.Getenv(name))
+	if value == "" {
+		return 0, false
+	}
+
+	parsed, err := strconv.ParseFloat(value, 64)
 	if err != nil || parsed < 0 {
 		return 0, false
 	}
