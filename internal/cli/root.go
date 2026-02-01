@@ -37,8 +37,8 @@ var (
 	noColor bool
 
 	// Global redaction flags - inherited by all subcommands
-	redactMode    string // --redact=MODE override
-	allowSecret   bool   // --allow-secret override
+	redactMode  string // --redact=MODE override
+	allowSecret bool   // --allow-secret override
 
 	// Build information - set by goreleaser via ldflags
 	Version = "dev"
@@ -2791,6 +2791,7 @@ func init() {
 		newKillCmd(),
 		newRespawnCmd(),
 		newScanCmd(),
+		newScrubCmd(),
 		newBugsCmd(),
 		newCassCmd(),
 		newHooksCmd(),

@@ -5,10 +5,13 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/Dicklesworthstone/ntm/internal/redaction"
 )
 
 func TestNewManager(t *testing.T) {
@@ -213,6 +216,73 @@ func TestBasicDispatch(t *testing.T) {
 		t.Errorf("expected message 'Hello webhook', got %s", receivedPayload.Message)
 	}
 	mu.Unlock()
+}
+
+func TestDispatch_RedactsSecrets(t *testing.T) {
+	t.Parallel()
+
+	var received atomic.Int32
+	var mu sync.Mutex
+	var receivedPayload Event
+	done := make(chan struct{}, 1)
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		received.Add(1)
+
+		body, _ := io.ReadAll(r.Body)
+		mu.Lock()
+		_ = json.Unmarshal(body, &receivedPayload)
+		mu.Unlock()
+
+		w.WriteHeader(http.StatusOK)
+
+		select {
+		case done <- struct{}{}:
+		default:
+		}
+	}))
+	defer ts.Close()
+
+	m := NewManagerWithRedaction(ManagerConfig{
+		QueueSize:   10,
+		WorkerCount: 1,
+	}, redaction.Config{Mode: redaction.ModeWarn})
+
+	if err := m.Register(WebhookConfig{
+		ID:      "test",
+		URL:     ts.URL,
+		Enabled: true,
+	}); err != nil {
+		t.Fatalf("registration failed: %v", err)
+	}
+
+	if err := m.Start(); err != nil {
+		t.Fatalf("start failed: %v", err)
+	}
+	defer m.Stop()
+
+	if err := m.Dispatch(Event{
+		Type:    "test.event",
+		Message: "password=hunter2hunter2",
+	}); err != nil {
+		t.Fatalf("dispatch failed: %v", err)
+	}
+
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatalf("timeout waiting for delivery, got %d deliveries", received.Load())
+	}
+
+	mu.Lock()
+	got := receivedPayload.Message
+	mu.Unlock()
+	if strings.Contains(got, "hunter2hunter2") {
+		t.Fatalf("expected secret to be redacted, got %q", got)
+	}
+	if !strings.Contains(got, "[REDACTED:PASSWORD:") {
+		t.Fatalf("expected redaction placeholder, got %q", got)
+	}
 }
 
 func TestRetryLogic(t *testing.T) {

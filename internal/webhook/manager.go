@@ -18,6 +18,8 @@ import (
 	"sync/atomic"
 	"text/template"
 	"time"
+
+	"github.com/Dicklesworthstone/ntm/internal/redaction"
 )
 
 // Default configuration values
@@ -161,6 +163,8 @@ type WebhookManager struct {
 
 	// Logging callback (optional)
 	Logger func(format string, args ...interface{})
+
+	redactionCfg *redaction.Config
 }
 
 // NewManager creates a new WebhookManager with the given configuration
@@ -195,6 +199,15 @@ func NewManager(cfg ManagerConfig) *WebhookManager {
 	}
 	m.retryCond = sync.NewCond(&m.retryQueueMu)
 
+	return m
+}
+
+// NewManagerWithRedaction creates a webhook manager that redacts event content
+// (message + details) before serialization/dispatch.
+func NewManagerWithRedaction(cfg ManagerConfig, redactionCfg redaction.Config) *WebhookManager {
+	m := NewManager(cfg)
+	cfgCopy := redactionCfg
+	m.redactionCfg = &cfgCopy
 	return m
 }
 
@@ -254,6 +267,8 @@ func (m *WebhookManager) Dispatch(event Event) error {
 		event.Timestamp = time.Now().UTC()
 	}
 
+	event = m.sanitizeEvent(event)
+
 	m.webhooksMu.RLock()
 	webhooks := make([]*WebhookConfig, 0, len(m.webhooks))
 	for _, wh := range m.webhooks {
@@ -288,6 +303,34 @@ func (m *WebhookManager) Dispatch(event Event) error {
 	}
 
 	return nil
+}
+
+func (m *WebhookManager) sanitizeEvent(event Event) Event {
+	if m.redactionCfg == nil || m.redactionCfg.Mode == redaction.ModeOff {
+		return event
+	}
+
+	cfg := *m.redactionCfg
+	if cfg.Mode != redaction.ModeOff {
+		cfg.Mode = redaction.ModeRedact
+	}
+
+	out := event
+	if out.Message != "" {
+		out.Message = redaction.ScanAndRedact(out.Message, cfg).Output
+	}
+	if len(out.Details) > 0 {
+		redactedDetails := make(map[string]string, len(out.Details))
+		for k, v := range out.Details {
+			if v == "" {
+				redactedDetails[k] = v
+				continue
+			}
+			redactedDetails[k] = redaction.ScanAndRedact(v, cfg).Output
+		}
+		out.Details = redactedDetails
+	}
+	return out
 }
 
 // Start begins background processing of the webhook queue

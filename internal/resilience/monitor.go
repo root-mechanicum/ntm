@@ -63,7 +63,7 @@ type Monitor struct {
 func NewMonitor(session, projectDir string, cfg *config.Config, autoRestart bool) *Monitor {
 	var notifier *notify.Notifier
 	if cfg.Notifications.Enabled {
-		notifier = notify.New(cfg.Notifications)
+		notifier = notify.NewWithRedaction(cfg.Notifications, cfg.Redaction.ToRedactionLibConfig())
 	}
 
 	var tracker *ratelimit.RateLimitTracker

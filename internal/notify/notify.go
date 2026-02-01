@@ -17,6 +17,7 @@ import (
 	"text/template"
 	"time"
 
+	"github.com/Dicklesworthstone/ntm/internal/redaction"
 	"github.com/Dicklesworthstone/ntm/internal/util"
 )
 
@@ -147,6 +148,8 @@ type Notifier struct {
 	channels   map[ChannelName]bool // Which channels are enabled
 	mu         sync.Mutex
 	httpClient *http.Client
+
+	redactionCfg *redaction.Config
 }
 
 // expandEnvVars expands environment variables in a string (${VAR} or $VAR format)
@@ -194,6 +197,15 @@ func New(cfg Config) *Notifier {
 		n.channels[ChannelFileBox] = true
 	}
 
+	return n
+}
+
+// NewWithRedaction creates a notifier that redacts event content (message + details)
+// before emitting it to any channel.
+func NewWithRedaction(cfg Config, redactionCfg redaction.Config) *Notifier {
+	n := New(cfg)
+	cfgCopy := redactionCfg
+	n.redactionCfg = &cfgCopy
 	return n
 }
 
@@ -265,6 +277,8 @@ func (n *Notifier) Notify(event Event) error {
 		event.Timestamp = time.Now().UTC()
 	}
 
+	event = n.sanitizeEvent(event)
+
 	// Get channels for this event type
 	channels := n.getChannelsForEvent(event.Type)
 	if len(channels) == 0 {
@@ -322,6 +336,36 @@ func (n *Notifier) Notify(event Event) error {
 	}
 
 	return nil
+}
+
+func (n *Notifier) sanitizeEvent(event Event) Event {
+	if n.redactionCfg == nil || n.redactionCfg.Mode == redaction.ModeOff {
+		return event
+	}
+
+	cfg := *n.redactionCfg
+	if cfg.Mode != redaction.ModeOff {
+		// Notifications/webhooks are an outbound channel; always redact content to
+		// prevent accidental secret leakage regardless of "warn"/"block" modes.
+		cfg.Mode = redaction.ModeRedact
+	}
+
+	out := event
+	if out.Message != "" {
+		out.Message = redaction.ScanAndRedact(out.Message, cfg).Output
+	}
+	if len(out.Details) > 0 {
+		redactedDetails := make(map[string]string, len(out.Details))
+		for k, v := range out.Details {
+			if v == "" {
+				redactedDetails[k] = v
+				continue
+			}
+			redactedDetails[k] = redaction.ScanAndRedact(v, cfg).Output
+		}
+		out.Details = redactedDetails
+	}
+	return out
 }
 
 // sendDesktop sends a desktop notification

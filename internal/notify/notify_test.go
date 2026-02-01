@@ -6,8 +6,11 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/Dicklesworthstone/ntm/internal/redaction"
 )
 
 func TestDefaultConfig(t *testing.T) {
@@ -70,6 +73,42 @@ func TestWebhookNotification(t *testing.T) {
 	})
 	if err != nil {
 		t.Errorf("Notify failed: %v", err)
+	}
+}
+
+func TestWebhookNotification_RedactsSecrets(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var payload map[string]string
+		_ = json.NewDecoder(r.Body).Decode(&payload)
+
+		got := payload["text"]
+		if strings.Contains(got, "hunter2hunter2") {
+			t.Errorf("expected secret to be redacted, got %q", got)
+		}
+		if !strings.Contains(got, "[REDACTED:PASSWORD:") {
+			t.Errorf("expected redaction placeholder, got %q", got)
+		}
+	}))
+	defer ts.Close()
+
+	cfg := Config{
+		Enabled: true,
+		Events:  []string{"agent.error"},
+		Webhook: WebhookConfig{
+			Enabled:  true,
+			URL:      ts.URL,
+			Template: `{"text": "{{.Message}}"}`,
+		},
+	}
+
+	// Use ModeWarn to match defaults; notifier should still redact outbound payloads.
+	n := NewWithRedaction(cfg, redaction.Config{Mode: redaction.ModeWarn})
+	err := n.Notify(Event{
+		Type:    EventAgentError,
+		Message: "password=hunter2hunter2",
+	})
+	if err != nil {
+		t.Fatalf("Notify failed: %v", err)
 	}
 }
 
