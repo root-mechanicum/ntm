@@ -1626,17 +1626,25 @@ func spawnSessionLogic(opts SpawnOptions) error {
 	// Set up signal handling for graceful interruption during stagger wait
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
+	isJSON := IsJSONOutput()
+
+	sigDone := make(chan struct{})
+	defer close(sigDone)
 	defer signal.Stop(sigChan)
 
 	go func() {
-		<-sigChan
-		// If interrupted, we just print a warning. The monitor is already running.
-		// The spawn command will exit, killing the goroutines sending prompts.
-		if !IsJSONOutput() {
-			fmt.Println("\n⚠ Spawn interrupted. Some prompts may not have been delivered.")
-			fmt.Println("ℹ Session monitor is running (agents will auto-restart if they crash).")
+		select {
+		case <-sigChan:
+			// If interrupted, we just print a warning. The monitor is already running.
+			// The spawn command will exit, killing the goroutines sending prompts.
+			if !isJSON {
+				fmt.Println("\n⚠ Spawn interrupted. Some prompts may not have been delivered.")
+				fmt.Println("ℹ Session monitor is running (agents will auto-restart if they crash).")
+			}
+			os.Exit(1)
+		case <-sigDone:
+			return
 		}
-		os.Exit(1)
 	}()
 
 	// Wait for staggered prompt delivery to complete (if any)
