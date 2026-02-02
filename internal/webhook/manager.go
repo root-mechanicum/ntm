@@ -47,14 +47,17 @@ type Event struct {
 
 // WebhookConfig holds configuration for a single webhook endpoint
 type WebhookConfig struct {
-	ID       string            `toml:"id" json:"id"`
-	Name     string            `toml:"name" json:"name"`
-	URL      string            `toml:"url" json:"url"`
-	Method   string            `toml:"method" json:"method"`     // HTTP method (default POST)
-	Template string            `toml:"template" json:"template"` // Go template for payload
-	Headers  map[string]string `toml:"headers" json:"headers"`
-	Events   []string          `toml:"events" json:"events"` // Event types to receive (empty = all)
-	Enabled  bool              `toml:"enabled" json:"enabled"`
+	ID       string `toml:"id" json:"id"`
+	Name     string `toml:"name" json:"name"`
+	URL      string `toml:"url" json:"url"`
+	Method   string `toml:"method" json:"method"`     // HTTP method (default POST)
+	Template string `toml:"template" json:"template"` // Go template for payload
+	// Format selects a built-in JSON payload formatter when Template is empty.
+	// Supported: json, slack, discord, teams.
+	Format  string            `toml:"format" json:"format"`
+	Headers map[string]string `toml:"headers" json:"headers"`
+	Events  []string          `toml:"events" json:"events"` // Event types to receive (empty = all)
+	Enabled bool              `toml:"enabled" json:"enabled"`
 
 	// Per-webhook timeout (overrides default)
 	Timeout time.Duration `toml:"timeout" json:"timeout,omitempty"`
@@ -128,6 +131,33 @@ func DefaultManagerConfig() ManagerConfig {
 		DeadLetterLimit: DefaultDeadLetterLimit,
 	}
 }
+
+type managerContext struct {
+	done     chan struct{}
+	canceled atomic.Bool
+	once     sync.Once
+}
+
+func newManagerContext() (*managerContext, context.CancelFunc) {
+	ctx := &managerContext{done: make(chan struct{})}
+	cancel := func() {
+		ctx.once.Do(func() {
+			ctx.canceled.Store(true)
+			close(ctx.done)
+		})
+	}
+	return ctx, cancel
+}
+
+func (c *managerContext) Deadline() (time.Time, bool) { return time.Time{}, false }
+func (c *managerContext) Done() <-chan struct{}       { return c.done }
+func (c *managerContext) Err() error {
+	if c.canceled.Load() {
+		return context.Canceled
+	}
+	return nil
+}
+func (c *managerContext) Value(key any) any { return nil }
 
 // WebhookManager manages webhook registration and event dispatch
 type WebhookManager struct {
@@ -234,6 +264,11 @@ func (m *WebhookManager) Register(cfg WebhookConfig) error {
 	if cfg.Retry.MaxDelay <= 0 {
 		cfg.Retry.MaxDelay = DefaultMaxBackoff
 	}
+	if cfg.Template == "" && cfg.Format != "" {
+		if _, err := buildBuiltInPayload(Event{}, cfg.Format); err != nil {
+			return err
+		}
+	}
 
 	m.webhooksMu.Lock()
 	defer m.webhooksMu.Unlock()
@@ -339,7 +374,7 @@ func (m *WebhookManager) Start() error {
 		return errors.New("webhook manager already started")
 	}
 
-	m.ctx, m.cancel = context.WithCancel(context.Background())
+	m.ctx, m.cancel = newManagerContext()
 
 	// Start worker goroutines
 	for i := 0; i < m.config.WorkerCount; i++ {
@@ -628,7 +663,9 @@ func (m *WebhookManager) send(d *Delivery) (int, error) {
 func (m *WebhookManager) buildPayload(d *Delivery) ([]byte, error) {
 	tmplStr := d.Webhook.Template
 	if tmplStr == "" {
-		// Default JSON payload
+		if d.Webhook.Format != "" {
+			return buildBuiltInPayload(d.Event, d.Webhook.Format)
+		}
 		return json.Marshal(d.Event)
 	}
 

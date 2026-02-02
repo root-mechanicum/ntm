@@ -218,6 +218,84 @@ func TestBasicDispatch(t *testing.T) {
 	mu.Unlock()
 }
 
+func TestDispatch_UsesBuiltInFormat(t *testing.T) {
+	t.Parallel()
+
+	var mu sync.Mutex
+	var receivedBody []byte
+	done := make(chan struct{}, 1)
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		mu.Lock()
+		receivedBody = body
+		mu.Unlock()
+
+		w.WriteHeader(http.StatusOK)
+
+		select {
+		case done <- struct{}{}:
+		default:
+		}
+	}))
+	defer ts.Close()
+
+	m := NewManager(ManagerConfig{
+		QueueSize:   10,
+		WorkerCount: 1,
+	})
+
+	if err := m.Register(WebhookConfig{
+		ID:      "test",
+		URL:     ts.URL,
+		Enabled: true,
+		Format:  "slack",
+	}); err != nil {
+		t.Fatalf("registration failed: %v", err)
+	}
+
+	if err := m.Start(); err != nil {
+		t.Fatalf("start failed: %v", err)
+	}
+	defer m.Stop()
+
+	if err := m.Dispatch(Event{
+		Type:    "agent.completed",
+		Message: "all good",
+		Session: "myproj",
+		Pane:    "myproj__cc_1",
+		Agent:   "claude",
+		Details: map[string]string{"result": "pass"},
+	}); err != nil {
+		t.Fatalf("dispatch failed: %v", err)
+	}
+
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatalf("timeout waiting for delivery")
+	}
+
+	mu.Lock()
+	body := append([]byte(nil), receivedBody...)
+	mu.Unlock()
+
+	if len(body) == 0 {
+		t.Fatalf("expected non-empty webhook body")
+	}
+
+	var payload slackPayload
+	if err := json.Unmarshal(body, &payload); err != nil {
+		t.Fatalf("unmarshal slack payload: %v", err)
+	}
+	if payload.Text == "" {
+		t.Fatalf("expected slack text fallback")
+	}
+	if len(payload.Blocks) < 2 {
+		t.Fatalf("expected slack blocks, got %d", len(payload.Blocks))
+	}
+}
+
 func TestDispatch_RedactsSecrets(t *testing.T) {
 	t.Parallel()
 
