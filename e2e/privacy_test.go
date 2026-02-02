@@ -68,7 +68,7 @@ func (s *PrivacyTestSuite) killSession() {
 
 // runNTM runs an ntm command with the isolated environment.
 func (s *PrivacyTestSuite) runNTM(args ...string) (string, string, error) {
-	s.logger.Log("command", "ntm", "args", strings.Join(args, " "))
+	s.logger.Log("[E2E-PRIVACY] Running: ntm %s", strings.Join(args, " "))
 
 	cmd := exec.Command("ntm", args...)
 	cmd.Env = append(os.Environ(),
@@ -82,12 +82,12 @@ func (s *PrivacyTestSuite) runNTM(args ...string) (string, string, error) {
 
 	err := cmd.Run()
 
-	s.logger.Log("stdout", stdout.String())
+	s.logger.Log("[E2E-PRIVACY] stdout: %s", stdout.String())
 	if stderr.Len() > 0 {
-		s.logger.Log("stderr", stderr.String())
+		s.logger.Log("[E2E-PRIVACY] stderr: %s", stderr.String())
 	}
 	if err != nil {
-		s.logger.Log("error", err.Error())
+		s.logger.Log("[E2E-PRIVACY] error: %v", err)
 	}
 
 	return stdout.String(), stderr.String(), err
