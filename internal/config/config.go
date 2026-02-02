@@ -1911,6 +1911,10 @@ func Load(path string) (*Config, error) {
 		if err := toml.Unmarshal(data, cfg); err != nil {
 			return nil, fmt.Errorf("parsing config: %w", err)
 		}
+
+		// Canonicalize the profile string for stable downstream outputs (config show, robot status).
+		// Do not re-apply profile defaults here: explicit knob overrides in TOML must win.
+		cfg.Safety.Profile = normalizeSafetyProfile(cfg.Safety.Profile)
 	} else if !os.IsNotExist(err) {
 		return nil, err
 	}
