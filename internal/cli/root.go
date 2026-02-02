@@ -2866,6 +2866,7 @@ func init() {
 		newRespawnCmd(),
 		newScanCmd(),
 		newScrubCmd(),
+		newRedactCmd(),
 		newBugsCmd(),
 		newCassCmd(),
 		newHooksCmd(),
