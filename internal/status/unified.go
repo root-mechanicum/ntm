@@ -56,7 +56,7 @@ func (d *UnifiedDetector) Analyze(paneID, paneName, agentType string, output str
 		parser := agent.NewParser()
 		if parsed, err := parser.ParseWithHint(output, agent.AgentType(agentType)); err == nil {
 			if parsed.ContextRemaining != nil {
-				status.ContextUsage = *parsed.ContextRemaining
+				status.ContextUsage = 100.0 - *parsed.ContextRemaining
 			}
 			if parsed.TokensUsed != nil {
 				status.TokensUsed = *parsed.TokensUsed
@@ -263,7 +263,7 @@ func (d *UnifiedDetector) Detect(paneID string) (AgentStatus, error) {
 		parser := agent.NewParser()
 		if parsed, err := parser.ParseWithHint(output, agent.AgentType(status.AgentType)); err == nil {
 			if parsed.ContextRemaining != nil {
-				status.ContextUsage = *parsed.ContextRemaining
+				status.ContextUsage = 100.0 - *parsed.ContextRemaining
 			}
 			if parsed.TokensUsed != nil {
 				status.TokensUsed = *parsed.TokensUsed
@@ -329,7 +329,7 @@ func (d *UnifiedDetector) DetectAllContext(ctx context.Context, session string) 
 			parser := agent.NewParser()
 			if parsed, err := parser.ParseWithHint(output, agent.AgentType(status.AgentType)); err == nil {
 				if parsed.ContextRemaining != nil {
-					status.ContextUsage = *parsed.ContextRemaining
+					status.ContextUsage = 100.0 - *parsed.ContextRemaining
 				}
 				if parsed.TokensUsed != nil {
 					status.TokensUsed = *parsed.TokensUsed
