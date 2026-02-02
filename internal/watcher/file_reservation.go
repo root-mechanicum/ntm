@@ -149,8 +149,22 @@ func NewFileReservationWatcher(opts ...FileReservationWatcherOption) *FileReserv
 
 // Start begins the file reservation watcher in a background goroutine.
 func (w *FileReservationWatcher) Start(ctx context.Context) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	w.mu.Lock()
+	if w.cancelFunc != nil {
+		w.mu.Unlock()
+		if w.debug {
+			log.Printf("[FileReservationWatcher] Start called while already running")
+		}
+		return
+	}
+
 	ctx, cancel := context.WithCancel(ctx)
 	w.cancelFunc = cancel
+	w.mu.Unlock()
 
 	w.wg.Add(1)
 	go w.run(ctx)
@@ -162,10 +176,18 @@ func (w *FileReservationWatcher) Start(ctx context.Context) {
 
 // Stop halts the file reservation watcher and releases all reservations.
 func (w *FileReservationWatcher) Stop() {
-	if w.cancelFunc != nil {
-		w.cancelFunc()
+	w.mu.Lock()
+	cancel := w.cancelFunc
+	w.mu.Unlock()
+
+	if cancel != nil {
+		cancel()
 	}
 	w.wg.Wait()
+
+	w.mu.Lock()
+	w.cancelFunc = nil
+	w.mu.Unlock()
 
 	// Release all reservations on stop
 	w.releaseAllReservations()
