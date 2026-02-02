@@ -64,7 +64,7 @@ type PaneStreamer struct {
 	callback StreamCallback
 
 	ctx    context.Context
-	cancel context.CancelFunc
+	stopCh chan struct{}
 	wg     sync.WaitGroup
 
 	fifoPath    string
@@ -114,10 +114,12 @@ func (ps *PaneStreamer) Start(ctx context.Context) (err error) {
 		return fmt.Errorf("streamer already running for %s", ps.target)
 	}
 	ps.running = true
+	ps.ctx = ctx
+	ps.stopCh = make(chan struct{})
+	ps.useFallback.Store(false)
+	ps.lastHash = ""
+	ps.fifoPath = ""
 	ps.mu.Unlock()
-
-	// ubs:ignore - cancel invoked by Stop() (or deferred cleanup on Start() error)
-	ps.ctx, ps.cancel = context.WithCancel(ctx)
 
 	defer func() {
 		if err == nil {
@@ -126,13 +128,14 @@ func (ps *PaneStreamer) Start(ctx context.Context) (err error) {
 
 		ps.mu.Lock()
 		ps.running = false
+		stopCh := ps.stopCh
+		ps.ctx = nil
+		ps.stopCh = nil
 		ps.mu.Unlock()
 
-		if ps.cancel != nil {
-			ps.cancel()
+		if stopCh != nil {
+			close(stopCh)
 		}
-		ps.ctx = nil
-		ps.cancel = nil
 	}()
 
 	// Ensure FIFO directory exists
@@ -159,10 +162,11 @@ func (ps *PaneStreamer) Stop() {
 		return
 	}
 	ps.running = false
+	stopCh := ps.stopCh
 	ps.mu.Unlock()
 
-	if ps.cancel != nil {
-		ps.cancel()
+	if stopCh != nil {
+		close(stopCh)
 	}
 
 	// Stop pipe-pane
@@ -172,6 +176,11 @@ func (ps *PaneStreamer) Stop() {
 	}
 
 	ps.wg.Wait()
+
+	ps.mu.Lock()
+	ps.ctx = nil
+	ps.stopCh = nil
+	ps.mu.Unlock()
 }
 
 // Target returns the pane target.
@@ -227,6 +236,12 @@ func (ps *PaneStreamer) startPipePaneStreaming() error {
 func (ps *PaneStreamer) runFIFOReader() {
 	defer ps.wg.Done()
 
+	ctx := ps.ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	stopCh := ps.stopCh
+
 	// Open FIFO with O_RDWR to prevent blocking on open when no writer.
 	// With O_RDONLY, the open() syscall blocks until a writer opens the FIFO.
 	// O_RDWR allows the reader to open immediately, and we use SetReadDeadline
@@ -262,7 +277,10 @@ func (ps *PaneStreamer) runFIFOReader() {
 
 	for {
 		select {
-		case <-ps.ctx.Done():
+		case <-stopCh:
+			flushLines()
+			return
+		case <-ctx.Done():
 			flushLines()
 			return
 		case <-flushTicker.C:
@@ -275,8 +293,16 @@ func (ps *PaneStreamer) runFIFOReader() {
 				if err == io.EOF || os.IsTimeout(err) {
 					continue
 				}
-				// Check if context is done
-				if ps.ctx.Err() != nil {
+				// Check if stop has been requested
+				select {
+				case <-stopCh:
+					flushLines()
+					return
+				default:
+				}
+
+				// Check if parent context is done
+				if ctx.Err() != nil {
 					flushLines()
 					return
 				}
@@ -298,6 +324,12 @@ func (ps *PaneStreamer) runFIFOReader() {
 func (ps *PaneStreamer) runPollingLoop() {
 	defer ps.wg.Done()
 
+	ctx := ps.ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	stopCh := ps.stopCh
+
 	ticker := time.NewTicker(ps.config.FallbackPollInterval)
 	defer ticker.Stop()
 
@@ -305,12 +337,21 @@ func (ps *PaneStreamer) runPollingLoop() {
 
 	for {
 		select {
-		case <-ps.ctx.Done():
+		case <-stopCh:
+			return
+		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			output, err := ps.client.CapturePaneOutputContext(ps.ctx, ps.target, ps.config.FallbackPollLines)
+			captureCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+			output, err := ps.client.CapturePaneOutputContext(captureCtx, ps.target, ps.config.FallbackPollLines)
+			cancel()
 			if err != nil {
-				if ps.ctx.Err() != nil {
+				select {
+				case <-stopCh:
+					return
+				default:
+				}
+				if ctx.Err() != nil {
 					return
 				}
 				log.Printf("pipe-pane: capture-pane error for %s: %v", ps.target, err)
@@ -358,8 +399,8 @@ type StreamManager struct {
 
 // NewStreamManager creates a new stream manager.
 func NewStreamManager(client *Client, callback StreamCallback, cfg PaneStreamerConfig) *StreamManager {
-	// ubs:ignore - cancel invoked by StopAll()
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx := context.Background()
+	cancel := func() {}
 	return &StreamManager{
 		client:    client,
 		config:    cfg,

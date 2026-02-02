@@ -402,8 +402,8 @@ func TestFileReservationWatcherStartStop(t *testing.T) {
 		t.Logf("RESERVATION_TEST: watcher stopped")
 
 		// Verify it stopped and is restartable
-		if w.cancelFunc != nil {
-			t.Fatalf("expected cancelFunc to be cleared after Stop()")
+		if w.stopCh != nil {
+			t.Fatalf("expected stopCh to be cleared after Stop()")
 		}
 	})
 
@@ -417,8 +417,8 @@ func TestFileReservationWatcherStartStop(t *testing.T) {
 		time.Sleep(50 * time.Millisecond)
 		w.Stop()
 
-		if w.cancelFunc != nil {
-			t.Fatalf("expected cancelFunc to be cleared after Stop()")
+		if w.stopCh != nil {
+			t.Fatalf("expected stopCh to be cleared after Stop()")
 		}
 	})
 

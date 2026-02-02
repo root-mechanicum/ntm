@@ -50,7 +50,7 @@ type FileReservationWatcher struct {
 	captureLines       int
 	activeReservations map[string]*PaneReservation // paneID -> reservation
 	mu                 sync.Mutex
-	cancelFunc         context.CancelFunc
+	stopCh             chan struct{}
 	wg                 sync.WaitGroup
 	debug              bool
 	conflictCallback   ConflictCallback // Called when conflicts are detected
@@ -154,7 +154,7 @@ func (w *FileReservationWatcher) Start(ctx context.Context) {
 	}
 
 	w.mu.Lock()
-	if w.cancelFunc != nil {
+	if w.stopCh != nil {
 		w.mu.Unlock()
 		if w.debug {
 			log.Printf("[FileReservationWatcher] Start called while already running")
@@ -162,13 +162,12 @@ func (w *FileReservationWatcher) Start(ctx context.Context) {
 		return
 	}
 
-	// ubs:ignore - cancel invoked by Stop()
-	ctx, cancel := context.WithCancel(ctx)
-	w.cancelFunc = cancel
+	stopCh := make(chan struct{})
+	w.stopCh = stopCh
 	w.mu.Unlock()
 
 	w.wg.Add(1)
-	go w.run(ctx)
+	go w.run(ctx, stopCh)
 
 	if w.debug {
 		log.Printf("[FileReservationWatcher] Started with pollInterval=%v idleTimeout=%v", w.pollInterval, w.idleTimeout)
@@ -178,17 +177,14 @@ func (w *FileReservationWatcher) Start(ctx context.Context) {
 // Stop halts the file reservation watcher and releases all reservations.
 func (w *FileReservationWatcher) Stop() {
 	w.mu.Lock()
-	cancel := w.cancelFunc
+	stopCh := w.stopCh
+	w.stopCh = nil
 	w.mu.Unlock()
 
-	if cancel != nil {
-		cancel()
+	if stopCh != nil {
+		close(stopCh)
 	}
 	w.wg.Wait()
-
-	w.mu.Lock()
-	w.cancelFunc = nil
-	w.mu.Unlock()
 
 	// Release all reservations on stop
 	w.releaseAllReservations()
@@ -199,7 +195,7 @@ func (w *FileReservationWatcher) Stop() {
 }
 
 // run is the main polling loop.
-func (w *FileReservationWatcher) run(ctx context.Context) {
+func (w *FileReservationWatcher) run(ctx context.Context, stopCh <-chan struct{}) {
 	defer w.wg.Done()
 
 	ticker := time.NewTicker(w.pollInterval)
@@ -207,6 +203,8 @@ func (w *FileReservationWatcher) run(ctx context.Context) {
 
 	for {
 		select {
+		case <-stopCh:
+			return
 		case <-ctx.Done():
 			return
 		case <-ticker.C:

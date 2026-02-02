@@ -310,8 +310,8 @@ func TestPaneStreamer_Start_RollsBackStateOnFIFODirError(t *testing.T) {
 	if ps.ctx != nil {
 		t.Fatalf("Start() error left ps.ctx non-nil")
 	}
-	if ps.cancel != nil {
-		t.Fatalf("Start() error left ps.cancel non-nil")
+	if ps.stopCh != nil {
+		t.Fatalf("Start() error left ps.stopCh non-nil")
 	}
 }
 
