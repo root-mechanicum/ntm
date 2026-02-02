@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"flag"
 	"fmt"
 	"log/slog"
 	"path/filepath"
@@ -334,12 +335,27 @@ func runAdd(opts AddOptions) error {
 		}
 	}
 
+	// Get pane initialization delay from config (same as spawn command)
+	paneInitDelay := time.Duration(cfg.Tmux.PaneInitDelayMs) * time.Millisecond
+	if flag.Lookup("test.v") != nil {
+		// Under `go test`, avoid the full init delay but keep a small floor
+		const testPaneInitDelay = 50 * time.Millisecond
+		if paneInitDelay > testPaneInitDelay {
+			paneInitDelay = testPaneInitDelay
+		}
+	}
+
 	for _, agent := range flatAgents {
 		agentTypeStr := string(agent.Type)
 
 		paneID, err := tmux.SplitWindow(session, dir)
 		if err != nil {
 			return outputError(fmt.Errorf("creating pane: %w", err))
+		}
+
+		// Wait for pane to initialize before sending commands (fixes #37)
+		if paneInitDelay > 0 {
+			time.Sleep(paneInitDelay)
 		}
 
 		// Increment index for this type
