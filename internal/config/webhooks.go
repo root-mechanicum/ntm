@@ -58,11 +58,21 @@ func (c *WebhookConfig) ValidateConfig() error {
 	if err != nil {
 		return fmt.Errorf("invalid url %q: %w", urlStr, err)
 	}
-	if parsed.Scheme != "http" && parsed.Scheme != "https" {
+	scheme := strings.ToLower(strings.TrimSpace(parsed.Scheme))
+	if scheme != "http" && scheme != "https" {
 		return fmt.Errorf("invalid url scheme %q (must be http or https)", parsed.Scheme)
 	}
 	if parsed.Host == "" {
 		return fmt.Errorf("invalid url %q: missing host", urlStr)
+	}
+	if scheme == "http" {
+		host := strings.ToLower(strings.TrimSpace(parsed.Hostname()))
+		switch host {
+		case "localhost", "127.0.0.1", "::1":
+			// Allow insecure localhost webhooks for development.
+		default:
+			return fmt.Errorf("invalid url scheme %q for %q: only https is allowed (http allowed only for localhost)", parsed.Scheme, parsed.Hostname())
+		}
 	}
 
 	if strings.TrimSpace(c.Timeout) != "" {

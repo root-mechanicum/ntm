@@ -1058,6 +1058,12 @@ func TestMarkerIDSequence(t *testing.T) {
 	}
 }
 
+func TestTimelineTrackerStopIdempotent(t *testing.T) {
+	tracker := NewTimelineTracker(&TimelineConfig{PruneInterval: 0})
+	tracker.Stop()
+	tracker.Stop()
+}
+
 func BenchmarkAddMarker(b *testing.B) {
 	tracker := NewTimelineTracker(&TimelineConfig{PruneInterval: 0})
 	defer tracker.Stop()

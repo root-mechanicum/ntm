@@ -150,8 +150,18 @@ func (p *TimelinePersister) SaveTimeline(sessionID string, events []AgentEvent) 
 		EventCount: len(events),
 	}
 	if len(events) > 0 {
-		header.FirstEvent = events[0].Timestamp
-		header.LastEvent = events[len(events)-1].Timestamp
+		first := events[0].Timestamp
+		last := events[0].Timestamp
+		for _, ev := range events[1:] {
+			if ev.Timestamp.Before(first) {
+				first = ev.Timestamp
+			}
+			if ev.Timestamp.After(last) {
+				last = ev.Timestamp
+			}
+		}
+		header.FirstEvent = first
+		header.LastEvent = last
 	}
 
 	encoder := json.NewEncoder(file)
@@ -392,6 +402,10 @@ func (p *TimelinePersister) StartCheckpoint(sessionID string, tracker *TimelineT
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
+	if strings.TrimSpace(sessionID) == "" || tracker == nil {
+		return
+	}
+
 	// Stop existing checkpoint if any
 	if stop, exists := p.checkpointStop[sessionID]; exists {
 		close(stop)
@@ -409,6 +423,7 @@ func (p *TimelinePersister) StartCheckpoint(sessionID string, tracker *TimelineT
 	p.checkpointStop[sessionID] = stop
 
 	go func() {
+		defer ticker.Stop()
 		for {
 			select {
 			case <-ticker.C:

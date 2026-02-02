@@ -106,6 +106,39 @@ webhooks:
 	}
 }
 
+func TestParseWebhookConfig_HTTPDisallowed(t *testing.T) {
+	content := `
+webhooks:
+  - name: http-not-allowed
+    url: http://example.com/hook
+`
+	_, err := ParseWebhookConfig([]byte(content))
+	if err == nil {
+		t.Fatal("expected error for insecure http url, got nil")
+	}
+	if !strings.Contains(err.Error(), "only https is allowed") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestParseWebhookConfig_HTTPLocalhostAllowed(t *testing.T) {
+	content := `
+webhooks:
+  - name: localhost-http
+    url: http://localhost:8080/hook
+`
+	cfgs, err := ParseWebhookConfig([]byte(content))
+	if err != nil {
+		t.Fatalf("expected localhost http to be allowed, got error: %v", err)
+	}
+	if len(cfgs) != 1 {
+		t.Fatalf("expected 1 webhook, got %d", len(cfgs))
+	}
+	if cfgs[0].URL != "http://localhost:8080/hook" {
+		t.Fatalf("unexpected url: %q", cfgs[0].URL)
+	}
+}
+
 func TestParseWebhookConfig_InvalidFormatter(t *testing.T) {
 	content := `
 webhooks:

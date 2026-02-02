@@ -108,6 +108,45 @@ func TestSaveAndLoadTimeline(t *testing.T) {
 	t.Logf("PASS: Saved and loaded %d events successfully", len(loaded))
 }
 
+func TestSaveTimelineHeaderUsesMinMaxTimestamps(t *testing.T) {
+	tmpDir := t.TempDir()
+	config := &TimelinePersistConfig{BaseDir: tmpDir}
+
+	persister, err := NewTimelinePersister(config)
+	if err != nil {
+		t.Fatalf("NewTimelinePersister failed: %v", err)
+	}
+
+	sessionID := "header-minmax"
+	now := time.Now()
+	expectedFirst := now.Add(-2 * time.Minute)
+	expectedLast := now
+
+	// Intentionally unsorted timestamps.
+	events := []AgentEvent{
+		{AgentID: "cc_1", SessionID: sessionID, State: TimelineWorking, Timestamp: expectedLast},
+		{AgentID: "cc_1", SessionID: sessionID, State: TimelineIdle, Timestamp: expectedFirst},
+		{AgentID: "cc_1", SessionID: sessionID, State: TimelineWorking, Timestamp: now.Add(-1 * time.Minute)},
+	}
+	if err := persister.SaveTimeline(sessionID, events); err != nil {
+		t.Fatalf("SaveTimeline failed: %v", err)
+	}
+
+	header, err := persister.readHeader(filepath.Join(tmpDir, sessionID+".jsonl"), false)
+	if err != nil {
+		t.Fatalf("readHeader failed: %v", err)
+	}
+	if header == nil {
+		t.Fatalf("expected non-nil header")
+	}
+	if !header.FirstEvent.Equal(expectedFirst) {
+		t.Fatalf("expected FirstEvent=%v, got %v", expectedFirst, header.FirstEvent)
+	}
+	if !header.LastEvent.Equal(expectedLast) {
+		t.Fatalf("expected LastEvent=%v, got %v", expectedLast, header.LastEvent)
+	}
+}
+
 func TestLoadNonExistentTimeline(t *testing.T) {
 	tmpDir := t.TempDir()
 	config := &TimelinePersistConfig{BaseDir: tmpDir}

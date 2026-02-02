@@ -179,6 +179,7 @@ type TimelineTracker struct {
 	// Background pruning
 	stopPrune chan struct{}
 	pruneWg   sync.WaitGroup
+	stopOnce  sync.Once
 }
 
 // NewTimelineTracker creates a new TimelineTracker with the given configuration.
@@ -475,7 +476,9 @@ func (t *TimelineTracker) backgroundPrune() {
 
 // Stop stops the background pruning goroutine and cleans up resources.
 func (t *TimelineTracker) Stop() {
-	close(t.stopPrune)
+	t.stopOnce.Do(func() {
+		close(t.stopPrune)
+	})
 	t.pruneWg.Wait()
 }
 

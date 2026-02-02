@@ -130,6 +130,51 @@ func TestDispatchWithoutStart(t *testing.T) {
 	}
 }
 
+func TestDispatch_QueueOverflowDropsOldest(t *testing.T) {
+	t.Parallel()
+
+	m := NewManager(ManagerConfig{
+		QueueSize:   1,
+		WorkerCount: 1,
+	})
+	// Register a webhook so Dispatch() produces a delivery.
+	if err := m.Register(WebhookConfig{
+		ID:      "wh",
+		URL:     "https://example.com/webhook",
+		Enabled: true,
+	}); err != nil {
+		t.Fatalf("registration failed: %v", err)
+	}
+
+	// Dispatch() requires Start(), but for queue overflow behavior we only need the queue
+	// and registered webhooks. Mark as started without launching worker goroutines.
+	m.started.Store(true)
+
+	// Pre-fill the queue to force overflow.
+	m.queue <- Delivery{ID: "old_delivery"}
+
+	if err := m.Dispatch(Event{
+		ID:      "new_evt",
+		Type:    "test.event",
+		Message: "new",
+	}); err != nil {
+		t.Fatalf("dispatch failed: %v", err)
+	}
+
+	if got := m.queueFull.Load(); got != 1 {
+		t.Fatalf("expected 1 dropped delivery, got %d", got)
+	}
+
+	select {
+	case d := <-m.queue:
+		if d.Event.ID != "new_evt" {
+			t.Fatalf("expected newest event to be queued, got %q", d.Event.ID)
+		}
+	default:
+		t.Fatal("expected queued delivery, got none")
+	}
+}
+
 func TestBasicDispatch(t *testing.T) {
 	t.Parallel()
 
@@ -1180,6 +1225,9 @@ func TestMatchesEvent(t *testing.T) {
 		{[]string{"a.b"}, "a.b", true},        // Exact match
 		{[]string{"a.b"}, "a.c", false},       // No match
 		{[]string{"a.b", "a.c"}, "a.c", true}, // One of multiple
+		{[]string{"agent.*"}, "agent.started", true},
+		{[]string{"agent.*"}, "session.created", false},
+		{[]string{" AGENT.* "}, "agent.started", true}, // Case + whitespace tolerant
 	}
 
 	for _, tt := range tests {

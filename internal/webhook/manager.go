@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"text/template"
@@ -331,9 +332,21 @@ func (m *WebhookManager) Dispatch(event Event) error {
 		case m.queue <- delivery:
 			// Successfully queued
 		default:
-			// Queue full, drop oldest if possible
-			m.queueFull.Add(1)
-			m.log("webhook queue full, dropping event %s for webhook %s", event.ID, wh.ID)
+			// Queue full. Drop the oldest delivery so we keep the newest.
+			select {
+			case <-m.queue:
+				// Count actual dropped deliveries (oldest).
+				m.queueFull.Add(1)
+			default:
+				// Race: another worker/drainer freed space before we could drop.
+			}
+			select {
+			case m.queue <- delivery:
+			default:
+				// Queue still full. Drop the new delivery too.
+				m.queueFull.Add(1)
+				m.log("webhook queue full, dropping event %s for webhook %s", event.ID, wh.ID)
+			}
 		}
 	}
 
@@ -758,9 +771,24 @@ func (m *WebhookManager) matchesEvent(wh *WebhookConfig, eventType string) bool 
 	if len(wh.Events) == 0 {
 		return true // Subscribe to all events
 	}
+	eventType = strings.ToLower(strings.TrimSpace(eventType))
+	if eventType == "" {
+		return false
+	}
 	for _, e := range wh.Events {
+		e = strings.ToLower(strings.TrimSpace(e))
+		if e == "" {
+			continue
+		}
 		if e == eventType || e == "*" {
 			return true
+		}
+		// Prefix wildcard match: "agent.*" matches "agent.started", etc.
+		if strings.HasSuffix(e, ".*") {
+			prefix := strings.TrimSuffix(e, "*")
+			if strings.HasPrefix(eventType, prefix) {
+				return true
+			}
 		}
 	}
 	return false
