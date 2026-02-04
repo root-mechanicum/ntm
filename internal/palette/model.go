@@ -272,7 +272,9 @@ func (m Model) Init() tea.Cmd {
 }
 
 func (m Model) tick() tea.Cmd {
-	return tea.Tick(time.Millisecond*50, func(t time.Time) tea.Msg {
+	// Use 100ms tick interval to reduce flickering on some terminals.
+	// The shimmer animation is still smooth at this rate.
+	return tea.Tick(time.Millisecond*100, func(t time.Time) tea.Msg {
 		return AnimationTickMsg(t)
 	})
 }
@@ -744,7 +746,9 @@ func (m *Model) send() (tea.Model, tea.Cmd) {
 		}
 
 		if shouldSend {
-			if err := tmux.PasteKeys(p.ID, prompt, true); err != nil {
+			// Use agent-aware send method which handles Codex/Gemini multi-line quirks
+			// by using buffer-based paste instead of send-keys when content has newlines
+			if err := tmux.SendKeysForAgent(p.ID, prompt, true, p.Type); err != nil {
 				m.err = err
 				m.recordHistory(targetPanes, start, err)
 				return *m, tea.Quit

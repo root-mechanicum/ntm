@@ -970,11 +970,18 @@ func (c *Client) SendKeysForAgentWithDelay(target, keys string, enter bool, ente
 // needsBufferSend returns true if the content should be sent via buffer mechanism
 // rather than send-keys, based on agent type and content.
 func needsBufferSend(agentType AgentType, content string) bool {
-	// Only Gemini currently needs buffer-based sending for multi-line content
+	// Gemini and Codex need buffer-based sending for multi-line content or large prompts.
+	// Gemini's TUI interprets newlines in send-keys as actual Enter presses.
+	// Codex uses bracketed paste mode and shows "[Pasted Content N chars]" instead of
+	// actual content when receiving large send-keys input, and may not auto-execute.
 	switch agentType {
 	case AgentGemini:
 		// Use buffer if content contains newlines
 		return strings.Contains(content, "\n")
+	case AgentCodex:
+		// Use buffer for Codex when content contains newlines or is large (>512 chars)
+		// This avoids the "[Pasted Content N chars]" truncation and auto-execute issues
+		return strings.Contains(content, "\n") || len(content) > 512
 	default:
 		return false
 	}
