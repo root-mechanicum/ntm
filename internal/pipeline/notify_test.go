@@ -485,6 +485,247 @@ func TestBuildPayloadFromStateWithFailure(t *testing.T) {
 	}
 }
 
+func TestFormatDesktopBody_AllEvents(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		payload NotificationPayload
+		contain string
+	}{
+		{
+			name: "started",
+			payload: NotificationPayload{
+				Event:      NotifyStarted,
+				StepsTotal: 5,
+			},
+			contain: "5 steps",
+		},
+		{
+			name: "step error",
+			payload: NotificationPayload{
+				Event:      NotifyStepError,
+				FailedStep: "deploy",
+				Error:      "connection refused",
+			},
+			contain: "deploy",
+		},
+		{
+			name: "failed without step",
+			payload: NotificationPayload{
+				Event: NotifyFailed,
+				Error: "catastrophic failure occurred here",
+			},
+			contain: "catastrophic failure",
+		},
+		{
+			name: "unknown event",
+			payload: NotificationPayload{
+				Event: "custom_event",
+			},
+			contain: "", // empty body
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := formatDesktopBody(tt.payload)
+			if tt.contain != "" && !strings.Contains(got, tt.contain) {
+				t.Errorf("formatDesktopBody() = %q, want to contain %q", got, tt.contain)
+			}
+		})
+	}
+}
+
+func TestFormatDesktopTitle_UnknownEvent(t *testing.T) {
+	t.Parallel()
+
+	p := NotificationPayload{Event: "custom", WorkflowName: "test"}
+	got := formatDesktopTitle(p)
+	if got != "Pipeline 'test'" {
+		t.Errorf("formatDesktopTitle() = %q, want %q", got, "Pipeline 'test'")
+	}
+}
+
+func TestFormatMailSubject_AllEvents(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		event NotificationEvent
+		want  string
+	}{
+		{NotifyStarted, "Pipeline 'wf' started"},
+		{NotifyStepError, "Pipeline 'wf' step failed: deploy"},
+		{"custom", "Pipeline 'wf' notification"},
+	}
+
+	for _, tt := range tests {
+		t.Run(string(tt.event), func(t *testing.T) {
+			t.Parallel()
+			p := NotificationPayload{Event: tt.event, WorkflowName: "wf", FailedStep: "deploy"}
+			got := formatMailSubject(p)
+			if got != tt.want {
+				t.Errorf("formatMailSubject() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestFormatMailBody_AllEvents(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		payload NotificationPayload
+		contain string
+	}{
+		{
+			name: "cancelled",
+			payload: NotificationPayload{
+				Event:      NotifyCancelled,
+				Duration:   2 * time.Minute,
+				StepsTotal: 10,
+				StepsDone:  4,
+				Timestamp:  time.Now(),
+			},
+			contain: "## Cancellation",
+		},
+		{
+			name: "step error",
+			payload: NotificationPayload{
+				Event:      NotifyStepError,
+				FailedStep: "build",
+				Error:      "compile error",
+				Timestamp:  time.Now(),
+			},
+			contain: "## Step Error",
+		},
+		{
+			name: "completed with failed steps",
+			payload: NotificationPayload{
+				Event:       NotifyCompleted,
+				Duration:    5 * time.Minute,
+				StepsDone:   8,
+				StepsTotal:  10,
+				StepsFailed: 2,
+				Timestamp:   time.Now(),
+			},
+			contain: "Steps failed",
+		},
+		{
+			name: "started",
+			payload: NotificationPayload{
+				Event:      NotifyStarted,
+				Timestamp:  time.Now(),
+				StepsTotal: 3,
+			},
+			contain: "NTM Pipeline", // Contains footer but no special section
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := formatMailBody(tt.payload)
+			if !strings.Contains(got, tt.contain) {
+				t.Errorf("formatMailBody() should contain %q, got:\n%s", tt.contain, got)
+			}
+		})
+	}
+}
+
+func TestBuildPayloadFromState_NoStartedTime(t *testing.T) {
+	t.Parallel()
+
+	state := &ExecutionState{
+		RunID:  "run-no-start",
+		Status: StatusRunning,
+		Steps:  map[string]StepResult{},
+	}
+	workflow := &Workflow{
+		Name:  "wf",
+		Steps: []Step{{ID: "s1"}},
+	}
+
+	payload := BuildPayloadFromState(state, workflow, NotifyStarted)
+	if payload.Duration != 0 {
+		t.Errorf("Duration = %v, want 0 for no started time", payload.Duration)
+	}
+}
+
+func TestBuildPayloadFromState_StateErrorsOnly(t *testing.T) {
+	t.Parallel()
+
+	state := &ExecutionState{
+		RunID:      "run-state-errs",
+		Status:     StatusFailed,
+		StartedAt:  time.Now().Add(-time.Minute),
+		FinishedAt: time.Now(),
+		Steps: map[string]StepResult{
+			"step1": {StepID: "step1", Status: StatusCompleted},
+		},
+		Errors: []ExecutionError{
+			{Message: "non-fatal warning", Fatal: false},
+			{StepID: "step2", Message: "fatal error here", Fatal: true},
+		},
+	}
+	workflow := &Workflow{
+		Name:  "wf",
+		Steps: []Step{{ID: "step1"}, {ID: "step2"}},
+	}
+
+	payload := BuildPayloadFromState(state, workflow, NotifyFailed)
+	if payload.Error != "fatal error here" {
+		t.Errorf("Error = %q, want %q", payload.Error, "fatal error here")
+	}
+	if payload.FailedStep != "step2" {
+		t.Errorf("FailedStep = %q, want %q", payload.FailedStep, "step2")
+	}
+}
+
+func TestNotifyWebhook_EmptyURL(t *testing.T) {
+	t.Parallel()
+
+	n := NewNotifier(NotifierConfig{
+		Channels:   []string{"webhook"},
+		WebhookURL: "", // empty URL
+	})
+
+	payload := NotificationPayload{
+		Event:        NotifyCompleted,
+		WorkflowName: "test",
+		Timestamp:    time.Now(),
+	}
+
+	// Webhook with empty URL should be a no-op
+	err := n.Notify(context.Background(), payload)
+	if err != nil {
+		t.Errorf("expected no error for empty webhook URL, got %v", err)
+	}
+}
+
+func TestNotifyMail_NilClient(t *testing.T) {
+	t.Parallel()
+
+	n := NewNotifier(NotifierConfig{
+		Channels:      []string{"mail"},
+		MailRecipient: "agent",
+		// mailClient is nil
+	})
+
+	payload := NotificationPayload{
+		Event:     NotifyCompleted,
+		Timestamp: time.Now(),
+	}
+
+	// Should be a no-op when client is nil
+	err := n.Notify(context.Background(), payload)
+	if err != nil {
+		t.Errorf("expected no error for nil mail client, got %v", err)
+	}
+}
+
 func TestNotifyNoChannels(t *testing.T) {
 	n := NewNotifier(NotifierConfig{
 		Channels: []string{},

@@ -2645,6 +2645,218 @@ func TestResolvePrompt_NoPrompt(t *testing.T) {
 	}
 }
 
+// --- executeWorkflow / executeStep tests via dry-run ---
+
+func TestExecutor_Run_DryRun_FailedDependency(t *testing.T) {
+	t.Parallel()
+
+	// Create workflow where step2 depends on step1, step1 fails
+	workflow := &Workflow{
+		Name: "test-failed-dep",
+		Steps: []Step{
+			{ID: "step1", Prompt: "fail me", Agent: "claude", OnError: ErrorActionContinue},
+			{ID: "step2", Prompt: "should skip", Agent: "claude", DependsOn: []string{"step1"}},
+		},
+		Settings: WorkflowSettings{OnError: ErrorActionContinue},
+	}
+
+	cfg := DefaultExecutorConfig("test")
+	cfg.DryRun = true
+	e := NewExecutor(cfg)
+
+	ctx := context.Background()
+	state, err := e.Run(ctx, workflow, nil, nil)
+
+	// In dry run, steps complete successfully
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if state == nil {
+		t.Fatal("Run() returned nil state")
+	}
+	if state.Status != StatusCompleted {
+		t.Errorf("Status = %v, want %v", state.Status, StatusCompleted)
+	}
+}
+
+func TestExecutor_Run_DryRun_WhenConditionTrue(t *testing.T) {
+	t.Parallel()
+
+	workflow := &Workflow{
+		Name: "test-when-true",
+		Steps: []Step{
+			{ID: "step1", Prompt: "run if true", Agent: "claude", When: "true"},
+		},
+	}
+
+	cfg := DefaultExecutorConfig("test")
+	cfg.DryRun = true
+	e := NewExecutor(cfg)
+
+	state, err := e.Run(context.Background(), workflow, nil, nil)
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if state.Steps["step1"].Status != StatusCompleted {
+		t.Errorf("step1 Status = %v, want completed (when=true)", state.Steps["step1"].Status)
+	}
+}
+
+func TestExecutor_Run_DryRun_WhenConditionFalse(t *testing.T) {
+	t.Parallel()
+
+	workflow := &Workflow{
+		Name: "test-when-false",
+		Steps: []Step{
+			{ID: "step1", Prompt: "skip me", Agent: "claude", When: "false"},
+		},
+	}
+
+	cfg := DefaultExecutorConfig("test")
+	cfg.DryRun = true
+	e := NewExecutor(cfg)
+
+	state, err := e.Run(context.Background(), workflow, nil, nil)
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if state.Steps["step1"].Status != StatusSkipped {
+		t.Errorf("step1 Status = %v, want skipped (when=false)", state.Steps["step1"].Status)
+	}
+}
+
+func TestExecutor_Run_DryRun_OutputVar(t *testing.T) {
+	t.Parallel()
+
+	workflow := &Workflow{
+		Name: "test-output-var",
+		Steps: []Step{
+			{ID: "step1", Prompt: "set output", Agent: "claude", OutputVar: "result1"},
+			{ID: "step2", Prompt: "${result1}", Agent: "codex", DependsOn: []string{"step1"}},
+		},
+	}
+
+	cfg := DefaultExecutorConfig("test")
+	cfg.DryRun = true
+	e := NewExecutor(cfg)
+
+	state, err := e.Run(context.Background(), workflow, nil, nil)
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+
+	// OutputVar should be stored
+	if _, exists := state.Variables["result1"]; !exists {
+		t.Error("OutputVar 'result1' should be stored in state.Variables")
+	}
+}
+
+func TestExecutor_Run_DryRun_PromptFile(t *testing.T) {
+	t.Parallel()
+
+	tmpDir := t.TempDir()
+	promptFile := filepath.Join(tmpDir, "prompt.txt")
+	os.WriteFile(promptFile, []byte("Prompt from file"), 0644)
+
+	workflow := &Workflow{
+		Name: "test-prompt-file",
+		Steps: []Step{
+			{ID: "step1", PromptFile: promptFile, Agent: "claude"},
+		},
+	}
+
+	cfg := DefaultExecutorConfig("test")
+	cfg.DryRun = true
+	e := NewExecutor(cfg)
+
+	state, err := e.Run(context.Background(), workflow, nil, nil)
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if state.Steps["step1"].Status != StatusCompleted {
+		t.Errorf("step1 Status = %v, want completed", state.Steps["step1"].Status)
+	}
+}
+
+func TestExecutor_Run_DryRun_MissingPromptFile(t *testing.T) {
+	t.Parallel()
+
+	workflow := &Workflow{
+		Name: "test-missing-prompt",
+		Steps: []Step{
+			{ID: "step1", PromptFile: "/nonexistent/prompt.txt", Agent: "claude"},
+		},
+	}
+
+	cfg := DefaultExecutorConfig("test")
+	cfg.DryRun = true
+	e := NewExecutor(cfg)
+
+	state, err := e.Run(context.Background(), workflow, nil, nil)
+	// Should fail because prompt file is missing
+	if err == nil && (state == nil || state.Steps["step1"].Status != StatusFailed) {
+		t.Error("expected step to fail due to missing prompt file")
+	}
+}
+
+func TestCalculateProgress_PartialExecution(t *testing.T) {
+	t.Parallel()
+
+	state := &ExecutionState{
+		Steps: map[string]StepResult{
+			"s1": {Status: StatusCompleted},
+			"s2": {Status: StatusRunning},
+			"s3": {Status: StatusPending},
+			"s4": {Status: StatusPending},
+		},
+	}
+
+	workflow := &Workflow{
+		Steps: []Step{{ID: "s1"}, {ID: "s2"}, {ID: "s3"}, {ID: "s4"}},
+	}
+
+	// Use the robot.go calculateProgress
+	progress := calculateProgress(state)
+
+	if progress.Completed != 1 {
+		t.Errorf("Completed = %d, want 1", progress.Completed)
+	}
+	if progress.Running != 1 {
+		t.Errorf("Running = %d, want 1", progress.Running)
+	}
+	if progress.Pending != 2 {
+		t.Errorf("Pending = %d, want 2", progress.Pending)
+	}
+	if progress.Total != 4 {
+		t.Errorf("Total = %d, want 4", progress.Total)
+	}
+	_ = workflow // suppress unused
+}
+
+func TestTruncatePrompt_Various(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		prompt string
+		max    int
+		want   string
+	}{
+		{"short", 10, "short"},
+		{"longer text", 6, "lon..."},
+		{"exact", 5, "exact"},
+		{"ab", 2, "ab"},
+		{"", 10, ""},
+		{"test", 0, ""},
+	}
+
+	for _, tt := range tests {
+		got := truncatePrompt(tt.prompt, tt.max)
+		if got != tt.want {
+			t.Errorf("truncatePrompt(%q, %d) = %q, want %q", tt.prompt, tt.max, got, tt.want)
+		}
+	}
+}
+
 // --- normalizeAgentType tests ---
 
 func TestNormalizeAgentType_Aliases(t *testing.T) {

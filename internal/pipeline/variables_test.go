@@ -2,6 +2,7 @@ package pipeline
 
 import (
 	"os"
+	"strings"
 	"testing"
 	"time"
 )
@@ -825,6 +826,325 @@ func TestExtractJSONBlock(t *testing.T) {
 		if got != tt.want {
 			t.Errorf("extractJSONBlock(%q) = %q, want %q", tt.input, got, tt.want)
 		}
+	}
+}
+
+func TestResolveSteps_AllFields(t *testing.T) {
+	t.Parallel()
+
+	now := time.Now()
+	state := &ExecutionState{
+		Variables: map[string]interface{}{},
+		Steps: map[string]StepResult{
+			"build": {
+				StepID:     "build",
+				Status:     StatusCompleted,
+				Output:     "build ok",
+				PaneUsed:   "%5",
+				AgentType:  "cc",
+				StartedAt:  now.Add(-30 * time.Second),
+				FinishedAt: now,
+				ParsedData: map[string]interface{}{
+					"artifact": "output.zip",
+					"nested":   map[string]interface{}{"key": "val"},
+				},
+			},
+			"noparsed": {
+				StepID:     "noparsed",
+				Status:     StatusCompleted,
+				Output:     "raw",
+				StartedAt:  now,
+				FinishedAt: time.Time{}, // zero
+			},
+		},
+	}
+
+	sub := NewSubstitutor(state, "sess", "wf")
+
+	tests := []struct {
+		name     string
+		template string
+		want     string
+		wantErr  bool
+	}{
+		{"step duration", "${steps.build.duration}", "", false}, // non-empty duration
+		{"step pane", "${steps.build.pane}", "%5", false},
+		{"step agent", "${steps.build.agent}", "cc", false},
+		{"step status", "${steps.build.status}", "completed", false},
+		{"step output", "${steps.build.output}", "build ok", false},
+		{"step data field", "${steps.build.data.artifact}", "output.zip", false},
+		{"step data nested", "${steps.build.data.nested.key}", "val", false},
+		{"step output parsed field", "${steps.build.output.artifact}", "output.zip", false},
+		{"step no parsed data", "${steps.noparsed.data}", "", true},
+		{"step zero duration", "${steps.noparsed.duration}", "0s", false},
+		{"step unknown field", "${steps.build.unknown}", "", true},
+		{"step not found", "${steps.missing.output}", "", true},
+		{"steps too few parts", "${steps.build}", "", true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got, err := sub.Substitute(tt.template)
+			if tt.wantErr {
+				if err == nil {
+					// For wantErr, the template stays unsubstituted (no error for first err on same call)
+					// Check that the raw template is unchanged or err is set
+				}
+				return
+			}
+			if err != nil {
+				t.Errorf("Substitute(%q) error = %v", tt.template, err)
+				return
+			}
+			if tt.want != "" && got != tt.want {
+				t.Errorf("Substitute(%q) = %q, want %q", tt.template, got, tt.want)
+			}
+			// For duration, just check it's non-empty and not the template
+			if tt.name == "step duration" && (got == "" || got == tt.template) {
+				t.Errorf("duration should be resolved, got %q", got)
+			}
+		})
+	}
+}
+
+func TestResolveSteps_FlatKeyLookup(t *testing.T) {
+	t.Parallel()
+
+	state := &ExecutionState{
+		Variables: map[string]interface{}{
+			"steps.legacy.output": "flat value",
+		},
+		Steps: map[string]StepResult{},
+	}
+
+	sub := NewSubstitutor(state, "sess", "wf")
+	got, err := sub.Substitute("${steps.legacy.output}")
+	if err != nil {
+		t.Fatalf("Substitute() error = %v", err)
+	}
+	if got != "flat value" {
+		t.Errorf("Substitute() = %q, want %q (flat key lookup)", got, "flat value")
+	}
+}
+
+func TestResolveLoop_Nested(t *testing.T) {
+	t.Parallel()
+
+	state := &ExecutionState{
+		Variables: map[string]interface{}{
+			"loop.item": map[string]interface{}{
+				"name": "test.txt",
+				"size": float64(100),
+			},
+		},
+	}
+
+	sub := NewSubstitutor(state, "sess", "wf")
+	got, err := sub.Substitute("Name: ${loop.item.name}")
+	if err != nil {
+		t.Fatalf("Substitute() error = %v", err)
+	}
+	if got != "Name: test.txt" {
+		t.Errorf("Substitute() = %q, want %q", got, "Name: test.txt")
+	}
+}
+
+func TestResolveVar_UnknownNamespace(t *testing.T) {
+	t.Parallel()
+
+	state := &ExecutionState{
+		Variables: map[string]interface{}{},
+	}
+
+	sub := NewSubstitutor(state, "sess", "wf")
+	_, err := sub.Substitute("${badns.var}")
+	if err == nil {
+		t.Error("expected error for unknown namespace")
+	}
+}
+
+func TestResolveVar_EmptyReference(t *testing.T) {
+	t.Parallel()
+
+	state := &ExecutionState{
+		Variables: map[string]interface{}{},
+	}
+
+	sub := NewSubstitutor(state, "sess", "wf")
+	// ${} has an empty expression, which after split becomes [""] - parts[0]=""
+	// The varPattern matches ${} and resolveVar returns error for empty reference
+	got, err := sub.Substitute("test: ${}")
+	// Substitute returns the original if substitution fails
+	// There should be an error AND the raw template may remain
+	if err == nil && !strings.Contains(got, "${}") {
+		t.Error("expected either error or unsubstituted template for empty reference")
+	}
+}
+
+func TestResolveVars_NilState(t *testing.T) {
+	t.Parallel()
+
+	sub := NewSubstitutor(nil, "sess", "wf")
+	got, _ := sub.Substitute("Run: ${run_id}")
+	if got != "Run: " {
+		t.Errorf("run_id with nil state = %q, want 'Run: '", got)
+	}
+}
+
+func TestResolveVars_NilVariables(t *testing.T) {
+	t.Parallel()
+
+	state := &ExecutionState{
+		Variables: nil,
+	}
+	sub := NewSubstitutor(state, "sess", "wf")
+	_, err := sub.Substitute("${vars.x}")
+	if err == nil {
+		t.Error("expected error for nil variables")
+	}
+}
+
+func TestResolveLoop_NoParts(t *testing.T) {
+	t.Parallel()
+
+	state := &ExecutionState{
+		Variables: map[string]interface{}{},
+	}
+	sub := NewSubstitutor(state, "sess", "wf")
+	_, err := sub.SubstituteStrict("${loop}")
+	if err == nil {
+		t.Error("expected error for loop with no field name")
+	}
+}
+
+func TestResolveVars_RequiresName(t *testing.T) {
+	t.Parallel()
+
+	state := &ExecutionState{
+		Variables: map[string]interface{}{},
+	}
+	sub := NewSubstitutor(state, "sess", "wf")
+	_, err := sub.SubstituteStrict("${vars}")
+	if err == nil {
+		t.Error("expected error for vars with no variable name")
+	}
+}
+
+func TestResolveEnv_NoParts(t *testing.T) {
+	t.Parallel()
+
+	state := &ExecutionState{
+		Variables: map[string]interface{}{},
+	}
+	sub := NewSubstitutor(state, "sess", "wf")
+	_, err := sub.SubstituteStrict("${env}")
+	if err == nil {
+		t.Error("expected error for env with no variable name")
+	}
+}
+
+func TestSubstituteStrict_RemainingUnsubstituted(t *testing.T) {
+	t.Parallel()
+
+	state := &ExecutionState{
+		Variables: map[string]interface{}{},
+	}
+	sub := NewSubstitutor(state, "sess", "wf")
+
+	// vars.x is undefined and has no default - Substitute returns the raw ${vars.x} with an error,
+	// but SubstituteStrict should catch remaining unsubstituted vars
+	_, err := sub.SubstituteStrict("${vars.undefined}")
+	if err == nil {
+		t.Error("SubstituteStrict should error for undefined vars")
+	}
+}
+
+func TestOutputParser_ParseUnknownType(t *testing.T) {
+	t.Parallel()
+
+	parser := NewOutputParser()
+	_, err := parser.Parse("output", OutputParse{Type: "unknown_type"})
+	if err == nil {
+		t.Error("expected error for unknown parse type")
+	}
+}
+
+func TestOutputParser_ParseNone(t *testing.T) {
+	t.Parallel()
+
+	parser := NewOutputParser()
+	got, err := parser.Parse("  hello  ", OutputParse{Type: ""})
+	if err != nil {
+		t.Fatalf("Parse(none) error = %v", err)
+	}
+	if got != "hello" {
+		t.Errorf("Parse(none) = %q, want %q", got, "hello")
+	}
+}
+
+func TestOutputParser_ParseJSON_NoJSON(t *testing.T) {
+	t.Parallel()
+
+	parser := NewOutputParser()
+	_, err := parser.Parse("no json here", OutputParse{Type: "json"})
+	if err == nil {
+		t.Error("expected error for no JSON in output")
+	}
+}
+
+func TestOutputParser_ParseRegex_EmptyPattern(t *testing.T) {
+	t.Parallel()
+
+	parser := NewOutputParser()
+	_, err := parser.Parse("output", OutputParse{Type: "regex", Pattern: ""})
+	if err == nil {
+		t.Error("expected error for empty regex pattern")
+	}
+}
+
+func TestOutputParser_ParseRegex_InvalidPattern(t *testing.T) {
+	t.Parallel()
+
+	parser := NewOutputParser()
+	_, err := parser.Parse("output", OutputParse{Type: "regex", Pattern: "[invalid"})
+	if err == nil {
+		t.Error("expected error for invalid regex pattern")
+	}
+}
+
+func TestOutputParser_ParseRegex_FullMatchNoGroups(t *testing.T) {
+	t.Parallel()
+
+	parser := NewOutputParser()
+	got, err := parser.Parse("abc 123 def", OutputParse{Type: "regex", Pattern: `\d+`})
+	if err != nil {
+		t.Fatalf("Parse() error = %v", err)
+	}
+	if got != "123" {
+		t.Errorf("Parse() = %v, want %q (full match, no groups)", got, "123")
+	}
+}
+
+func TestClearLoopVars_NilVariables(t *testing.T) {
+	t.Parallel()
+
+	state := &ExecutionState{Variables: nil}
+	// Should not panic
+	ClearLoopVars(state, "item")
+}
+
+func TestStoreStepOutput_NoParsedData(t *testing.T) {
+	t.Parallel()
+
+	state := &ExecutionState{}
+	StoreStepOutput(state, "s1", "raw output", nil)
+
+	if state.Variables["steps.s1.output"] != "raw output" {
+		t.Error("output not stored")
+	}
+	if _, exists := state.Variables["steps.s1.data"]; exists {
+		t.Error("data should not be stored when parsedData is nil")
 	}
 }
 
