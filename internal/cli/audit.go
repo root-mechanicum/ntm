@@ -1,10 +1,12 @@
 package cli
 
 import (
+	"encoding/csv"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -328,13 +330,26 @@ func runAuditExport(session, format, outputPath string) error {
 		enc.SetIndent("", "  ")
 		return enc.Encode(result.Entries)
 	case "csv":
-		fmt.Fprintln(w, "timestamp,session_id,event_type,actor,target,sequence_num")
-		for _, e := range result.Entries {
-			fmt.Fprintf(w, "%s,%s,%s,%s,%s,%d\n",
-				e.Timestamp.Format(time.RFC3339),
-				e.SessionID, e.EventType, e.Actor, e.Target, e.SequenceNum)
+		cw := csv.NewWriter(w)
+		// Write header
+		if err := cw.Write([]string{"timestamp", "session_id", "event_type", "actor", "target", "sequence_num"}); err != nil {
+			return fmt.Errorf("failed to write CSV header: %w", err)
 		}
-		return nil
+		// Write data rows (csv.Writer handles escaping commas, quotes, newlines)
+		for _, e := range result.Entries {
+			if err := cw.Write([]string{
+				e.Timestamp.Format(time.RFC3339),
+				e.SessionID,
+				string(e.EventType),
+				string(e.Actor),
+				e.Target,
+				strconv.FormatUint(e.SequenceNum, 10),
+			}); err != nil {
+				return fmt.Errorf("failed to write CSV row: %w", err)
+			}
+		}
+		cw.Flush()
+		return cw.Error()
 	default:
 		return fmt.Errorf("unsupported format %q (use json or csv)", format)
 	}
