@@ -229,3 +229,82 @@ func TestProvenanceTracker_Export(t *testing.T) {
 		}
 	}
 }
+
+func TestProvenance_ModeDiscovery(t *testing.T) {
+	input := map[string]any{"mode": "mode-a", "finding": "Discovery finding"}
+	logTestStartProvenance(t, input)
+
+	tracker := NewProvenanceTracker("question", []string{"mode-a"})
+	findingID := tracker.RecordDiscovery("mode-a", Finding{Finding: "Discovery finding", Impact: ImpactHigh, Confidence: 0.8})
+	chain, ok := tracker.GetChain(findingID)
+	logTestResultProvenance(t, chain)
+
+	assertTrueProvenance(t, "chain exists", ok)
+	assertEqualProvenance(t, "source mode", chain.SourceMode, "mode-a")
+	assertTrueProvenance(t, "has steps", len(chain.Steps) > 0)
+}
+
+func TestProvenance_SynthesisTransform(t *testing.T) {
+	input := map[string]any{"mode": "mode-a", "finding": "Transform finding"}
+	logTestStartProvenance(t, input)
+
+	tracker := NewProvenanceTracker("question", []string{"mode-a"})
+	findingID := tracker.RecordDiscovery("mode-a", Finding{Finding: "Transform finding", Impact: ImpactMedium, Confidence: 0.7})
+	_ = tracker.RecordSynthesisCitation(findingID, "synthesis:summary")
+	chain, _ := tracker.GetChain(findingID)
+	logTestResultProvenance(t, chain)
+
+	assertTrueProvenance(t, "citation recorded", len(chain.SynthesisCitations) == 1)
+	assertTrueProvenance(t, "steps include synthesis", containsStage(chain.Steps, "synthesis"))
+}
+
+func TestProvenance_FullChain(t *testing.T) {
+	input := map[string]any{"mode": "mode-a", "finding": "Full chain"}
+	logTestStartProvenance(t, input)
+
+	tracker := NewProvenanceTracker("question", []string{"mode-a", "mode-b"})
+	findingID := tracker.RecordDiscovery("mode-a", Finding{Finding: "Full chain", Impact: ImpactHigh, Confidence: 0.9})
+	_ = tracker.RecordTextChange(findingID, "Full chain updated", "normalized")
+	_ = tracker.RecordSynthesisCitation(findingID, "synthesis:findings")
+	chain, _ := tracker.GetChain(findingID)
+	logTestResultProvenance(t, chain)
+
+	assertEqualProvenance(t, "current text updated", chain.CurrentText, "Full chain updated")
+	assertTrueProvenance(t, "has multiple steps", len(chain.Steps) >= 3)
+	assertTrueProvenance(t, "has synthesis citation", len(chain.SynthesisCitations) == 1)
+}
+
+func logTestStartProvenance(t *testing.T, input any) {
+	t.Helper()
+	t.Logf("TEST: %s - starting with input: %v", t.Name(), input)
+}
+
+func logTestResultProvenance(t *testing.T, result any) {
+	t.Helper()
+	t.Logf("TEST: %s - got result: %v", t.Name(), result)
+}
+
+func assertTrueProvenance(t *testing.T, desc string, ok bool) {
+	t.Helper()
+	t.Logf("TEST: %s - assertion: %s", t.Name(), desc)
+	if !ok {
+		t.Fatalf("assertion failed: %s", desc)
+	}
+}
+
+func assertEqualProvenance(t *testing.T, desc string, got, want any) {
+	t.Helper()
+	t.Logf("TEST: %s - assertion: %s", t.Name(), desc)
+	if got != want {
+		t.Fatalf("%s: got %v want %v", desc, got, want)
+	}
+}
+
+func containsStage(steps []ProvenanceStep, stage string) bool {
+	for _, step := range steps {
+		if step.Stage == stage {
+			return true
+		}
+	}
+	return false
+}

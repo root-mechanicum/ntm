@@ -34,6 +34,82 @@ func TestDedupeEngine_EmptyInput(t *testing.T) {
 	t.Log("TEST: TestDedupeEngine_EmptyInput - assertion: empty input handled correctly")
 }
 
+func TestDedupe_Similarity(t *testing.T) {
+	input := map[string]any{"modeA": "mode-a", "modeB": "mode-b"}
+	logTestStartDedupe(t, input)
+
+	engine := NewDedupeEngine(DefaultDedupeConfig())
+	outputs := []ModeOutput{
+		{ModeID: "mode-a", TopFindings: []Finding{{Finding: "Shared finding", Impact: ImpactMedium, Confidence: 0.8}}},
+		{ModeID: "mode-b", TopFindings: []Finding{{Finding: "Shared finding", Impact: ImpactMedium, Confidence: 0.7}}},
+	}
+	result := engine.Dedupe(outputs)
+	logTestResultDedupe(t, result)
+
+	assertTrueDedupe(t, "clusters created", len(result.Clusters) > 0)
+	assertTrueDedupe(t, "duplicates found", result.Stats.DuplicatesFound >= 1)
+}
+
+func TestDedupe_ClusterDeterminism(t *testing.T) {
+	input := map[string]any{"modeA": "mode-a", "modeB": "mode-b"}
+	logTestStartDedupe(t, input)
+
+	engine := NewDedupeEngine(DefaultDedupeConfig())
+	outputs := []ModeOutput{
+		{ModeID: "mode-a", TopFindings: []Finding{{Finding: "Same finding", Impact: ImpactLow, Confidence: 0.6}}},
+		{ModeID: "mode-b", TopFindings: []Finding{{Finding: "Same finding", Impact: ImpactLow, Confidence: 0.6}}},
+	}
+
+	first := engine.Dedupe(outputs)
+	second := engine.Dedupe(outputs)
+	logTestResultDedupe(t, map[string]any{"first": first.Clusters, "second": second.Clusters})
+
+	assertEqualDedupe(t, "cluster count", len(first.Clusters), len(second.Clusters))
+	assertEqualDedupe(t, "cluster id stable", first.Clusters[0].ClusterID, second.Clusters[0].ClusterID)
+}
+
+func TestDedupe_MergeProvenance(t *testing.T) {
+	input := map[string]any{"mode": "mode-a"}
+	logTestStartDedupe(t, input)
+
+	tracker := NewProvenanceTracker("question", []string{"mode-a", "mode-b"})
+	engine := NewDedupeEngineWithProvenance(DefaultDedupeConfig(), tracker)
+	outputs := []ModeOutput{
+		{ModeID: "mode-a", TopFindings: []Finding{{Finding: "Finding 1", Impact: ImpactHigh, Confidence: 0.8}}},
+		{ModeID: "mode-b", TopFindings: []Finding{{Finding: "Finding 1", Impact: ImpactHigh, Confidence: 0.8}}},
+	}
+	result := engine.Dedupe(outputs)
+	logTestResultDedupe(t, result)
+
+	assertTrueDedupe(t, "provenance IDs stored", len(result.Clusters[0].ProvenanceIDs) > 0)
+}
+
+func logTestStartDedupe(t *testing.T, input any) {
+	t.Helper()
+	t.Logf("TEST: %s - starting with input: %v", t.Name(), input)
+}
+
+func logTestResultDedupe(t *testing.T, result any) {
+	t.Helper()
+	t.Logf("TEST: %s - got result: %v", t.Name(), result)
+}
+
+func assertTrueDedupe(t *testing.T, desc string, ok bool) {
+	t.Helper()
+	t.Logf("TEST: %s - assertion: %s", t.Name(), desc)
+	if !ok {
+		t.Fatalf("assertion failed: %s", desc)
+	}
+}
+
+func assertEqualDedupe(t *testing.T, desc string, got, want any) {
+	t.Helper()
+	t.Logf("TEST: %s - assertion: %s", t.Name(), desc)
+	if got != want {
+		t.Fatalf("%s: got %v want %v", desc, got, want)
+	}
+}
+
 func TestDedupeEngine_SingleFinding(t *testing.T) {
 	t.Log("TEST: TestDedupeEngine_SingleFinding - starting")
 
@@ -295,7 +371,7 @@ func TestDedupeEngine_MultipleClustersMixedFindings(t *testing.T) {
 			Confidence: 0.85,
 			TopFindings: []Finding{
 				{Finding: "Memory leak in the database connection pool cleanup", Confidence: 0.88}, // Similar to first
-				{Finding: "Race condition in worker threads", Confidence: 0.8},                    // Unique
+				{Finding: "Race condition in worker threads", Confidence: 0.8},                     // Unique
 			},
 		},
 		{
