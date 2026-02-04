@@ -146,6 +146,22 @@ func parseEnvDurationMs(key string) (time.Duration, error) {
 	return time.Duration(ms) * time.Millisecond, nil
 }
 
+func resolveSpawnAssignAgentType(agent string, ccOnly, codOnly, gmiOnly bool) string {
+	if strings.TrimSpace(agent) != "" {
+		return strings.ToLower(agent)
+	}
+	if ccOnly {
+		return "claude"
+	}
+	if codOnly {
+		return "codex"
+	}
+	if gmiOnly {
+		return "gemini"
+	}
+	return ""
+}
+
 func (v *optionalDurationValue) Type() string {
 	return "duration"
 }
@@ -442,6 +458,9 @@ func newSpawnCmd() *cobra.Command {
 	var assignQuiet bool
 	var assignTimeout time.Duration
 	var assignAgentType string
+	var assignCCOnly bool
+	var assignCodOnly bool
+	var assignGmiOnly bool
 
 	// Git worktree isolation flag
 	var useWorktrees bool
@@ -725,6 +744,7 @@ Examples:
 				}
 			}
 
+			assignAgentFilter := resolveSpawnAssignAgentType(assignAgentType, assignCCOnly, assignCodOnly, assignGmiOnly)
 			opts := SpawnOptions{
 				Session:            sessionName,
 				Agents:             agentSpecs.Flatten(),
@@ -756,7 +776,7 @@ Examples:
 				AssignVerbose:      assignVerbose,
 				AssignQuiet:        assignQuiet,
 				AssignTimeout:      assignTimeout,
-				AssignAgentType:    assignAgentType,
+				AssignAgentType:    assignAgentFilter,
 				UseWorktrees:       useWorktrees,
 				PrivacyMode:        privacyMode,
 				AllowPersist:       allowPersist,
@@ -811,6 +831,9 @@ Examples:
 	cmd.Flags().BoolVarP(&assignQuiet, "assign-quiet", "", false, "Suppress non-essential assignment output")
 	cmd.Flags().DurationVar(&assignTimeout, "assign-timeout", 30*time.Second, "Timeout for external calls during assignment (bv, br, Agent Mail)")
 	cmd.Flags().StringVar(&assignAgentType, "assign-agent", "", "Filter assignment to specific agent type: claude, codex, gemini")
+	cmd.Flags().BoolVar(&assignCCOnly, "assign-cc-only", false, "Only assign to Claude agents (alias for --assign-agent=claude)")
+	cmd.Flags().BoolVar(&assignCodOnly, "assign-cod-only", false, "Only assign to Codex agents (alias for --assign-agent=codex)")
+	cmd.Flags().BoolVar(&assignGmiOnly, "assign-gmi-only", false, "Only assign to Gemini agents (alias for --assign-agent=gemini)")
 
 	// Git worktree isolation flag
 	cmd.Flags().BoolVar(&useWorktrees, "worktrees", false, "Enable git worktree isolation for agents (each agent gets isolated working directory)")
