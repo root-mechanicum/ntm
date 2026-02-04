@@ -515,6 +515,16 @@ func resolveAgentTypeFilter() string {
 	return "" // No filter
 }
 
+func resolveAssignTimeout(timeout time.Duration) time.Duration {
+	if timeout > 0 {
+		return timeout
+	}
+	if assignTimeout > 0 {
+		return assignTimeout
+	}
+	return 30 * time.Second
+}
+
 // AssignCommandOptions holds all options for the assign command
 type AssignCommandOptions struct {
 	Session         string
@@ -2814,7 +2824,7 @@ func runReassignment(cmd *cobra.Command, session string) error {
 	if beadTitle == "" {
 		beadTitle = getBeadTitle(beadID)
 	}
-	reservationResult := reserveFilesForBead(session, beadID, beadTitle, targetAgentType, assignVerbose)
+	reservationResult := reserveFilesForBead(session, beadID, beadTitle, targetAgentType, assignVerbose, assignTimeout)
 
 	// Update assignment store using Reassign method
 	newAssignment, err := store.Reassign(beadID, targetPane.Index, targetAgentType, newAgentName)
@@ -2945,7 +2955,7 @@ func releaseFileReservationsWithIDs(session, beadID, agentName string, reservati
 
 	// Create a reservation manager
 	manager := assign.NewFileReservationManager(amClient, projectKey)
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), resolveAssignTimeout(assignTimeout))
 	defer cancel()
 
 	// Release reservations by IDs
@@ -2995,7 +3005,7 @@ func releaseFileReservations(session, beadID, agentName string) ([]string, error
 
 	// Create a reservation manager
 	manager := assign.NewFileReservationManager(amClient, projectKey)
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), resolveAssignTimeout(assignTimeout))
 	defer cancel()
 
 	// Release reservations by paths
@@ -3487,7 +3497,7 @@ func runDirectPaneAssignment(cmd *cobra.Command, opts *AssignCommandOptions) err
 	// Reserve files via Agent Mail (if enabled)
 	var fileReservations *DirectAssignFileReservations
 	if opts.ReserveFiles {
-		reservationResult := reserveFilesForBead(opts.Session, beadID, beadTitle, agentType, opts.Verbose)
+		reservationResult := reserveFilesForBead(opts.Session, beadID, beadTitle, agentType, opts.Verbose, opts.Timeout)
 		if reservationResult != nil {
 			// Compute denied paths (requested but not granted)
 			grantedSet := make(map[string]bool)
@@ -3611,7 +3621,7 @@ func getBeadTitle(beadID string) string {
 }
 
 // reserveFilesForBead reserves files mentioned in a bead for an agent
-func reserveFilesForBead(session, beadID, beadTitle, agentType string, verbose bool) *assign.FileReservationResult {
+func reserveFilesForBead(session, beadID, beadTitle, agentType string, verbose bool, timeout time.Duration) *assign.FileReservationResult {
 	// Get project key (use working directory)
 	projectKey, _ := os.Getwd()
 
@@ -3628,7 +3638,9 @@ func reserveFilesForBead(session, beadID, beadTitle, agentType string, verbose b
 	}
 
 	// Attempt reservation (will return result even without client)
-	result, err := manager.ReserveForBead(context.Background(), beadID, beadTitle, "", agentName)
+	ctx, cancel := context.WithTimeout(context.Background(), resolveAssignTimeout(timeout))
+	defer cancel()
+	result, err := manager.ReserveForBead(ctx, beadID, beadTitle, "", agentName)
 	if err != nil && verbose {
 		fmt.Fprintf(os.Stderr, "[RESERVE] Warning: %v\n", err)
 	}
