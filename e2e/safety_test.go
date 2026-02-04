@@ -73,6 +73,51 @@ type SafetyInstallResponse struct {
 	Policy     string    `json:"policy"`
 }
 
+// PolicyShowResponse mirrors the JSON output from `ntm policy show --json`.
+type PolicyShowResponse struct {
+	GeneratedAt time.Time        `json:"generated_at"`
+	Version     int              `json:"version"`
+	PolicyPath  string           `json:"policy_path,omitempty"`
+	IsDefault   bool             `json:"is_default"`
+	Stats       PolicyStats      `json:"stats"`
+	Automation  PolicyAutomation `json:"automation"`
+	Rules       *PolicyRules     `json:"rules,omitempty"`
+}
+
+type PolicyStats struct {
+	Blocked  int `json:"blocked"`
+	Approval int `json:"approval"`
+	Allowed  int `json:"allowed"`
+	SLBRules int `json:"slb_rules"`
+}
+
+type PolicyAutomation struct {
+	AutoPush     bool   `json:"auto_push"`
+	AutoCommit   bool   `json:"auto_commit"`
+	ForceRelease string `json:"force_release"`
+}
+
+type PolicyRules struct {
+	Blocked          []PolicyRule `json:"blocked,omitempty"`
+	ApprovalRequired []PolicyRule `json:"approval_required,omitempty"`
+	Allowed          []PolicyRule `json:"allowed,omitempty"`
+}
+
+type PolicyRule struct {
+	Pattern string `json:"pattern"`
+	Reason  string `json:"reason,omitempty"`
+	SLB     bool   `json:"slb,omitempty"`
+}
+
+// PolicyValidateResponse mirrors the JSON output from `ntm policy validate --json`.
+type PolicyValidateResponse struct {
+	GeneratedAt time.Time `json:"generated_at"`
+	Valid       bool      `json:"valid"`
+	PolicyPath  string    `json:"policy_path"`
+	Errors      []string  `json:"errors,omitempty"`
+	Warnings    []string  `json:"warnings,omitempty"`
+}
+
 // SafetyTestSuite manages E2E tests for safety commands.
 type SafetyTestSuite struct {
 	t       *testing.T
@@ -205,6 +250,80 @@ func (s *SafetyTestSuite) runSafetyInstall(force bool) (*SafetyInstallResponse, 
 	return &resp, stdoutStr, stderrStr, err
 }
 
+func (s *SafetyTestSuite) runPolicyShow(showAll bool) (*PolicyShowResponse, string, string, error) {
+	args := []string{"policy", "show", "--json"}
+	if showAll {
+		args = append(args, "--all")
+	}
+	s.logger.Log("[E2E-SAFETY] Running: ntm %s", strings.Join(args, " "))
+
+	cmd := exec.Command("ntm", args...)
+	cmd.Env = append(os.Environ(), "HOME="+s.tempDir)
+	cmd.Dir = s.tempDir
+
+	var stdout, stderr strings.Builder
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	err := cmd.Run()
+	stdoutStr := stdout.String()
+	stderrStr := stderr.String()
+
+	s.logger.Log("[E2E-SAFETY] stdout: %s", stdoutStr)
+	if stderrStr != "" {
+		s.logger.Log("[E2E-SAFETY] stderr: %s", stderrStr)
+	}
+	if err != nil {
+		s.logger.Log("[E2E-SAFETY] error: %v", err)
+	}
+
+	var resp PolicyShowResponse
+	if jsonErr := json.Unmarshal([]byte(stdoutStr), &resp); jsonErr != nil {
+		s.logger.Log("[E2E-SAFETY] JSON parse error: %v", jsonErr)
+		return nil, stdoutStr, stderrStr, jsonErr
+	}
+
+	s.logger.LogJSON("[E2E-SAFETY] Policy show response", resp)
+	return &resp, stdoutStr, stderrStr, err
+}
+
+func (s *SafetyTestSuite) runPolicyValidate(path string) (*PolicyValidateResponse, string, string, error) {
+	args := []string{"policy", "validate", "--json"}
+	if path != "" {
+		args = append(args, path)
+	}
+	s.logger.Log("[E2E-SAFETY] Running: ntm %s", strings.Join(args, " "))
+
+	cmd := exec.Command("ntm", args...)
+	cmd.Env = append(os.Environ(), "HOME="+s.tempDir)
+	cmd.Dir = s.tempDir
+
+	var stdout, stderr strings.Builder
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	err := cmd.Run()
+	stdoutStr := stdout.String()
+	stderrStr := stderr.String()
+
+	s.logger.Log("[E2E-SAFETY] stdout: %s", stdoutStr)
+	if stderrStr != "" {
+		s.logger.Log("[E2E-SAFETY] stderr: %s", stderrStr)
+	}
+	if err != nil {
+		s.logger.Log("[E2E-SAFETY] error: %v", err)
+	}
+
+	var resp PolicyValidateResponse
+	if jsonErr := json.Unmarshal([]byte(stdoutStr), &resp); jsonErr != nil {
+		s.logger.Log("[E2E-SAFETY] JSON parse error: %v", jsonErr)
+		return nil, stdoutStr, stderrStr, jsonErr
+	}
+
+	s.logger.LogJSON("[E2E-SAFETY] Policy validate response", resp)
+	return &resp, stdoutStr, stderrStr, err
+}
+
 func (s *SafetyTestSuite) runSafetyBlocked(hours, limit int) (*SafetyBlockedResponse, string, string, error) {
 	args := []string{"safety", "blocked", "--json"}
 	if hours > 0 {
@@ -294,6 +413,109 @@ func TestSafetyStatus_JSON(t *testing.T) {
 	}
 
 	suite.logger.Log("[E2E-SAFETY] safety_status_test_completed")
+}
+
+func TestPolicyShow_JSON_Default(t *testing.T) {
+	suite := NewSafetyTestSuite(t, "policy-show")
+
+	resp, _, _, err := suite.runPolicyShow(false)
+	if resp == nil {
+		t.Fatalf("[E2E-SAFETY] Failed to parse policy show response: %v", err)
+	}
+	if err != nil {
+		t.Fatalf("[E2E-SAFETY] Expected exit code 0 for policy show, got error: %v", err)
+	}
+	if resp.GeneratedAt.IsZero() {
+		t.Errorf("[E2E-SAFETY] Expected generated_at to be set")
+	}
+	if !resp.IsDefault {
+		t.Errorf("[E2E-SAFETY] Expected is_default=true when no custom policy exists")
+	}
+	if resp.Version <= 0 {
+		t.Errorf("[E2E-SAFETY] Expected version > 0, got %d", resp.Version)
+	}
+	if resp.Stats.Blocked == 0 || resp.Stats.Approval == 0 || resp.Stats.Allowed == 0 {
+		t.Errorf("[E2E-SAFETY] Expected non-zero rule stats, got %+v", resp.Stats)
+	}
+
+	suite.logger.Log("[E2E-SAFETY] policy_show_default_completed")
+}
+
+func TestPolicyShow_JSON_All(t *testing.T) {
+	suite := NewSafetyTestSuite(t, "policy-show-all")
+
+	resp, _, _, err := suite.runPolicyShow(true)
+	if resp == nil {
+		t.Fatalf("[E2E-SAFETY] Failed to parse policy show response: %v", err)
+	}
+	if err != nil {
+		t.Fatalf("[E2E-SAFETY] Expected exit code 0 for policy show --all, got error: %v", err)
+	}
+	if resp.Rules == nil {
+		t.Fatalf("[E2E-SAFETY] Expected rules to be populated with --all")
+	}
+	if len(resp.Rules.Blocked) == 0 || len(resp.Rules.ApprovalRequired) == 0 || len(resp.Rules.Allowed) == 0 {
+		t.Fatalf("[E2E-SAFETY] Expected rule lists to be non-empty, got %+v", resp.Rules)
+	}
+
+	suite.logger.Log("[E2E-SAFETY] policy_show_all_completed")
+}
+
+func TestPolicyValidate_JSON_ValidFile(t *testing.T) {
+	suite := NewSafetyTestSuite(t, "policy-validate-valid")
+
+	policyPath := filepath.Join(suite.tempDir, "policy.yaml")
+	policyData := []byte(strings.Join([]string{
+		"version: 1",
+		"blocked:",
+		"  - pattern: \"rm\\\\s+-rf\\\\s+/$\"",
+		"    reason: \"dangerous\"",
+		"automation:",
+		"  auto_push: false",
+		"  auto_commit: true",
+		"  force_release: approval",
+		"",
+	}, "\n"))
+	if err := os.WriteFile(policyPath, policyData, 0644); err != nil {
+		t.Fatalf("[E2E-SAFETY] Failed to write policy file: %v", err)
+	}
+
+	resp, _, _, err := suite.runPolicyValidate(policyPath)
+	if resp == nil {
+		t.Fatalf("[E2E-SAFETY] Failed to parse policy validate response: %v", err)
+	}
+	if err != nil {
+		t.Fatalf("[E2E-SAFETY] Expected exit code 0 for valid policy, got error: %v", err)
+	}
+	if !resp.Valid {
+		t.Fatalf("[E2E-SAFETY] Expected valid=true, got false (errors=%v)", resp.Errors)
+	}
+	if resp.PolicyPath != policyPath {
+		t.Errorf("[E2E-SAFETY] Expected policy_path %q, got %q", policyPath, resp.PolicyPath)
+	}
+
+	suite.logger.Log("[E2E-SAFETY] policy_validate_valid_completed")
+}
+
+func TestPolicyValidate_JSON_MissingFile(t *testing.T) {
+	suite := NewSafetyTestSuite(t, "policy-validate-missing")
+
+	missingPath := filepath.Join(suite.tempDir, "missing-policy.yaml")
+	resp, _, _, err := suite.runPolicyValidate(missingPath)
+	if resp == nil {
+		t.Fatalf("[E2E-SAFETY] Failed to parse policy validate response: %v", err)
+	}
+	if err != nil {
+		t.Fatalf("[E2E-SAFETY] Expected exit code 0 for policy validate missing file, got error: %v", err)
+	}
+	if resp.Valid {
+		t.Fatalf("[E2E-SAFETY] Expected valid=false for missing policy file")
+	}
+	if len(resp.Errors) == 0 {
+		t.Fatalf("[E2E-SAFETY] Expected errors for missing policy file")
+	}
+
+	suite.logger.Log("[E2E-SAFETY] policy_validate_missing_completed")
 }
 
 func TestSafetyInstall_JSON(t *testing.T) {
