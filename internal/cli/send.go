@@ -1896,17 +1896,17 @@ func buildKillResponse(session string, force bool, tags []string, noHooks bool, 
 	// Enable project webhooks (if configured) for this session so kill events can fan out.
 	// Best-effort: failures should not block the kill operation.
 	var (
-		bridge *webhook.BusBridge
-		err    error
+		bridge    *webhook.BusBridge
+		bridgeErr error
 	)
 	if cfg != nil {
 		redactCfg := cfg.Redaction.ToRedactionLibConfig()
-		bridge, err = webhook.StartBridgeFromProjectConfig(dir, session, events.DefaultBus, &redactCfg)
+		bridge, bridgeErr = webhook.StartBridgeFromProjectConfig(dir, session, events.DefaultBus, &redactCfg)
 	} else {
-		bridge, err = webhook.StartBridgeFromProjectConfig(dir, session, events.DefaultBus, nil)
+		bridge, bridgeErr = webhook.StartBridgeFromProjectConfig(dir, session, events.DefaultBus, nil)
 	}
-	if err != nil {
-		slog.Default().Debug("webhook bridge init failed", "session", session, "error", err)
+	if bridgeErr != nil {
+		slog.Default().Debug("webhook bridge init failed", "session", session, "error", bridgeErr)
 	} else if bridge != nil {
 		defer bridge.Close()
 	}

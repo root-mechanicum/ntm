@@ -15,6 +15,9 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/Dicklesworthstone/ntm/internal/audit"
+	"github.com/Dicklesworthstone/ntm/internal/util"
 )
 
 // Default Ollama settings
@@ -257,7 +260,7 @@ type ollamaPullResponse struct {
 }
 
 // SendPrompt sends a prompt and waits for the complete response
-func (a *Adapter) SendPrompt(ctx context.Context, prompt string) (*Response, error) {
+func (a *Adapter) SendPrompt(ctx context.Context, prompt string) (respOut *Response, err error) {
 	a.mu.RLock()
 	if !a.connected {
 		a.mu.RUnlock()
@@ -270,6 +273,43 @@ func (a *Adapter) SendPrompt(ctx context.Context, prompt string) (*Response, err
 	if model == "" {
 		return nil, errors.New("no model set; call SetModel first")
 	}
+
+	correlationID := audit.NewCorrelationID()
+	auditStart := time.Now()
+	_ = audit.LogEvent("", audit.EventTypeSend, audit.ActorSystem, "ollama.send", map[string]interface{}{
+		"phase":          "start",
+		"backend":        "ollama",
+		"model":          model,
+		"stream":         false,
+		"prompt_preview": util.Truncate(strings.TrimSpace(prompt), 100),
+		"prompt_length":  len(prompt),
+		"correlation_id": correlationID,
+	}, nil)
+	defer func() {
+		payload := map[string]interface{}{
+			"phase":          "finish",
+			"backend":        "ollama",
+			"model":          model,
+			"stream":         false,
+			"success":        err == nil,
+			"duration_ms":    time.Since(auditStart).Milliseconds(),
+			"correlation_id": correlationID,
+		}
+		if respOut != nil {
+			payload["output_preview"] = util.Truncate(strings.TrimSpace(respOut.Content), 120)
+			payload["output_length"] = len(respOut.Content)
+			payload["total_tokens"] = respOut.TotalTokens
+			payload["prompt_tokens"] = respOut.PromptTokens
+			payload["output_tokens"] = respOut.OutputTokens
+			payload["done"] = respOut.Done
+		}
+		if err != nil {
+			payload["error"] = err.Error()
+			_ = audit.LogEvent("", audit.EventTypeError, audit.ActorSystem, "ollama.send", payload, nil)
+			return
+		}
+		_ = audit.LogEvent("", audit.EventTypeResponse, audit.ActorSystem, "ollama.response", payload, nil)
+	}()
 
 	reqBody := ollamaGenerateRequest{
 		Model:  model,
@@ -303,7 +343,7 @@ func (a *Adapter) SendPrompt(ctx context.Context, prompt string) (*Response, err
 		return nil, fmt.Errorf("failed to decode response: %w", err)
 	}
 
-	return &Response{
+	respOut = &Response{
 		Content:      ollamaResp.Response,
 		Model:        ollamaResp.Model,
 		Done:         ollamaResp.Done,
@@ -311,11 +351,12 @@ func (a *Adapter) SendPrompt(ctx context.Context, prompt string) (*Response, err
 		OutputTokens: ollamaResp.EvalCount,
 		TotalTokens:  ollamaResp.PromptEvalCount + ollamaResp.EvalCount,
 		Duration:     time.Duration(ollamaResp.TotalDuration),
-	}, nil
+	}
+	return respOut, nil
 }
 
 // StreamResponse sends a prompt and returns a channel of streaming tokens
-func (a *Adapter) StreamResponse(ctx context.Context, prompt string) (<-chan Token, error) {
+func (a *Adapter) StreamResponse(ctx context.Context, prompt string) (stream <-chan Token, err error) {
 	a.mu.RLock()
 	if !a.connected {
 		a.mu.RUnlock()
@@ -328,6 +369,36 @@ func (a *Adapter) StreamResponse(ctx context.Context, prompt string) (<-chan Tok
 	if model == "" {
 		return nil, errors.New("no model set; call SetModel first")
 	}
+
+	correlationID := audit.NewCorrelationID()
+	auditStart := time.Now()
+	_ = audit.LogEvent("", audit.EventTypeSend, audit.ActorSystem, "ollama.stream", map[string]interface{}{
+		"phase":          "start",
+		"backend":        "ollama",
+		"model":          model,
+		"stream":         true,
+		"prompt_preview": util.Truncate(strings.TrimSpace(prompt), 100),
+		"prompt_length":  len(prompt),
+		"correlation_id": correlationID,
+	}, nil)
+	defer func() {
+		payload := map[string]interface{}{
+			"phase":          "finish",
+			"backend":        "ollama",
+			"model":          model,
+			"stream":         true,
+			"stream_started": err == nil,
+			"success":        err == nil,
+			"duration_ms":    time.Since(auditStart).Milliseconds(),
+			"correlation_id": correlationID,
+		}
+		if err != nil {
+			payload["error"] = err.Error()
+			_ = audit.LogEvent("", audit.EventTypeError, audit.ActorSystem, "ollama.stream", payload, nil)
+			return
+		}
+		_ = audit.LogEvent("", audit.EventTypeResponse, audit.ActorSystem, "ollama.stream", payload, nil)
+	}()
 
 	reqBody := ollamaGenerateRequest{
 		Model:  model,
