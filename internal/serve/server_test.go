@@ -2030,3 +2030,229 @@ func TestParseJWT(t *testing.T) {
 		}
 	})
 }
+
+// TestToJSONMap tests the toJSONMap function for converting values to maps via JSON round-trip.
+func TestToJSONMap(t *testing.T) {
+	t.Parallel()
+
+	t.Run("struct to map", func(t *testing.T) {
+		t.Parallel()
+		type sample struct {
+			Name  string `json:"name"`
+			Count int    `json:"count"`
+		}
+		m, err := toJSONMap(sample{Name: "test", Count: 42})
+		if err != nil {
+			t.Fatalf("toJSONMap() error: %v", err)
+		}
+		if m["name"] != "test" {
+			t.Errorf("m[name] = %v, want test", m["name"])
+		}
+		if m["count"] != float64(42) { // JSON numbers become float64
+			t.Errorf("m[count] = %v, want 42", m["count"])
+		}
+	})
+
+	t.Run("map passthrough", func(t *testing.T) {
+		t.Parallel()
+		input := map[string]interface{}{"key": "value", "nested": map[string]interface{}{"inner": 123}}
+		m, err := toJSONMap(input)
+		if err != nil {
+			t.Fatalf("toJSONMap() error: %v", err)
+		}
+		if m["key"] != "value" {
+			t.Errorf("m[key] = %v, want value", m["key"])
+		}
+	})
+
+	t.Run("nil input", func(t *testing.T) {
+		t.Parallel()
+		m, err := toJSONMap(nil)
+		if err != nil {
+			t.Fatalf("toJSONMap(nil) error: %v", err)
+		}
+		if m != nil {
+			t.Errorf("toJSONMap(nil) = %v, want nil", m)
+		}
+	})
+
+	t.Run("empty struct", func(t *testing.T) {
+		t.Parallel()
+		type empty struct{}
+		m, err := toJSONMap(empty{})
+		if err != nil {
+			t.Fatalf("toJSONMap(empty{}) error: %v", err)
+		}
+		if len(m) != 0 {
+			t.Errorf("len(m) = %d, want 0", len(m))
+		}
+	})
+
+	t.Run("unmarshalable type returns error", func(t *testing.T) {
+		t.Parallel()
+		// Channels cannot be marshaled to JSON
+		ch := make(chan int)
+		_, err := toJSONMap(ch)
+		if err == nil {
+			t.Error("expected error for unmarshalable type")
+		}
+	})
+
+	t.Run("non-object JSON returns error", func(t *testing.T) {
+		t.Parallel()
+		// A slice marshals to JSON array, which cannot unmarshal to map
+		slice := []string{"a", "b", "c"}
+		_, err := toJSONMap(slice)
+		if err == nil {
+			t.Error("expected error when JSON result is not an object")
+		}
+	})
+}
+
+// TestIsLoopbackHostExtended adds edge cases for isLoopbackHost.
+func TestIsLoopbackHostExtended(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		host string
+		want bool
+	}{
+		// Note: localhost:port returns false because after SplitHostPort extracts "localhost",
+		// ParseIP("localhost") returns nil since localhost is not a valid IP address.
+		// Only literal IPs are recognized after port stripping.
+		{"localhost with port returns false", "localhost:8080", false},
+		{"127.0.0.1 with port", "127.0.0.1:3000", true},
+		{"[::1] with port", "[::1]:8080", true},
+		{"whitespace padded", "  localhost  ", true},
+		{"whitespace padded IP with port", "  127.0.0.1:8080  ", true},
+		{"external IP with port", "192.168.1.1:8080", false},
+		{"invalid host:port:extra", "host:port:extra", false},
+		{"only port number", ":8080", false},
+		{"IPv6 no brackets with port (invalid)", "::1:8080", false}, // ambiguous, treated as IPv6
+		{"loopback IPv6 long form", "0:0:0:0:0:0:0:1", true},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got := isLoopbackHost(tc.host)
+			if got != tc.want {
+				t.Errorf("isLoopbackHost(%q) = %v, want %v", tc.host, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestOriginAllowedExtended adds edge cases for originAllowed.
+func TestOriginAllowedExtended(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		origin    string
+		allowlist []string
+		want      bool
+	}{
+		{"invalid origin URL", "not-a-valid-url", []string{"example.com"}, false},
+		{"origin with path ignored", "http://example.com/path", []string{"example.com"}, true},
+		{"allowlist with empty strings", "http://example.com", []string{"", "  ", "example.com"}, true},
+		{"scheme mismatch in full URL", "https://localhost:3000", []string{"http://localhost:3000"}, false},
+		{"port in allowlist but not origin", "http://localhost", []string{"localhost:3000"}, false},
+		{"multiple allowlist entries", "http://api.example.com", []string{"web.example.com", "api.example.com"}, true},
+		{"allowlist with invalid URL", "http://example.com", []string{"://invalid", "example.com"}, true},
+		// "://" parses but has empty host, url.Hostname() returns "", so matching fails
+		{"malformed origin with empty host", "://", []string{"*"}, false}
+		{"URL with userinfo", "http://user:pass@example.com", []string{"example.com"}, true},
+		{"allowlist full URL without port matches any port", "http://localhost:9999", []string{"http://localhost"}, true},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got := originAllowed(tc.origin, tc.allowlist)
+			if got != tc.want {
+				t.Errorf("originAllowed(%q, %v) = %v, want %v", tc.origin, tc.allowlist, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestGenerateRequestID tests the generateRequestID function.
+func TestGenerateRequestID(t *testing.T) {
+	t.Parallel()
+
+	t.Run("returns non-empty string", func(t *testing.T) {
+		t.Parallel()
+		id := generateRequestID()
+		if id == "" {
+			t.Error("generateRequestID() returned empty string")
+		}
+	})
+
+	t.Run("returns 24 character hex string", func(t *testing.T) {
+		t.Parallel()
+		id := generateRequestID()
+		if len(id) != 24 { // 12 bytes = 24 hex chars
+			t.Errorf("len(generateRequestID()) = %d, want 24", len(id))
+		}
+		// Verify it's valid hex
+		for _, c := range id {
+			if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')) {
+				t.Errorf("generateRequestID() contains non-hex char: %c", c)
+			}
+		}
+	})
+
+	t.Run("generates unique IDs", func(t *testing.T) {
+		t.Parallel()
+		seen := make(map[string]bool)
+		for i := 0; i < 100; i++ {
+			id := generateRequestID()
+			if seen[id] {
+				t.Errorf("duplicate ID generated: %s", id)
+			}
+			seen[id] = true
+		}
+	})
+}
+
+// TestRequestIDFromContext tests the requestIDFromContext function.
+func TestRequestIDFromContext(t *testing.T) {
+	t.Parallel()
+
+	t.Run("nil context returns empty", func(t *testing.T) {
+		t.Parallel()
+		id := requestIDFromContext(nil)
+		if id != "" {
+			t.Errorf("requestIDFromContext(nil) = %q, want empty", id)
+		}
+	})
+
+	t.Run("context without request ID returns empty", func(t *testing.T) {
+		t.Parallel()
+		ctx := context.Background()
+		id := requestIDFromContext(ctx)
+		if id != "" {
+			t.Errorf("requestIDFromContext(background) = %q, want empty", id)
+		}
+	})
+
+	t.Run("context with request ID returns value", func(t *testing.T) {
+		t.Parallel()
+		ctx := context.WithValue(context.Background(), requestIDKey, "test-request-123")
+		id := requestIDFromContext(ctx)
+		if id != "test-request-123" {
+			t.Errorf("requestIDFromContext() = %q, want test-request-123", id)
+		}
+	})
+
+	t.Run("context with wrong type returns empty", func(t *testing.T) {
+		t.Parallel()
+		ctx := context.WithValue(context.Background(), requestIDKey, 12345) // wrong type
+		id := requestIDFromContext(ctx)
+		if id != "" {
+			t.Errorf("requestIDFromContext() = %q, want empty for wrong type", id)
+		}
+	})
+}
