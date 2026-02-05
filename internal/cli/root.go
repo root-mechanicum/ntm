@@ -2949,6 +2949,7 @@ func init() {
 		newPluginsCmd(),
 		newAgentsCmd(),
 		newAssignCmd(),
+		newRebalanceCmd(),
 		newControllerCmd(),
 
 		// Session navigation
