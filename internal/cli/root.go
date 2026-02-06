@@ -647,6 +647,20 @@ Shell Integration:
 			}
 			return
 		}
+		if robotProfileList {
+			if err := printSessionProfileList(); err != nil {
+				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				os.Exit(1)
+			}
+			return
+		}
+		if robotProfileShow != "" {
+			if err := printSessionProfileShow(robotProfileShow); err != nil {
+				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				os.Exit(1)
+			}
+			return
+		}
 		if robotTokens {
 			opts := robot.TokensOptions{
 				Days:      robotTokensDays,
@@ -2094,6 +2108,8 @@ var (
 	robotXFSearch       string // search query
 	robotXFStatus       bool   // health check
 	robotDefaultPrompts bool   // show per-agent-type default prompts
+	robotProfileList    bool   // list session profiles (bd-29kr)
+	robotProfileShow    string // show session profile by name (bd-29kr)
 	xfLimit       int    // max search results
 	xfMode        string // search mode: semantic, keyword, fuzzy
 	xfSort        string // sort: relevance, date
@@ -2617,6 +2633,10 @@ func init() {
 
 	// Default prompts robot flag (bd-2ywo)
 	rootCmd.Flags().BoolVar(&robotDefaultPrompts, "robot-default-prompts", false, "Get per-agent-type default prompts from config (JSON)")
+
+	// Session profile robot flags (bd-29kr)
+	rootCmd.Flags().BoolVar(&robotProfileList, "robot-profile-list", false, "List saved session profiles (JSON)")
+	rootCmd.Flags().StringVar(&robotProfileShow, "robot-profile-show", "", "Show a saved session profile by name (JSON). Example: ntm --robot-profile-show=myproject")
 
 	// Robot-tokens flags for token usage analysis
 	rootCmd.Flags().BoolVar(&robotTokens, "robot-tokens", false, "Get token usage statistics (JSON). Group by agent, model, or time period")
@@ -3187,6 +3207,7 @@ func init() {
 		newPersonasCmd(),
 		newTemplateCmd(),
 		newSessionTemplatesCmd(),
+		newSessionProfileCmd(), // bd-29kr: session profiles
 		newMonitorCmd(),
 	)
 

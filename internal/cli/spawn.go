@@ -445,6 +445,7 @@ func newSpawnCmd() *cobra.Command {
 	var noHooks bool
 	var profilesFlag string
 	var profileSetFlag string
+	var sessionProfileName string // bd-29kr: session profile
 	var staggerDuration time.Duration
 	var staggerEnabled bool
 	var safety bool
@@ -805,6 +806,16 @@ Examples:
 				DefaultPrompts:     cfg.Prompts,
 			}
 
+			// Apply session profile if specified (bd-29kr).
+			// Profile provides defaults; explicit flags override.
+			if sessionProfileName != "" {
+				profile, err := LoadSessionProfile(sessionProfileName)
+				if err != nil {
+					return fmt.Errorf("loading profile %q: %w", sessionProfileName, err)
+				}
+				ApplySessionProfileToSpawnOptions(&opts, profile)
+			}
+
 			return spawnSessionLogic(opts)
 		},
 	}
@@ -871,6 +882,9 @@ Examples:
 	// Profile flags for mapping personas to agents
 	cmd.Flags().StringVar(&profilesFlag, "profiles", "", "Comma-separated list of profile/persona names to map to agents in order")
 	cmd.Flags().StringVar(&profileSetFlag, "profile-set", "", "Predefined profile set name (e.g., backend-team, review-team)")
+
+	// Session profile flag (bd-29kr): load saved spawn config
+	cmd.Flags().StringVar(&sessionProfileName, "profile", "", "Load a saved session profile (see: ntm profile save)")
 
 	// Register plugin flags dynamically
 	// Note: We scan for plugins here to register flags.
