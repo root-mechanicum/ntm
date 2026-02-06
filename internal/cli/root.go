@@ -618,6 +618,27 @@ Shell Integration:
 			}
 			return
 		}
+		// XF (X Find) robot handlers
+		if robotXFSearch != "" {
+			opts := robot.XFSearchOptions{
+				Query: robotXFSearch,
+				Limit: xfLimit,
+				Mode:  xfMode,
+				Sort:  xfSort,
+			}
+			if err := robot.PrintXFSearch(opts); err != nil {
+				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				os.Exit(1)
+			}
+			return
+		}
+		if robotXFStatus {
+			if err := robot.PrintXFStatus(); err != nil {
+				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				os.Exit(1)
+			}
+			return
+		}
 		if robotTokens {
 			opts := robot.TokensOptions{
 				Days:      robotTokensDays,
@@ -2061,6 +2082,13 @@ var (
 	robotMSSearch string // search query
 	robotMSShow   string // skill ID to show
 
+	// Robot-xf flags for XF (X Find) archive search integration
+	robotXFSearch string // search query
+	robotXFStatus bool   // health check
+	xfLimit       int    // max search results
+	xfMode        string // search mode: semantic, keyword, fuzzy
+	xfSort        string // sort: relevance, date
+
 	// Robot-tokens flags for token usage analysis
 	robotTokens        bool   // token usage output
 	robotTokensDays    int    // number of days to analyze
@@ -2570,6 +2598,13 @@ func init() {
 	// MS (Meta Skill) robot flags
 	rootCmd.Flags().StringVar(&robotMSSearch, "robot-ms-search", "", "Search Meta Skill catalog. Required: QUERY. Example: ntm --robot-ms-search='commit workflow'")
 	rootCmd.Flags().StringVar(&robotMSShow, "robot-ms-show", "", "Show Meta Skill details. Required: ID. Example: ntm --robot-ms-show='commit-and-release'")
+
+	// XF (X Find) robot flags for archive search
+	rootCmd.Flags().StringVar(&robotXFSearch, "robot-xf-search", "", "Search X/Twitter archive via xf. Required: QUERY. Example: ntm --robot-xf-search='error handling patterns'")
+	rootCmd.Flags().BoolVar(&robotXFStatus, "robot-xf-status", false, "Get XF health: installation status, index validity (JSON)")
+	rootCmd.Flags().IntVar(&xfLimit, "xf-limit", 20, "Max XF search results. Optional with --robot-xf-search. Example: --xf-limit=50")
+	rootCmd.Flags().StringVar(&xfMode, "xf-mode", "", "XF search mode: semantic, keyword, fuzzy. Optional with --robot-xf-search")
+	rootCmd.Flags().StringVar(&xfSort, "xf-sort", "", "XF sort order: relevance, date. Optional with --robot-xf-search")
 
 	// Robot-tokens flags for token usage analysis
 	rootCmd.Flags().BoolVar(&robotTokens, "robot-tokens", false, "Get token usage statistics (JSON). Group by agent, model, or time period")

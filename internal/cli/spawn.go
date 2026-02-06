@@ -314,6 +314,9 @@ type SpawnOptions struct {
 	// Privacy mode configuration (bd-2u3tv)
 	PrivacyMode  bool // Enable privacy mode (no persistence)
 	AllowPersist bool // Allow persistence even in privacy mode
+
+	// Marching orders: pane-specific initialization prompts (bd-2lodn)
+	MarchingOrders map[int]string // pane index (0-based) -> prompt
 }
 
 // RecoveryContext holds all the information needed to help an agent recover
@@ -470,6 +473,9 @@ func newSpawnCmd() *cobra.Command {
 	// Privacy mode flag (bd-2u3tv)
 	var privacyMode bool
 	var allowPersist bool
+
+	// Marching orders flag (bd-2lodn)
+	var marchingOrdersFile string
 
 	// Pre-load plugins to avoid double loading in RunE
 	// TODO: This runs eagerly during init() which slows down startup for all commands.
@@ -746,6 +752,16 @@ Examples:
 				}
 			}
 
+			// Parse marching orders file if provided (bd-2lodn)
+			var marchingOrders map[int]string
+			if marchingOrdersFile != "" {
+				var err error
+				marchingOrders, err = ParseMarchingOrders(marchingOrdersFile)
+				if err != nil {
+					return fmt.Errorf("--marching-orders: %w", err)
+				}
+			}
+
 			assignAgentFilter := resolveSpawnAssignAgentType(assignAgentType, assignCCOnly, assignCodOnly, assignGmiOnly)
 			opts := SpawnOptions{
 				Session:            sessionName,
@@ -782,6 +798,7 @@ Examples:
 				UseWorktrees:       useWorktrees,
 				PrivacyMode:        privacyMode,
 				AllowPersist:       allowPersist,
+				MarchingOrders:     marchingOrders,
 			}
 
 			return spawnSessionLogic(opts)
@@ -843,6 +860,9 @@ Examples:
 	// Privacy mode flags (bd-2u3tv)
 	cmd.Flags().BoolVar(&privacyMode, "privacy", false, "Enable privacy mode (disables persistence of session data)")
 	cmd.Flags().BoolVar(&allowPersist, "allow-persist", false, "Allow persistence operations even in privacy mode")
+
+	// Marching orders: pane-specific initialization prompts (bd-2lodn)
+	cmd.Flags().StringVar(&marchingOrdersFile, "marching-orders", "", "File with pane-specific prompts (format: pane:N <prompt>)")
 
 	// Profile flags for mapping personas to agents
 	cmd.Flags().StringVar(&profilesFlag, "profiles", "", "Comma-separated list of profile/persona names to map to agents in order")
@@ -1539,8 +1559,13 @@ func spawnSessionLogic(opts SpawnOptions) (err error) {
 				}
 			}
 
-			// Determine if we have a user prompt to send
-			hasPrompt := opts.Prompt != ""
+			// Determine if we have a user prompt to send.
+			// Marching orders (pane-specific prompts) take precedence over global --prompt.
+			panePrompt := opts.Prompt
+			if mo, ok := opts.MarchingOrders[idx]; ok {
+				panePrompt = mo
+			}
+			hasPrompt := panePrompt != ""
 
 			// Inject CASS context if available
 			// Only send separately if we DON'T have a prompt to combine it with
@@ -1574,9 +1599,9 @@ func spawnSessionLogic(opts SpawnOptions) (err error) {
 			// Send user prompt (Staggered or Immediate)
 			if hasPrompt {
 				// Combine CASS context with user prompt if not sent yet
-				finalPrompt := opts.Prompt
+				finalPrompt := panePrompt
 				if cassContext != "" && !cassSent {
-					finalPrompt = cassContext + "\n\n" + opts.Prompt
+					finalPrompt = cassContext + "\n\n" + panePrompt
 				}
 
 				// Apply annotation if staggered
