@@ -43,6 +43,35 @@ func TestBuildSafetyDefaults(t *testing.T) {
 	}
 }
 
+// TestBuildSafetyDefaults_NilConfig tests the nil cfg branch (line 459-461).
+func TestBuildSafetyDefaults_NilConfig(t *testing.T) {
+	t.Parallel()
+
+	got := buildSafetyDefaults(nil)
+	// nil config falls back to config.Default(), which has a non-empty Mode
+	if got.RedactionMode == "" {
+		t.Error("RedactionMode should be non-empty with nil config (uses default)")
+	}
+}
+
+// TestBuildSafetyDefaults_EmptyRedactionMode tests the empty mode branch (line 464-466).
+func TestBuildSafetyDefaults_EmptyRedactionMode(t *testing.T) {
+	t.Parallel()
+
+	cfg := config.Default()
+	cfg.Redaction.Mode = "" // Empty mode should fall back to default
+
+	got := buildSafetyDefaults(cfg)
+	if got.RedactionMode == "" {
+		t.Error("RedactionMode should not be empty when Mode is empty string")
+	}
+	// Should use the default mode
+	defaultMode := config.DefaultRedactionConfig().Mode
+	if got.RedactionMode != defaultMode {
+		t.Errorf("RedactionMode = %q, want default %q", got.RedactionMode, defaultMode)
+	}
+}
+
 func TestEncodeDoctorJSONIncludesSafetyDefaults(t *testing.T) {
 	report := &DoctorReport{
 		Timestamp: time.Date(2026, 2, 4, 0, 0, 0, 0, time.UTC),
