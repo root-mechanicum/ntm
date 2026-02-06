@@ -411,6 +411,16 @@ func TestTruncateBadgeText(t *testing.T) {
 	}
 }
 
+func TestTruncateToWidth_AllRunesExhausted(t *testing.T) {
+	t.Parallel()
+
+	// A wide CJK character (width 2) with maxWidth=1 should exhaust all runes
+	got := truncateToWidth("中", 1)
+	if got != "" {
+		t.Errorf("truncateToWidth(CJK, 1) = %q, want empty", got)
+	}
+}
+
 func TestModelBadgeWidthConstant(t *testing.T) {
 	// Verify the constant is a reasonable value
 	if ModelBadgeWidth < 4 || ModelBadgeWidth > 12 {

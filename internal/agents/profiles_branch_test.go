@@ -58,6 +58,30 @@ func TestScoreAssignment_LowSuccessRate(t *testing.T) {
 }
 
 // =============================================================================
+// ScoreAssignment — high success rate bonus
+// =============================================================================
+
+func TestScoreAssignment_HighSuccessRate(t *testing.T) {
+	t.Parallel()
+
+	pm := NewProfileMatcher()
+	// Set Claude's success rate above 0.9
+	pm.mu.Lock()
+	pm.profiles[AgentTypeClaude].Performance.SuccessRate = 0.95
+	pm.mu.Unlock()
+
+	task := TaskInfo{
+		Title: "Simple task",
+		Type:  "task",
+	}
+
+	result := pm.ScoreAssignment(AgentTypeClaude, task)
+	if result.PerformanceBonus != 0.1 {
+		t.Errorf("PerformanceBonus = %f, want 0.1", result.PerformanceBonus)
+	}
+}
+
+// =============================================================================
 // taskMatchesSpecialization — default case (unknown spec)
 // =============================================================================
 

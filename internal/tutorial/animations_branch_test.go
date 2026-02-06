@@ -232,6 +232,47 @@ func TestSparkleText_ProducesOutput(t *testing.T) {
 	}
 }
 
+// TestFadeEffect_ANSIEscape verifies that ANSI escape codes are preserved during fade.
+func TestFadeEffect_ANSIEscape(t *testing.T) {
+	t.Parallel()
+
+	// Content with an ANSI escape code
+	content := "hello \x1b[31mred\x1b[0m world"
+	got := fadeEffect(content, 0.5)
+	if got == "" {
+		t.Error("fadeEffect should produce non-empty output")
+	}
+	// The escape character should appear in output (preserved, not faded)
+	if !strings.Contains(got, "\x1b") {
+		t.Error("fadeEffect should preserve ANSI escape codes")
+	}
+}
+
+// TestSlideEffect_RightwardSlide verifies the !leftward (rightward) direction.
+func TestSlideEffect_RightwardSlide(t *testing.T) {
+	t.Parallel()
+
+	content := "hello world"
+	// progress=0.5, width=20, leftward=false → offset = -int(20*(1-0.5)) = -10
+	got := slideEffect(content, 0.5, 20, false)
+	if got == "" {
+		t.Error("slideEffect rightward should produce output")
+	}
+}
+
+// TestSlideEffect_OffsetExceedsLine tests the empty-string branch when offset exceeds line length.
+func TestSlideEffect_OffsetExceedsLine(t *testing.T) {
+	t.Parallel()
+
+	// Very wide width with low progress → large negative offset for rightward
+	// leftward=false, progress=0.0, width=100 → offset = -int(100*(1-0))= -100
+	// -offset (100) >= len("hi") (2), so result is empty string
+	got := slideEffect("hi", 0.0, 100, false)
+	if got != "" {
+		t.Errorf("slideEffect with offset exceeding line should return empty, got %q", got)
+	}
+}
+
 // TestAnimatedBorder_NegativePadding tests the padding < 0 guard.
 func TestAnimatedBorder_NegativePadding(t *testing.T) {
 	t.Parallel()

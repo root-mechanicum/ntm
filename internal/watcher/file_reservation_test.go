@@ -321,6 +321,7 @@ func TestIsValidFilePathForReservation(t *testing.T) {
 		{"/path/file.verylongextension", false}, // extension too long
 		{".", false},                            // just a dot
 		{"file.", false},                        // extension empty
+		{"file.g@", false},                      // non-alphanumeric char in extension
 	}
 
 	for _, tc := range tests {
