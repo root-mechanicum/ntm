@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"text/template"
@@ -1558,6 +1559,39 @@ func TestDepsVerboseExecutes(t *testing.T) {
 
 	// Should execute without panicking
 	_ = rootCmd.Execute()
+}
+
+func TestCheckDepWithPathTimesOut(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("uses sh")
+	}
+
+	old := depVersionTimeout
+	depVersionTimeout = 25 * time.Millisecond
+	t.Cleanup(func() { depVersionTimeout = old })
+
+	start := time.Now()
+	status, version, path := checkDepWithPath(depCheck{
+		Name:        "sleepy",
+		Command:     "sh",
+		VersionArgs: []string{"-c", "while :; do :; done"},
+	})
+	elapsed := time.Since(start)
+
+	// If sh isn't available in the test environment, just skip.
+	if status == "not found" {
+		t.Skip("sh not found")
+	}
+
+	if elapsed > 500*time.Millisecond {
+		t.Fatalf("expected version probe to time out quickly; elapsed=%s", elapsed)
+	}
+	if path == "" {
+		t.Fatalf("expected path for sh to be non-empty")
+	}
+	if version != "" {
+		t.Fatalf("expected empty version on timeout; got %q", version)
+	}
 }
 
 // TestConfigInitCreatesFile tests config init creates a config file
