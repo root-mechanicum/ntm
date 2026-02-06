@@ -8,6 +8,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/BurntSushi/toml"
 
@@ -865,6 +866,7 @@ type IntegrationsConfig struct {
 	Caut          CautConfig          `toml:"caut"`           // caut (Cloud API Usage Tracker) integration
 	ProcessTriage ProcessTriageConfig `toml:"process_triage"` // pt (process_triage) Bayesian health classification
 	Rano          RanoConfig          `toml:"rano"`           // rano network observer for per-agent API tracking
+	Proxy         ProxyConfig         `toml:"proxy"`          // rust_proxy (local HTTP proxy) integration
 	XF            XFConfig            `toml:"xf"`             // xf (X/Twitter archive search) integration
 }
 
@@ -1001,6 +1003,7 @@ func DefaultIntegrationsConfig() IntegrationsConfig {
 		Caut:          DefaultCautConfig(),
 		ProcessTriage: DefaultProcessTriageConfig(),
 		Rano:          DefaultRanoConfig(),
+		Proxy:         DefaultProxyConfig(),
 		XF:            DefaultXFConfig(),
 	}
 }
@@ -1207,6 +1210,53 @@ func ValidateRanoConfig(cfg *RanoConfig) error {
 		return fmt.Errorf("history_days must be non-negative, got %d", cfg.HistoryDays)
 	}
 
+	return nil
+}
+
+// ProxyConfig holds configuration for rust_proxy integration.
+// rust_proxy provides a lightweight local HTTP proxy used by some workflows.
+type ProxyConfig struct {
+	Enabled       bool   `toml:"enabled"`        // Enable rust_proxy integration
+	BinPath       string `toml:"bin_path"`       // Path to rust_proxy binary (or command name in PATH)
+	CheckInterval string `toml:"check_interval"` // How often to poll health/status (duration string, e.g. "30s")
+}
+
+// DefaultProxyConfig returns sensible defaults for rust_proxy integration.
+func DefaultProxyConfig() ProxyConfig {
+	return ProxyConfig{
+		Enabled:       true,
+		BinPath:       "rust_proxy",
+		CheckInterval: "30s",
+	}
+}
+
+// ValidateProxyConfig validates the rust_proxy configuration.
+func ValidateProxyConfig(cfg *ProxyConfig) error {
+	if cfg == nil {
+		return nil
+	}
+
+	// Skip validation for unconfigured/zero-valued configs (use defaults).
+	if !cfg.Enabled && cfg.BinPath == "" && cfg.CheckInterval == "" {
+		return nil
+	}
+	if !cfg.Enabled {
+		return nil
+	}
+
+	if strings.TrimSpace(cfg.BinPath) == "" {
+		return fmt.Errorf("bin_path: must be non-empty when enabled")
+	}
+	if strings.TrimSpace(cfg.CheckInterval) == "" {
+		return fmt.Errorf("check_interval: must be non-empty when enabled")
+	}
+	d, err := time.ParseDuration(strings.TrimSpace(cfg.CheckInterval))
+	if err != nil {
+		return fmt.Errorf("check_interval: %w", err)
+	}
+	if d <= 0 {
+		return fmt.Errorf("check_interval: must be > 0, got %q", cfg.CheckInterval)
+	}
 	return nil
 }
 
@@ -2358,6 +2408,21 @@ func Print(cfg *Config, w io.Writer) error {
 	fmt.Fprintf(w, "allow_override = %t\n", cfg.Integrations.DCG.AllowOverride)
 	fmt.Fprintln(w)
 
+	fmt.Fprintln(w, "[integrations.proxy]")
+	fmt.Fprintln(w, "# rust_proxy (local HTTP proxy) settings")
+	fmt.Fprintf(w, "enabled = %t\n", cfg.Integrations.Proxy.Enabled)
+	if cfg.Integrations.Proxy.BinPath != "" {
+		fmt.Fprintf(w, "bin_path = %q\n", cfg.Integrations.Proxy.BinPath)
+	} else {
+		fmt.Fprintln(w, "# bin_path = \"rust_proxy\"  # Auto-detect from PATH")
+	}
+	if cfg.Integrations.Proxy.CheckInterval != "" {
+		fmt.Fprintf(w, "check_interval = %q\n", cfg.Integrations.Proxy.CheckInterval)
+	} else {
+		fmt.Fprintln(w, "# check_interval = \"30s\"")
+	}
+	fmt.Fprintln(w)
+
 	fmt.Fprintln(w, "[integrations.xf]")
 	fmt.Fprintln(w, "# X/Twitter archive search (xf) settings")
 	fmt.Fprintf(w, "enabled = %t\n", cfg.Integrations.XF.Enabled)
@@ -3330,6 +3395,11 @@ func Validate(cfg *Config) []error {
 	// Validate ProcessTriage integration config
 	if err := ValidateProcessTriageConfig(&cfg.Integrations.ProcessTriage); err != nil {
 		errs = append(errs, fmt.Errorf("integrations.process_triage: %w", err))
+	}
+
+	// Validate rust_proxy integration config
+	if err := ValidateProxyConfig(&cfg.Integrations.Proxy); err != nil {
+		errs = append(errs, fmt.Errorf("integrations.proxy: %w", err))
 	}
 
 	// Validate xf integration config

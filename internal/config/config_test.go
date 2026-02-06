@@ -2261,6 +2261,17 @@ func TestDefaultIntegrationsConfig(t *testing.T) {
 	if cfg.XF.DefaultMode != "hybrid" {
 		t.Errorf("Expected XF default_mode 'hybrid', got %q", cfg.XF.DefaultMode)
 	}
+
+	// Verify Proxy config defaults are present
+	if !cfg.Proxy.Enabled {
+		t.Error("Expected Proxy integration to be enabled by default")
+	}
+	if cfg.Proxy.BinPath != "rust_proxy" {
+		t.Errorf("Expected Proxy bin_path 'rust_proxy', got %q", cfg.Proxy.BinPath)
+	}
+	if cfg.Proxy.CheckInterval != "30s" {
+		t.Errorf("Expected Proxy check_interval '30s', got %q", cfg.Proxy.CheckInterval)
+	}
 }
 
 func TestIntegrationsConfigInFullConfig(t *testing.T) {
@@ -2336,6 +2347,30 @@ func TestXFConfigFromTOML(t *testing.T) {
 	}
 	if cfg.Integrations.XF.DefaultMode != "semantic" {
 		t.Errorf("Expected default_mode 'semantic', got %q", cfg.Integrations.XF.DefaultMode)
+	}
+}
+
+func TestProxyConfigFromTOML(t *testing.T) {
+	configContent := `
+	[integrations.proxy]
+	enabled = false
+	bin_path = "/usr/local/bin/rust_proxy"
+	check_interval = "45s"
+	`
+	configPath := createTempConfig(t, configContent)
+	cfg, err := Load(configPath)
+	if err != nil {
+		t.Fatalf("Failed to load config: %v", err)
+	}
+
+	if cfg.Integrations.Proxy.Enabled {
+		t.Error("Expected Proxy to be disabled")
+	}
+	if cfg.Integrations.Proxy.BinPath != "/usr/local/bin/rust_proxy" {
+		t.Errorf("Expected bin_path '/usr/local/bin/rust_proxy', got %q", cfg.Integrations.Proxy.BinPath)
+	}
+	if cfg.Integrations.Proxy.CheckInterval != "45s" {
+		t.Errorf("Expected check_interval '45s', got %q", cfg.Integrations.Proxy.CheckInterval)
 	}
 }
 
@@ -2438,6 +2473,76 @@ func TestValidateXFConfig(t *testing.T) {
 	}
 }
 
+func TestValidateProxyConfig(t *testing.T) {
+	tests := []struct {
+		name    string
+		cfg     ProxyConfig
+		wantErr bool
+		errMsg  string
+	}{
+		{
+			name:    "valid default config",
+			cfg:     DefaultProxyConfig(),
+			wantErr: false,
+		},
+		{
+			name: "disabled skips validation",
+			cfg: ProxyConfig{
+				Enabled: false,
+			},
+			wantErr: false,
+		},
+		{
+			name: "missing bin_path",
+			cfg: ProxyConfig{
+				Enabled:       true,
+				BinPath:       "",
+				CheckInterval: "30s",
+			},
+			wantErr: true,
+			errMsg:  "bin_path",
+		},
+		{
+			name: "missing check_interval",
+			cfg: ProxyConfig{
+				Enabled:       true,
+				BinPath:       "rust_proxy",
+				CheckInterval: "",
+			},
+			wantErr: true,
+			errMsg:  "check_interval",
+		},
+		{
+			name: "invalid check_interval duration",
+			cfg: ProxyConfig{
+				Enabled:       true,
+				BinPath:       "rust_proxy",
+				CheckInterval: "nope",
+			},
+			wantErr: true,
+			errMsg:  "check_interval",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ValidateProxyConfig(&tt.cfg)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatalf("expected error, got nil")
+				}
+				if tt.errMsg != "" && !strings.Contains(err.Error(), tt.errMsg) {
+					t.Fatalf("expected error containing %q, got %v", tt.errMsg, err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("expected nil error, got %v", err)
+			}
+		})
+	}
+}
+
 // =============================================================================
 // ValidateXFConfig — nil branch (bd-4b4zf)
 // =============================================================================
@@ -2477,9 +2582,9 @@ func TestValidateContextRotationConfig_MissingBranches(t *testing.T) {
 		{
 			name: "confirm_timeout_sec negative",
 			cfg: ContextRotationConfig{
-				WarningThreshold: 0.80,
-				RotateThreshold:  0.95,
-				SummaryMaxTokens: 2000,
+				WarningThreshold:  0.80,
+				RotateThreshold:   0.95,
+				SummaryMaxTokens:  2000,
 				ConfirmTimeoutSec: -1,
 			},
 			wantErr: true,
