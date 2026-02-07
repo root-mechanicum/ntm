@@ -77,3 +77,146 @@ func TestFetchOllamaPS(t *testing.T) {
 		t.Fatalf("cpu-model mem=%d, want 789", mem["cpu-model:1b"])
 	}
 }
+
+func TestNewLocalPerfTracker_DefaultWindow(t *testing.T) {
+	t.Parallel()
+
+	tr := newLocalPerfTracker(0)
+	if tr.window != 10*time.Second {
+		t.Fatalf("window=%s, want 10s", tr.window)
+	}
+}
+
+func TestLocalPerfTracker_IgnoresInvalidDeltas(t *testing.T) {
+	t.Parallel()
+
+	tr := newLocalPerfTracker(5 * time.Second)
+	base := time.Unix(3000, 0)
+
+	tr.addOutputDelta(time.Time{}, 10)
+	tr.addOutputDelta(base, 0)
+	tr.addOutputDelta(base, -1)
+
+	tps, total, _, _ := tr.snapshot()
+	if total != 0 || tps != 0 {
+		t.Fatalf("expected zero totals/tps, got total=%d tps=%f", total, tps)
+	}
+}
+
+func TestOllamaHostFromEnv_PriorityAndNormalization(t *testing.T) {
+	t.Setenv("NTM_OLLAMA_HOST", "localhost:11434/")
+	t.Setenv("OLLAMA_HOST", "http://ignored:11434")
+	host := ollamaHostFromEnv()
+	if host != "http://localhost:11434" {
+		t.Fatalf("host=%q, want http://localhost:11434", host)
+	}
+}
+
+func TestOllamaHostFromEnv_FallbackToOllamaHost(t *testing.T) {
+	t.Setenv("NTM_OLLAMA_HOST", "")
+	t.Setenv("OLLAMA_HOST", "https://example.test:1234/")
+	host := ollamaHostFromEnv()
+	if host != "https://example.test:1234" {
+		t.Fatalf("host=%q, want https://example.test:1234", host)
+	}
+}
+
+func TestFetchOllamaPS_ErrorPaths(t *testing.T) {
+	t.Parallel()
+
+	if _, err := fetchOllamaPS(context.Background(), ""); err == nil {
+		t.Fatal("expected missing-host error")
+	}
+
+	statusSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	defer statusSrv.Close()
+	if _, err := fetchOllamaPS(context.Background(), statusSrv.URL); err == nil {
+		t.Fatal("expected non-2xx error")
+	}
+
+	jsonSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`not-json`))
+	}))
+	defer jsonSrv.Close()
+	if _, err := fetchOllamaPS(context.Background(), jsonSrv.URL); err == nil {
+		t.Fatal("expected decode error")
+	}
+}
+
+func TestIsLocalAgentType(t *testing.T) {
+	t.Parallel()
+
+	if !isLocalAgentType("ollama") {
+		t.Fatal("expected ollama to be local agent type")
+	}
+	if isLocalAgentType("claude") {
+		t.Fatal("did not expect claude to be local agent type")
+	}
+}
+
+func TestModelEnsureLocalPerfTracker(t *testing.T) {
+	t.Parallel()
+
+	m := &Model{}
+	if got := m.ensureLocalPerfTracker(""); got != nil {
+		t.Fatal("expected nil tracker for empty pane ID")
+	}
+	first := m.ensureLocalPerfTracker("pane-1")
+	second := m.ensureLocalPerfTracker("pane-1")
+	if first == nil || second == nil {
+		t.Fatal("expected tracker to be created")
+	}
+	if first != second {
+		t.Fatal("expected same tracker instance for same pane ID")
+	}
+}
+
+func TestModelRefreshOllamaPSIfNeeded_SkipWhenFresh(t *testing.T) {
+	t.Parallel()
+
+	m := &Model{lastOllamaPSFetch: time.Now()}
+	prev := m.lastOllamaPSFetch
+
+	m.refreshOllamaPSIfNeeded(time.Now())
+	if !m.lastOllamaPSFetch.Equal(prev) {
+		t.Fatal("expected refresh to be skipped when cache is fresh")
+	}
+}
+
+func TestModelRefreshOllamaPSIfNeeded_SetsErrorOnFailure(t *testing.T) {
+	t.Setenv("NTM_OLLAMA_HOST", "http://127.0.0.1:1")
+	m := &Model{}
+	now := time.Now()
+	m.refreshOllamaPSIfNeeded(now)
+
+	if m.ollamaPSError == nil {
+		t.Fatal("expected fetch error")
+	}
+	if m.lastOllamaPSFetch.IsZero() {
+		t.Fatal("expected last fetch timestamp to be set")
+	}
+}
+
+func TestModelRefreshOllamaPSIfNeeded_Success(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/ps" {
+			http.NotFound(w, r)
+			return
+		}
+		_, _ = w.Write([]byte(`{"models":[{"name":"mistral:7b","size_vram":1234}]}`))
+	}))
+	defer srv.Close()
+
+	t.Setenv("NTM_OLLAMA_HOST", srv.URL)
+	m := &Model{}
+	m.refreshOllamaPSIfNeeded(time.Now())
+
+	if m.ollamaPSError != nil {
+		t.Fatalf("unexpected fetch error: %v", m.ollamaPSError)
+	}
+	if m.ollamaModelMemory == nil || m.ollamaModelMemory["mistral:7b"] != 1234 {
+		t.Fatalf("unexpected memory map: %#v", m.ollamaModelMemory)
+	}
+}

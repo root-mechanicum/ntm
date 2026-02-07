@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -183,6 +184,167 @@ func TestAppendOllamaAgentSpecs(t *testing.T) {
 		var specs AgentSpecs
 		if _, err := appendOllamaAgentSpecs(&specs, 1, 0, "bad model!"); err == nil {
 			t.Fatal("expected error, got nil")
+		}
+	})
+}
+
+func withStdinInput(t *testing.T, input string, fn func()) {
+	t.Helper()
+
+	oldStdin := os.Stdin
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("failed to create pipe: %v", err)
+	}
+	if _, err := w.WriteString(input); err != nil {
+		t.Fatalf("failed to write stdin input: %v", err)
+	}
+	_ = w.Close()
+	os.Stdin = r
+	defer func() {
+		os.Stdin = oldStdin
+		_ = r.Close()
+	}()
+
+	fn()
+}
+
+func TestPreflightOllamaSpawn_ModelPresent(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/tags":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"models": []map[string]any{
+					{
+						"name":   "codellama:latest",
+						"size":   0,
+						"digest": "sha256:deadbeef",
+					},
+				},
+			})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	oldJSON := jsonOutput
+	defer func() { jsonOutput = oldJSON }()
+	jsonOutput = true
+
+	host, err := preflightOllamaSpawn(SpawnOptions{
+		Agents:     []FlatAgent{{Type: AgentTypeOllama, Index: 1, Model: "codellama:latest"}},
+		LocalHost:  server.URL,
+		LocalModel: "codellama:latest",
+	})
+	if err != nil {
+		t.Fatalf("preflightOllamaSpawn failed: %v", err)
+	}
+	if host != strings.TrimSuffix(server.URL, "/") {
+		t.Fatalf("host=%q, want %q", host, strings.TrimSuffix(server.URL, "/"))
+	}
+}
+
+func TestPreflightOllamaSpawn_MissingModel_JSONModeErrors(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/tags":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"models": []map[string]any{
+					{
+						"name": "llama3:latest",
+					},
+				},
+			})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	oldJSON := jsonOutput
+	defer func() { jsonOutput = oldJSON }()
+	jsonOutput = true
+
+	_, err := preflightOllamaSpawn(SpawnOptions{
+		Agents:    []FlatAgent{{Type: AgentTypeOllama, Index: 1, Model: "codellama:latest"}},
+		LocalHost: server.URL,
+	})
+	if err == nil {
+		t.Fatal("expected missing-model error")
+	}
+	if !strings.Contains(err.Error(), "not found at") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestPreflightOllamaSpawn_MissingModel_TextModePullsOnConfirm(t *testing.T) {
+	var pullCalled atomic.Bool
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/tags":
+			_ = json.NewEncoder(w).Encode(map[string]any{"models": []map[string]any{}})
+		case "/api/pull":
+			pullCalled.Store(true)
+			flusher, _ := w.(http.Flusher)
+			_ = json.NewEncoder(w).Encode(map[string]any{"status": "pulling"})
+			flusher.Flush()
+			_ = json.NewEncoder(w).Encode(map[string]any{"status": "success"})
+			flusher.Flush()
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	oldJSON := jsonOutput
+	defer func() { jsonOutput = oldJSON }()
+	jsonOutput = false
+
+	withStdinInput(t, "y\n", func() {
+		host, err := preflightOllamaSpawn(SpawnOptions{
+			Agents:    []FlatAgent{{Type: AgentTypeOllama, Index: 1, Model: "deepseek-coder:6.7b"}},
+			LocalHost: server.URL,
+		})
+		if err != nil {
+			t.Fatalf("preflightOllamaSpawn failed: %v", err)
+		}
+		if host != strings.TrimSuffix(server.URL, "/") {
+			t.Fatalf("host=%q, want %q", host, strings.TrimSuffix(server.URL, "/"))
+		}
+	})
+
+	if !pullCalled.Load() {
+		t.Fatal("expected /api/pull to be called after confirmation")
+	}
+}
+
+func TestPreflightOllamaSpawn_MissingModel_TextModeDecline(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/tags":
+			_ = json.NewEncoder(w).Encode(map[string]any{"models": []map[string]any{}})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	oldJSON := jsonOutput
+	defer func() { jsonOutput = oldJSON }()
+	jsonOutput = false
+
+	withStdinInput(t, "n\n", func() {
+		_, err := preflightOllamaSpawn(SpawnOptions{
+			Agents:    []FlatAgent{{Type: AgentTypeOllama, Index: 1, Model: "deepseek-coder:6.7b"}},
+			LocalHost: server.URL,
+		})
+		if err == nil {
+			t.Fatal("expected decline error")
+		}
+		if !strings.Contains(err.Error(), "not found (try: ollama pull") {
+			t.Fatalf("unexpected error: %v", err)
 		}
 	})
 }
