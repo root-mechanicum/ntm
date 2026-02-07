@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -632,7 +633,8 @@ func compilePatterns(patterns []string) []*rateLimitPattern {
 	for _, p := range patterns {
 		compiled, err := regexp.Compile(p)
 		if err != nil {
-			continue // Skip invalid patterns
+			slog.Warn("caam: invalid rate-limit pattern", "pattern", p, "error", err)
+			continue
 		}
 		result = append(result, &rateLimitPattern{
 			pattern: compiled,

@@ -349,7 +349,10 @@ func runScale(session string, targets []scaleTarget, dryRun, force bool) error {
 	success := len(errors) == 0
 
 	// Re-fetch final state
-	finalPanes, _ := tmux.GetPanes(session)
+	finalPanes, fetchErr := tmux.GetPanes(session)
+	if fetchErr != nil {
+		slog.Warn("scale: could not verify final pane state", "session", session, "error", fetchErr)
+	}
 	finalCounts := map[string]int{"cc": 0, "cod": 0, "gmi": 0}
 	for _, p := range finalPanes {
 		typeStr := scaleAgentTypeLabel(p.Type)

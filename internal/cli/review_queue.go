@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -323,9 +324,12 @@ func getRecentGitCommits(limit int) []gitCommitInfo {
 	if limit <= 0 {
 		return nil
 	}
-	cmd := exec.Command("git", "log", fmt.Sprintf("-%d", limit), "--pretty=format:%H|%s")
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "git", "log", fmt.Sprintf("-%d", limit), "--pretty=format:%H|%s")
 	out, err := cmd.Output()
 	if err != nil {
+		slog.Debug("review-queue: git log failed", "error", err)
 		return nil
 	}
 	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
@@ -430,8 +434,10 @@ func outputReviewQueueError(session, errMsg string) error {
 		Session:             session,
 		Error:               errMsg,
 	}
-	data, _ := json.MarshalIndent(resp, "", "  ")
-	fmt.Println(string(data))
+	data, err := json.MarshalIndent(resp, "", "  ")
+	if err == nil {
+		fmt.Println(string(data))
+	}
 	return fmt.Errorf("%s", errMsg)
 }
 

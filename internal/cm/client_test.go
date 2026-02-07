@@ -248,6 +248,13 @@ func TestTruncate(t *testing.T) {
 		{"exactly10!", 10, "exactly10!"},
 		{"this is a longer string", 10, "this is..."},
 		{"", 5, ""},
+		{"abc", 0, ""},           // zero maxLen
+		{"abc", 1, "a"},          // maxLen < 3: no ellipsis
+		{"abc", 2, "ab"},         // maxLen < 3: no ellipsis
+		{"abcd", 3, "abc"},       // maxLen == 3, fits: no ellipsis needed
+		{"abcde", 3, "abc"},      // maxLen == 3, truncate without ellipsis
+		{"abcdef", 4, "a..."},    // maxLen == 4, room for 1 char + ellipsis
+		{"hello world", -1, ""},  // negative maxLen
 	}
 
 	for _, tt := range tests {

@@ -346,9 +346,15 @@ func (c *CLIClient) FormatForRecovery(result *CLIContextResponse) string {
 
 // truncate shortens a string to maxLen runes, adding ellipsis if needed
 func truncate(s string, maxLen int) string {
+	if maxLen <= 0 {
+		return ""
+	}
 	runes := []rune(s)
 	if len(runes) <= maxLen {
 		return s
+	}
+	if maxLen <= 3 {
+		return string(runes[:maxLen])
 	}
 	return string(runes[:maxLen-3]) + "..."
 }

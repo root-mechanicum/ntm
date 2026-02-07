@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -209,11 +210,12 @@ func readAllLocked() ([]HistoryEntry, error) {
 		// Decrypt if encrypted
 		plain, err := decryptJSONLine(line)
 		if err != nil {
-			continue // Skip lines we can't decrypt
+			slog.Warn("history: skipping unreadable line", "error", err)
+			continue
 		}
 		var entry HistoryEntry
 		if err := json.Unmarshal(plain, &entry); err != nil {
-			// Skip malformed lines
+			slog.Warn("history: skipping malformed line", "error", err)
 			continue
 		}
 		entries = append(entries, entry)

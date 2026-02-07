@@ -376,12 +376,14 @@ func (l *Logger) Replay(since time.Time) (<-chan *Event, error) {
 			// Decrypt if encrypted
 			plain, err := decryptJSONLine(line)
 			if err != nil {
-				continue // Skip lines we can't decrypt
+				slog.Warn("event replay: skipping unreadable line", "error", err)
+				continue
 			}
 
 			var event Event
 			if err := json.Unmarshal(plain, &event); err != nil {
-				continue // Skip malformed entries
+				slog.Warn("event replay: skipping malformed line", "error", err)
+				continue
 			}
 
 			if event.Timestamp.After(since) {
@@ -486,11 +488,13 @@ func (l *Logger) LastEvent() (*Event, error) {
 		// Decrypt if encrypted
 		plain, err := decryptJSONLine(line)
 		if err != nil {
+			slog.Warn("event last: skipping unreadable line", "error", err)
 			continue
 		}
 
 		var event Event
 		if err := json.Unmarshal(plain, &event); err != nil {
+			slog.Warn("event last: skipping malformed line", "error", err)
 			continue
 		}
 		lastEvent = &event
