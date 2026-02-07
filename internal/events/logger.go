@@ -107,6 +107,12 @@ func (l *Logger) Log(event *Event) error {
 		return fmt.Errorf("marshaling event: %w", err)
 	}
 
+	// Encrypt if configured (after redaction, before write)
+	data, err = encryptJSONLine(data)
+	if err != nil {
+		return fmt.Errorf("encrypting event: %w", err)
+	}
+
 	// Write to file with newline
 	if _, err := l.file.Write(append(data, '\n')); err != nil {
 		return fmt.Errorf("writing event: %w", err)
@@ -203,8 +209,20 @@ func (l *Logger) rotateOldEntries() error {
 			continue
 		}
 
+		// Decrypt for timestamp inspection
+		plain, decErr := decryptJSONLine(line)
+		if decErr != nil {
+			// Keep lines we can't decrypt
+			if _, err := writer.Write(line); err != nil {
+				tmpFile.Close()
+				return err
+			}
+			writer.WriteByte('\n')
+			continue
+		}
+
 		var event Event
-		if err := json.Unmarshal(line, &event); err != nil {
+		if err := json.Unmarshal(plain, &event); err != nil {
 			// Keep malformed entries
 			if _, err := writer.Write(line); err != nil {
 				tmpFile.Close()
@@ -215,6 +233,7 @@ func (l *Logger) rotateOldEntries() error {
 		}
 
 		if event.Timestamp.After(cutoff) {
+			// Re-encrypt if encryption is enabled (write original encrypted line)
 			if _, err := writer.Write(line); err != nil {
 				tmpFile.Close()
 				return err
@@ -354,8 +373,14 @@ func (l *Logger) Replay(since time.Time) (<-chan *Event, error) {
 				continue
 			}
 
+			// Decrypt if encrypted
+			plain, err := decryptJSONLine(line)
+			if err != nil {
+				continue // Skip lines we can't decrypt
+			}
+
 			var event Event
-			if err := json.Unmarshal(line, &event); err != nil {
+			if err := json.Unmarshal(plain, &event); err != nil {
 				continue // Skip malformed entries
 			}
 
@@ -458,8 +483,14 @@ func (l *Logger) LastEvent() (*Event, error) {
 			continue
 		}
 
+		// Decrypt if encrypted
+		plain, err := decryptJSONLine(line)
+		if err != nil {
+			continue
+		}
+
 		var event Event
-		if err := json.Unmarshal(line, &event); err != nil {
+		if err := json.Unmarshal(plain, &event); err != nil {
 			continue
 		}
 		lastEvent = &event

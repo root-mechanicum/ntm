@@ -4133,3 +4133,142 @@ func TestPromptsConfigAllEmpty(t *testing.T) {
 		}
 	}
 }
+
+// =============================================================================
+// EncryptionConfig
+// =============================================================================
+
+func TestDefaultEncryptionConfig(t *testing.T) {
+	t.Parallel()
+
+	cfg := DefaultEncryptionConfig()
+
+	if cfg.Enabled {
+		t.Error("expected disabled by default")
+	}
+	if cfg.KeySource != "env" {
+		t.Errorf("expected key_source=env, got %q", cfg.KeySource)
+	}
+	if cfg.KeyEnv != "NTM_ENCRYPTION_KEY" {
+		t.Errorf("expected key_env=NTM_ENCRYPTION_KEY, got %q", cfg.KeyEnv)
+	}
+	if cfg.KeyFormat != "hex" {
+		t.Errorf("expected key_format=hex, got %q", cfg.KeyFormat)
+	}
+}
+
+func TestValidateEncryptionConfig(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		cfg     EncryptionConfig
+		wantErr bool
+		errMsg  string
+	}{
+		{
+			name:    "disabled is always valid",
+			cfg:     EncryptionConfig{Enabled: false},
+			wantErr: false,
+		},
+		{
+			name:    "disabled with invalid fields still valid",
+			cfg:     EncryptionConfig{Enabled: false, KeySource: "magic", KeyFormat: "raw"},
+			wantErr: false,
+		},
+		{
+			name:    "enabled with env source",
+			cfg:     EncryptionConfig{Enabled: true, KeySource: "env"},
+			wantErr: false,
+		},
+		{
+			name:    "enabled with file source",
+			cfg:     EncryptionConfig{Enabled: true, KeySource: "file"},
+			wantErr: false,
+		},
+		{
+			name:    "enabled with command source",
+			cfg:     EncryptionConfig{Enabled: true, KeySource: "command"},
+			wantErr: false,
+		},
+		{
+			name:    "enabled with empty source",
+			cfg:     EncryptionConfig{Enabled: true, KeySource: ""},
+			wantErr: true,
+			errMsg:  "key_source is required",
+		},
+		{
+			name:    "enabled with invalid source",
+			cfg:     EncryptionConfig{Enabled: true, KeySource: "magic"},
+			wantErr: true,
+			errMsg:  "invalid encryption.key_source",
+		},
+		{
+			name:    "hex format valid",
+			cfg:     EncryptionConfig{Enabled: true, KeySource: "env", KeyFormat: "hex"},
+			wantErr: false,
+		},
+		{
+			name:    "base64 format valid",
+			cfg:     EncryptionConfig{Enabled: true, KeySource: "env", KeyFormat: "base64"},
+			wantErr: false,
+		},
+		{
+			name:    "empty format valid (defaults to hex)",
+			cfg:     EncryptionConfig{Enabled: true, KeySource: "env", KeyFormat: ""},
+			wantErr: false,
+		},
+		{
+			name:    "invalid format",
+			cfg:     EncryptionConfig{Enabled: true, KeySource: "env", KeyFormat: "raw"},
+			wantErr: true,
+			errMsg:  "invalid encryption.key_format",
+		},
+		{
+			name: "valid keyring with matching active_key_id",
+			cfg: EncryptionConfig{
+				Enabled:     true,
+				KeySource:   "env",
+				ActiveKeyID: "primary",
+				Keyring:     map[string]string{"primary": "deadbeef"},
+			},
+			wantErr: false,
+		},
+		{
+			name: "active_key_id not in keyring",
+			cfg: EncryptionConfig{
+				Enabled:     true,
+				KeySource:   "env",
+				ActiveKeyID: "missing",
+				Keyring:     map[string]string{"other": "deadbeef"},
+			},
+			wantErr: true,
+			errMsg:  "not found in keyring",
+		},
+		{
+			name: "active_key_id without keyring is valid",
+			cfg: EncryptionConfig{
+				Enabled:     true,
+				KeySource:   "env",
+				ActiveKeyID: "somekey",
+			},
+			wantErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			err := ValidateEncryptionConfig(&tt.cfg)
+			if tt.wantErr {
+				if err == nil {
+					t.Error("expected error, got nil")
+				} else if tt.errMsg != "" && !strings.Contains(err.Error(), tt.errMsg) {
+					t.Errorf("error %q should contain %q", err.Error(), tt.errMsg)
+				}
+			} else if err != nil {
+				t.Errorf("unexpected error: %v", err)
+			}
+		})
+	}
+}

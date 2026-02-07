@@ -472,7 +472,7 @@ func buildSafetyDefaults(cfg *config.Config) SafetyDefaults {
 		RedactionAllowlistEnabled: allowlistCount > 0,
 		RedactionAllowlistCount:   allowlistCount,
 		PrivacyDefaultEnabled:     cfg.Privacy.Enabled,
-		EncryptionAtRestEnabled:   false,
+		EncryptionAtRestEnabled:   cfg.Encryption.Enabled,
 		PreflightDefaultEnabled:   cfg.Preflight.Enabled,
 		PreflightDefaultStrict:    cfg.Preflight.Strict,
 	}

@@ -92,6 +92,12 @@ func Append(entry *HistoryEntry) error {
 		return err
 	}
 
+	// Encrypt if configured (after redaction, before write)
+	data, err = encryptJSONLine(data)
+	if err != nil {
+		return err
+	}
+
 	// Write line with newline atomically
 	_, err = f.Write(append(data, '\n'))
 	return err
@@ -152,6 +158,11 @@ func BatchAppend(entries []*HistoryEntry) error {
 		if err != nil {
 			return err
 		}
+		// Encrypt if configured
+		data, err = encryptJSONLine(data)
+		if err != nil {
+			return err
+		}
 		if _, err := writer.Write(data); err != nil {
 			return err
 		}
@@ -194,8 +205,14 @@ func readAllLocked() ([]HistoryEntry, error) {
 	scanner.Buffer(make([]byte, 64*1024), 5*1024*1024)
 
 	for scanner.Scan() {
+		line := scanner.Bytes()
+		// Decrypt if encrypted
+		plain, err := decryptJSONLine(line)
+		if err != nil {
+			continue // Skip lines we can't decrypt
+		}
 		var entry HistoryEntry
-		if err := json.Unmarshal(scanner.Bytes(), &entry); err != nil {
+		if err := json.Unmarshal(plain, &entry); err != nil {
 			// Skip malformed lines
 			continue
 		}
@@ -293,8 +310,13 @@ ReadEntries:
 	scanner.Buffer(make([]byte, 64*1024), 5*1024*1024)
 
 	for scanner.Scan() {
+		line := scanner.Bytes()
+		plain, err := decryptJSONLine(line)
+		if err != nil {
+			continue
+		}
 		var entry HistoryEntry
-		if err := json.Unmarshal(scanner.Bytes(), &entry); err != nil {
+		if err := json.Unmarshal(plain, &entry); err != nil {
 			continue
 		}
 		entries = append(entries, entry)
@@ -396,10 +418,14 @@ func Prune(keep int) (int, error) {
 	toKeep := entries[len(entries)-keep:]
 	removed := len(entries) - keep
 
-	// Rewrite file atomically
+	// Rewrite file atomically (re-encrypt if enabled)
 	var buf bytes.Buffer
 	for _, entry := range toKeep {
 		data, err := json.Marshal(entry)
+		if err != nil {
+			continue
+		}
+		data, err = encryptJSONLine(data)
 		if err != nil {
 			continue
 		}
@@ -440,10 +466,14 @@ func PruneByTime(cutoff time.Time) (int, error) {
 		return 0, nil
 	}
 
-	// Rewrite file atomically
+	// Rewrite file atomically (re-encrypt if enabled)
 	var buf bytes.Buffer
 	for _, entry := range toKeep {
 		data, err := json.Marshal(entry)
+		if err != nil {
+			continue
+		}
+		data, err = encryptJSONLine(data)
 		if err != nil {
 			continue
 		}
@@ -558,8 +588,13 @@ func ImportFrom(path string) (int, error) {
 	scanner.Buffer(make([]byte, 64*1024), 5*1024*1024)
 
 	for scanner.Scan() {
+		line := scanner.Bytes()
+		plain, err := decryptJSONLine(line)
+		if err != nil {
+			continue
+		}
 		var entry HistoryEntry
-		if err := json.Unmarshal(scanner.Bytes(), &entry); err != nil {
+		if err := json.Unmarshal(plain, &entry); err != nil {
 			continue
 		}
 		entries = append(entries, &entry)

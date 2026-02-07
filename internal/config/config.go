@@ -91,6 +91,7 @@ type Config struct {
 	Preflight          PreflightConfig       `toml:"preflight"`        // Prompt preflight/lint configuration
 	Redaction          RedactionConfig       `toml:"redaction"`        // Secrets/PII redaction configuration
 	Privacy            PrivacyConfig         `toml:"privacy"`          // Privacy mode configuration
+	Encryption         EncryptionConfig      `toml:"encryption"`       // Encryption at rest for artifacts
 	Send               SendConfig            `toml:"send"`             // Send command defaults
 	Prompts            PromptsConfig         `toml:"prompts"`          // Per-agent-type default prompts
 
@@ -1762,6 +1763,64 @@ func ValidatePrivacyConfig(cfg *PrivacyConfig) error {
 	return nil
 }
 
+// EncryptionConfig controls encryption at rest for NTM artifacts
+// (prompt history, event logs, checkpoint exports).
+type EncryptionConfig struct {
+	// Enabled is the master toggle for encryption at rest (default false).
+	Enabled bool `toml:"enabled"`
+	// KeySource selects how the encryption key is provided: env, file, or command.
+	KeySource string `toml:"key_source"`
+	// KeyEnv is the environment variable name holding the key (for key_source=env).
+	KeyEnv string `toml:"key_env"`
+	// KeyFile is the path to a file containing the key (for key_source=file).
+	KeyFile string `toml:"key_file"`
+	// KeyCommand is a shell command that prints the key to stdout (for key_source=command).
+	KeyCommand string `toml:"key_command"`
+	// KeyFormat is the encoding of the key material: hex or base64.
+	KeyFormat string `toml:"key_format"`
+	// ActiveKeyID selects which keyring entry to use for new writes (optional).
+	ActiveKeyID string `toml:"active_key_id"`
+	// Keyring maps key IDs to encoded key material for rotation support.
+	Keyring map[string]string `toml:"keyring"`
+}
+
+// DefaultEncryptionConfig returns sensible encryption defaults (disabled).
+func DefaultEncryptionConfig() EncryptionConfig {
+	return EncryptionConfig{
+		Enabled:   false,
+		KeySource: "env",
+		KeyEnv:    "NTM_ENCRYPTION_KEY",
+		KeyFormat: "hex",
+	}
+}
+
+// ValidateEncryptionConfig validates the encryption configuration.
+func ValidateEncryptionConfig(cfg *EncryptionConfig) error {
+	if !cfg.Enabled {
+		return nil
+	}
+	switch cfg.KeySource {
+	case "env", "file", "command":
+		// valid
+	case "":
+		return fmt.Errorf("encryption.key_source is required when encryption is enabled")
+	default:
+		return fmt.Errorf("invalid encryption.key_source %q: must be env, file, or command", cfg.KeySource)
+	}
+	switch cfg.KeyFormat {
+	case "hex", "base64", "":
+		// valid (empty defaults to hex)
+	default:
+		return fmt.Errorf("invalid encryption.key_format %q: must be hex or base64", cfg.KeyFormat)
+	}
+	if cfg.ActiveKeyID != "" && len(cfg.Keyring) > 0 {
+		if _, ok := cfg.Keyring[cfg.ActiveKeyID]; !ok {
+			return fmt.Errorf("encryption.active_key_id %q not found in keyring", cfg.ActiveKeyID)
+		}
+	}
+	return nil
+}
+
 // SendConfig holds defaults for the send command.
 type SendConfig struct {
 	BasePrompt     string `toml:"base_prompt"`      // Text prepended to all prompts
@@ -1894,6 +1953,7 @@ func Default() *Config {
 		Preflight:       DefaultPreflightConfig(),
 		Redaction:       DefaultRedactionConfig(),
 		Privacy:         DefaultPrivacyConfig(),
+		Encryption:      DefaultEncryptionConfig(),
 	}
 
 	// Apply safety profile defaults (standard/safe/paranoid).
@@ -3463,6 +3523,11 @@ func Validate(cfg *Config) []error {
 	// Validate redaction configuration
 	if err := ValidateRedactionConfig(&cfg.Redaction); err != nil {
 		errs = append(errs, fmt.Errorf("redaction: %w", err))
+	}
+
+	// Validate encryption configuration
+	if err := ValidateEncryptionConfig(&cfg.Encryption); err != nil {
+		errs = append(errs, fmt.Errorf("encryption: %w", err))
 	}
 
 	// Validate projects_base if set

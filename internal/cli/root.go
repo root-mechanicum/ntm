@@ -18,6 +18,7 @@ import (
 	"github.com/Dicklesworthstone/ntm/internal/audit"
 	"github.com/Dicklesworthstone/ntm/internal/checkpoint"
 	"github.com/Dicklesworthstone/ntm/internal/config"
+	"github.com/Dicklesworthstone/ntm/internal/encryption"
 	"github.com/Dicklesworthstone/ntm/internal/events"
 	"github.com/Dicklesworthstone/ntm/internal/history"
 	"github.com/Dicklesworthstone/ntm/internal/kernel"
@@ -137,6 +138,39 @@ Shell Integration:
 				audit.SetRedactionConfig(&redactCfg)
 				session.SetRedactionConfig(&redactCfg)
 				checkpoint.SetRedactionConfig(&redactCfg)
+			}
+
+			// Wire encryption into history + event log persistence (bd-3ld77)
+			if cfg != nil && cfg.Encryption.Enabled {
+				keyCfg := encryption.KeyConfig{
+					KeySource:   cfg.Encryption.KeySource,
+					KeyEnv:      cfg.Encryption.KeyEnv,
+					KeyFile:     cfg.Encryption.KeyFile,
+					KeyCommand:  cfg.Encryption.KeyCommand,
+					KeyFormat:   cfg.Encryption.KeyFormat,
+					ActiveKeyID: cfg.Encryption.ActiveKeyID,
+					Keyring:     cfg.Encryption.Keyring,
+				}
+				encKey, err := encryption.ResolveKey(keyCfg)
+				if err != nil {
+					output.PrintWarningf("encryption key resolution failed, encryption disabled: %v", err)
+				} else {
+					allKeys, err := encryption.ResolveKeyring(keyCfg)
+					if err != nil {
+						output.PrintWarningf("encryption keyring resolution failed, encryption disabled: %v", err)
+					} else {
+						history.SetEncryptionConfig(&history.EncryptionConfig{
+							Enabled:     true,
+							EncryptKey:  encKey,
+							DecryptKeys: allKeys,
+						})
+						events.SetEncryptionConfig(&events.EncryptionConfig{
+							Enabled:     true,
+							EncryptKey:  encKey,
+							DecryptKeys: allKeys,
+						})
+					}
+				}
 			}
 
 			// Run automatic temp file cleanup if enabled
@@ -3172,6 +3206,7 @@ func init() {
 		newModelsCmd(),
 		newAssignCmd(),
 		newRebalanceCmd(),
+		newReviewQueueCmd(),
 		newScaleCmd(),
 		newControllerCmd(),
 
