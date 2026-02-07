@@ -34,6 +34,9 @@ func TestNewClient(t *testing.T) {
 	if client.baseURL != "http://127.0.0.1:12345" {
 		t.Errorf("NewClient() baseURL = %s, want http://127.0.0.1:12345", client.baseURL)
 	}
+	if client.Port() != 12345 {
+		t.Errorf("NewClient() Port() = %d, want 12345", client.Port())
+	}
 }
 
 func TestGetContext(t *testing.T) {
@@ -87,6 +90,46 @@ func TestRecordOutcome(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RecordOutcome() error = %v", err)
 	}
+}
+
+func TestClientHealth(t *testing.T) {
+	t.Run("healthy", func(t *testing.T) {
+		ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path != "/health" {
+				t.Errorf("path = %s, want /health", r.URL.Path)
+			}
+			if r.Method != http.MethodGet {
+				t.Errorf("method = %s, want GET", r.Method)
+			}
+			w.WriteHeader(http.StatusOK)
+		}))
+		defer ts.Close()
+
+		client := &Client{
+			baseURL: ts.URL,
+			client:  ts.Client(),
+		}
+
+		if err := client.Health(context.Background()); err != nil {
+			t.Fatalf("Health() error = %v, want nil", err)
+		}
+	})
+
+	t.Run("unhealthy status", func(t *testing.T) {
+		ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusServiceUnavailable)
+		}))
+		defer ts.Close()
+
+		client := &Client{
+			baseURL: ts.URL,
+			client:  ts.Client(),
+		}
+
+		if err := client.Health(context.Background()); err == nil {
+			t.Fatal("Health() error = nil, want non-nil")
+		}
+	})
 }
 
 func TestCLIClientIsInstalled(t *testing.T) {

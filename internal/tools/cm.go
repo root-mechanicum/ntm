@@ -35,6 +35,9 @@ func (a *CMAdapter) Connect(projectDir, sessionID string) error {
 		return err
 	}
 	a.client = client
+	if port := client.Port(); port > 0 {
+		a.serverPort = port
+	}
 	return nil
 }
 
@@ -127,10 +130,15 @@ func (a *CMAdapter) Health(ctx context.Context) (*HealthStatus, error) {
 
 // isDaemonRunning checks if the cm daemon is responding
 func (a *CMAdapter) isDaemonRunning(ctx context.Context) bool {
-	// If we have a client, assume it's running (or use it to check)
-	// For now, keep the port check as a fallback or auxiliary check
 	ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
 	defer cancel()
+
+	// If connected to a session-specific daemon, probe that endpoint first.
+	if a.client != nil {
+		if err := a.client.Health(ctx); err == nil {
+			return true
+		}
+	}
 
 	url := fmt.Sprintf("http://127.0.0.1:%d/health", a.serverPort)
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)

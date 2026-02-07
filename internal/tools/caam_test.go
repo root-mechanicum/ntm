@@ -87,6 +87,35 @@ func TestCAAMAccountStruct(t *testing.T) {
 	}
 }
 
+func TestCAAMStatusApplyAccountsTracksActiveAccountIdentity(t *testing.T) {
+	status := &CAAMStatus{}
+	accounts := []CAAMAccount{
+		{ID: "acc-1", Provider: "claude", Active: true, Name: "Primary"},
+		{ID: "acc-2", Provider: "openai", Active: false, Name: "Secondary"},
+	}
+
+	status.applyAccounts(accounts)
+
+	if status.AccountsCount != 2 {
+		t.Fatalf("AccountsCount = %d, want 2", status.AccountsCount)
+	}
+	if status.ActiveAccount == nil {
+		t.Fatal("ActiveAccount = nil, want non-nil")
+	}
+	if status.ActiveAccount != &status.Accounts[0] {
+		t.Fatal("ActiveAccount should point to the matching account in status.Accounts")
+	}
+	if status.ActiveAccount.ID != "acc-1" {
+		t.Fatalf("ActiveAccount.ID = %q, want %q", status.ActiveAccount.ID, "acc-1")
+	}
+
+	// Regression check: active account must not be a detached range-loop copy.
+	status.Accounts[0].Name = "Renamed"
+	if status.ActiveAccount.Name != "Renamed" {
+		t.Fatalf("ActiveAccount.Name = %q, want %q", status.ActiveAccount.Name, "Renamed")
+	}
+}
+
 func TestCAAMAdapterCacheInvalidation(t *testing.T) {
 	adapter := NewCAAMAdapter()
 

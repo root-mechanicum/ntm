@@ -294,24 +294,32 @@ func (a *CAAMAdapter) fetchStatus(ctx context.Context) (*CAAMStatus, error) {
 		}
 	}
 
-	status.Accounts = accounts
-	status.AccountsCount = len(accounts)
+	status.applyAccounts(accounts)
 
-	// Extract unique providers
-	providerSet := make(map[string]bool)
-	for _, acc := range accounts {
+	return status, nil
+}
+
+// applyAccounts populates account-derived status fields.
+func (s *CAAMStatus) applyAccounts(accounts []CAAMAccount) {
+	s.Accounts = accounts
+	s.AccountsCount = len(accounts)
+	s.ActiveAccount = nil
+	s.Providers = s.Providers[:0]
+
+	// Extract unique providers while preserving exact account identity for active account.
+	providerSet := make(map[string]struct{})
+	for i := range s.Accounts {
+		acc := s.Accounts[i]
 		if acc.Provider != "" {
-			providerSet[acc.Provider] = true
+			providerSet[acc.Provider] = struct{}{}
 		}
 		if acc.Active {
-			status.ActiveAccount = &acc
+			s.ActiveAccount = &s.Accounts[i]
 		}
 	}
 	for p := range providerSet {
-		status.Providers = append(status.Providers, p)
+		s.Providers = append(s.Providers, p)
 	}
-
-	return status, nil
 }
 
 // GetAccounts returns the list of configured accounts
