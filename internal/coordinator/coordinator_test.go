@@ -549,9 +549,9 @@ func TestEmitEvent_AgentRecovered(t *testing.T) {
 		PaneID:    "%0",
 		PaneIndex: 1,
 		AgentType: "cc",
-		Status:    robot.StateWaiting,
+		Status:    robot.StateStalled, // Not Waiting/Generating/Thinking/Error
 	}
-	// Previous was error, now waiting → recovery
+	// Previous was error, now stalled → recovered (not caught by earlier cases)
 	c.emitEvent(agent, robot.StateError)
 
 	deadline := time.Now().Add(2 * time.Second)

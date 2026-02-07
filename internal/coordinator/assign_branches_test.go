@@ -292,7 +292,7 @@ func TestApplyStrategySelection_Dependency(t *testing.T) {
 		{agent: &AgentState{PaneID: "%0"}, bead: &bv.TriageRecommendation{ID: "b1", Priority: 0}, score: 0.5},
 		{agent: &AgentState{PaneID: "%1"}, bead: &bv.TriageRecommendation{ID: "b2", Priority: 2}, score: 0.9},
 	}
-	result := applyStrategySelection(pairs, 2, 2, StrategyDependency)
+	result := applyStrategySelection(pairs, StrategyDependency, 2, 2)
 	if len(result) != 2 {
 		t.Errorf("expected 2 selections, got %d", len(result))
 	}
@@ -303,7 +303,7 @@ func TestApplyStrategySelection_UnknownDefaultsToGreedy(t *testing.T) {
 	pairs := []scoredPair{
 		{agent: &AgentState{PaneID: "%0"}, bead: &bv.TriageRecommendation{ID: "b1"}, score: 0.9},
 	}
-	result := applyStrategySelection(pairs, 1, 1, AssignmentStrategy("unknown"))
+	result := applyStrategySelection(pairs, AssignmentStrategy("unknown"), 1, 1)
 	if len(result) != 1 {
 		t.Errorf("expected 1 selection from default/greedy, got %d", len(result))
 	}
