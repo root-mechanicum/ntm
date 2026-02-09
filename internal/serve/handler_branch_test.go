@@ -3829,3 +3829,364 @@ func TestNewAuditStore_NoPaths(t *testing.T) {
 		t.Error("expected nil db with empty DBPath")
 	}
 }
+
+// =============================================================================
+// Batch 9: Mail/Reservation handlers — client unavailable → 503
+// =============================================================================
+
+// TestMailAndReservationHandlers_ClientUnavailable exercises the "client nil → 503"
+// path in all mail and reservation handlers. It uses a mock HTTP server that returns
+// 500 for health checks, making IsAvailable() return false quickly.
+// Non-parallel because it uses t.Setenv.
+func TestMailAndReservationHandlers_ClientUnavailable(t *testing.T) {
+	// Mock server: return 500 for all requests (makes IsAvailable() return false)
+	mockSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer mockSrv.Close()
+
+	// Point agent mail client to our mock server
+	t.Setenv("AGENT_MAIL_URL", mockSrv.URL+"/mcp/")
+
+	// Helper: assert 503 status
+	assert503 := func(t *testing.T, rec *httptest.ResponseRecorder) {
+		t.Helper()
+		if rec.Code != http.StatusServiceUnavailable {
+			t.Fatalf("status=%d, want 503; body: %s", rec.Code, rec.Body.String())
+		}
+	}
+
+	// Helper: build chi context with URL params
+	withChi := func(req *http.Request, params map[string]string) *http.Request {
+		rctx := chi.NewRouteContext()
+		for k, v := range params {
+			rctx.URLParams.Add(k, v)
+		}
+		return req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
+	}
+
+	t.Run("ListMailProjects", func(t *testing.T) {
+		srv := New(Config{})
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/mail/projects", nil)
+		srv.handleListMailProjects(rec, req)
+		assert503(t, rec)
+	})
+
+	t.Run("ListMailAgents", func(t *testing.T) {
+		srv := New(Config{})
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/mail/agents", nil)
+		srv.handleListMailAgents(rec, req)
+		assert503(t, rec)
+	})
+
+	t.Run("CreateMailAgent", func(t *testing.T) {
+		srv := New(Config{})
+		rec := httptest.NewRecorder()
+		body := `{"program":"claude-code","model":"opus-4.5"}`
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/mail/agents", strings.NewReader(body))
+		srv.handleCreateMailAgent(rec, req)
+		assert503(t, rec)
+	})
+
+	t.Run("GetMailAgent", func(t *testing.T) {
+		srv := New(Config{})
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/mail/agents/TestAgent", nil)
+		req = withChi(req, map[string]string{"name": "TestAgent"})
+		srv.handleGetMailAgent(rec, req)
+		assert503(t, rec)
+	})
+
+	t.Run("MailInbox", func(t *testing.T) {
+		srv := New(Config{})
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/mail/inbox?agent_name=TestAgent", nil)
+		srv.handleMailInbox(rec, req)
+		assert503(t, rec)
+	})
+
+	t.Run("SendMessage", func(t *testing.T) {
+		srv := New(Config{})
+		rec := httptest.NewRecorder()
+		body := `{"sender_name":"a","to":["b"],"subject":"s","body_md":"m"}`
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/mail/messages", strings.NewReader(body))
+		srv.handleSendMessage(rec, req)
+		assert503(t, rec)
+	})
+
+	t.Run("GetMessage", func(t *testing.T) {
+		srv := New(Config{})
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/mail/messages/42", nil)
+		req = withChi(req, map[string]string{"id": "42"})
+		srv.handleGetMessage(rec, req)
+		assert503(t, rec)
+	})
+
+	t.Run("ReplyMessage", func(t *testing.T) {
+		srv := New(Config{})
+		rec := httptest.NewRecorder()
+		body := `{"sender_name":"a","body_md":"reply text"}`
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/mail/messages/42/reply", strings.NewReader(body))
+		req = withChi(req, map[string]string{"id": "42"})
+		srv.handleReplyMessage(rec, req)
+		assert503(t, rec)
+	})
+
+	t.Run("MarkMessageRead", func(t *testing.T) {
+		srv := New(Config{})
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/mail/messages/42/read?agent_name=TestAgent", nil)
+		req = withChi(req, map[string]string{"id": "42"})
+		srv.handleMarkMessageRead(rec, req)
+		assert503(t, rec)
+	})
+
+	t.Run("AckMessage", func(t *testing.T) {
+		srv := New(Config{})
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/mail/messages/42/ack?agent_name=TestAgent", nil)
+		req = withChi(req, map[string]string{"id": "42"})
+		srv.handleAckMessage(rec, req)
+		assert503(t, rec)
+	})
+
+	t.Run("SearchMessages", func(t *testing.T) {
+		srv := New(Config{})
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/mail/search?q=test", nil)
+		srv.handleSearchMessages(rec, req)
+		assert503(t, rec)
+	})
+
+	t.Run("ThreadSummary", func(t *testing.T) {
+		srv := New(Config{})
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/mail/threads/TKT-1/summary", nil)
+		req = withChi(req, map[string]string{"id": "TKT-1"})
+		srv.handleThreadSummary(rec, req)
+		assert503(t, rec)
+	})
+
+	t.Run("ListContacts", func(t *testing.T) {
+		srv := New(Config{})
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/mail/contacts?agent_name=TestAgent", nil)
+		srv.handleListContacts(rec, req)
+		assert503(t, rec)
+	})
+
+	t.Run("RequestContact", func(t *testing.T) {
+		srv := New(Config{})
+		rec := httptest.NewRecorder()
+		body := `{"from_agent":"a","to_agent":"b"}`
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/mail/contacts/request", strings.NewReader(body))
+		srv.handleRequestContact(rec, req)
+		assert503(t, rec)
+	})
+
+	t.Run("RespondContact", func(t *testing.T) {
+		srv := New(Config{})
+		rec := httptest.NewRecorder()
+		body := `{"to_agent":"a","from_agent":"b","accept":true}`
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/mail/contacts/respond", strings.NewReader(body))
+		srv.handleRespondContact(rec, req)
+		assert503(t, rec)
+	})
+
+	t.Run("SetContactPolicy", func(t *testing.T) {
+		srv := New(Config{})
+		rec := httptest.NewRecorder()
+		body := `{"agent_name":"a","policy":"open"}`
+		req := httptest.NewRequest(http.MethodPut, "/api/v1/mail/contacts/policy", strings.NewReader(body))
+		srv.handleSetContactPolicy(rec, req)
+		assert503(t, rec)
+	})
+
+	t.Run("ListReservations", func(t *testing.T) {
+		srv := New(Config{})
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/reservations", nil)
+		srv.handleListReservations(rec, req)
+		assert503(t, rec)
+	})
+
+	t.Run("ReservePaths", func(t *testing.T) {
+		srv := New(Config{})
+		rec := httptest.NewRecorder()
+		body := `{"agent_name":"a","paths":["file.go"]}`
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/reservations", strings.NewReader(body))
+		srv.handleReservePaths(rec, req)
+		assert503(t, rec)
+	})
+
+	t.Run("ReleaseReservations", func(t *testing.T) {
+		srv := New(Config{})
+		rec := httptest.NewRecorder()
+		body := `{"agent_name":"a"}`
+		req := httptest.NewRequest(http.MethodDelete, "/api/v1/reservations", strings.NewReader(body))
+		srv.handleReleaseReservations(rec, req)
+		assert503(t, rec)
+	})
+
+	t.Run("ReservationConflicts", func(t *testing.T) {
+		srv := New(Config{})
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/reservations/conflicts?paths=file.go", nil)
+		srv.handleReservationConflicts(rec, req)
+		assert503(t, rec)
+	})
+
+	t.Run("GetReservation", func(t *testing.T) {
+		srv := New(Config{})
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/reservations/42", nil)
+		req = withChi(req, map[string]string{"id": "42"})
+		srv.handleGetReservation(rec, req)
+		assert503(t, rec)
+	})
+
+	t.Run("ReleaseReservationByID", func(t *testing.T) {
+		srv := New(Config{})
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/reservations/42/release?agent_name=a", nil)
+		req = withChi(req, map[string]string{"id": "42"})
+		srv.handleReleaseReservationByID(rec, req)
+		assert503(t, rec)
+	})
+
+	t.Run("RenewReservation", func(t *testing.T) {
+		srv := New(Config{})
+		rec := httptest.NewRecorder()
+		body := `{"agent_name":"a","extend_seconds":60}`
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/reservations/42/renew", strings.NewReader(body))
+		req = withChi(req, map[string]string{"id": "42"})
+		srv.handleRenewReservation(rec, req)
+		assert503(t, rec)
+	})
+
+	t.Run("ForceReleaseReservation", func(t *testing.T) {
+		srv := New(Config{})
+		rec := httptest.NewRecorder()
+		body := `{"agent_name":"a"}`
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/reservations/42/force-release", strings.NewReader(body))
+		req = withChi(req, map[string]string{"id": "42"})
+		srv.handleForceReleaseReservation(rec, req)
+		assert503(t, rec)
+	})
+}
+
+// --- Memory daemon start: already running branch ---
+
+func TestHandleMemoryDaemonStart_AlreadyRunning(t *testing.T) {
+	tmpDir := t.TempDir()
+	pidsDir := filepath.Join(tmpDir, ".ntm", "pids")
+	os.MkdirAll(pidsDir, 0o755)
+
+	// Write a valid PID file so checkMemoryDaemon reports "running"
+	pidInfo := map[string]interface{}{
+		"pid":        999999999,
+		"port":       8200,
+		"session_id": "test-session",
+		"started_at": time.Now().Format(time.RFC3339),
+	}
+	data, _ := json.Marshal(pidInfo)
+	os.WriteFile(filepath.Join(pidsDir, "cm-test-session.pid"), data, 0o644)
+
+	// Create a fake cm binary so exec.LookPath("cm") succeeds
+	fakeBinDir := t.TempDir()
+	fakeCM := filepath.Join(fakeBinDir, "cm")
+	os.WriteFile(fakeCM, []byte("#!/bin/sh\nexit 0\n"), 0o755)
+	t.Setenv("PATH", fakeBinDir)
+
+	srv := New(Config{})
+	srv.projectDir = tmpDir
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/memory/daemon/start", nil)
+	srv.handleMemoryDaemonStart(rec, req)
+
+	// Should return 409 Conflict — daemon already running
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("status=%d, want 409; body: %s", rec.Code, rec.Body.String())
+	}
+}
+
+// --- Memory daemon status: cm not installed branch ---
+
+func TestHandleMemoryDaemonStatus_CMNotInstalled(t *testing.T) {
+	srv := New(Config{})
+	srv.projectDir = t.TempDir()
+
+	t.Setenv("PATH", t.TempDir())
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/memory/daemon/status", nil)
+	srv.handleMemoryDaemonStatus(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d, want 200; body: %s", rec.Code, rec.Body.String())
+	}
+	var resp map[string]interface{}
+	json.NewDecoder(rec.Body).Decode(&resp)
+	if resp["installed"] != false {
+		t.Errorf("expected installed=false, got %v", resp["installed"])
+	}
+}
+
+// --- Memory outcome: valid status values reach daemon check ---
+
+func TestHandleMemoryOutcome_ValidStatuses(t *testing.T) {
+	t.Parallel()
+	for _, status := range []string{"success", "failure", "partial"} {
+		t.Run(status, func(t *testing.T) {
+			t.Parallel()
+			srv := New(Config{})
+			srv.projectDir = t.TempDir()
+
+			body := fmt.Sprintf(`{"status":"%s","rule_ids":["r1"],"notes":"test"}`, status)
+			rec := httptest.NewRecorder()
+			req := httptest.NewRequest(http.MethodPost, "/api/v1/memory/outcome", strings.NewReader(body))
+			srv.handleMemoryOutcome(rec, req)
+
+			// Should hit "daemon not running" → 503
+			if rec.Code != http.StatusServiceUnavailable {
+				t.Fatalf("status=%d, want 503; body: %s", rec.Code, rec.Body.String())
+			}
+		})
+	}
+}
+
+// --- Memory privacy update: bad JSON ---
+
+func TestHandleMemoryPrivacyUpdate_BadJSON(t *testing.T) {
+	t.Parallel()
+	srv := New(Config{})
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/memory/privacy", strings.NewReader("not json"))
+	srv.handleMemoryPrivacyUpdate(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status=%d, want 400; body: %s", rec.Code, rec.Body.String())
+	}
+}
+
+// --- Memory context: empty task ---
+
+func TestHandleMemoryContext_EmptyTaskBranch(t *testing.T) {
+	t.Parallel()
+	srv := New(Config{})
+	srv.projectDir = t.TempDir()
+
+	body := `{"task":""}`
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/memory/context", strings.NewReader(body))
+	srv.handleMemoryContext(rec, req)
+
+	// Empty task should return 400
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status=%d, want 400; body: %s", rec.Code, rec.Body.String())
+	}
+}
