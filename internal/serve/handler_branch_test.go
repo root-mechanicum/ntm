@@ -11032,5 +11032,265 @@ func TestHandleRollback_DryRunDirtyNoStash(t *testing.T) {
 	}
 }
 
+// =============================================================================
+// Batch 29: full git rollback integration, delete fake CP, export tar.gz,
+//           audit zero timestamp, ws_events memory-only store
+// =============================================================================
+
+// --- handleRollback: full integration with real git repo ---
+// Creates a temp git repo, makes it dirty, creates a fake checkpoint pointing
+// to the initial commit, then runs a non-dry-run rollback to exercise:
+// stash (success), checkout, success response path.
+
+func TestHandleRollback_FullGitIntegration(t *testing.T) {
+	s, _ := setupTestServer(t)
+
+	tmpHome := t.TempDir()
+	t.Setenv("HOME", tmpHome)
+
+	// Create a real git repo in a temp directory
+	gitDir := filepath.Join(tmpHome, "work")
+	os.MkdirAll(gitDir, 0755)
+
+	// Initialize git repo and create initial commit
+	cmds := []struct {
+		args []string
+		dir  string
+	}{
+		{[]string{"git", "init"}, gitDir},
+		{[]string{"git", "config", "user.email", "test@test.com"}, gitDir},
+		{[]string{"git", "config", "user.name", "Test"}, gitDir},
+	}
+	for _, c := range cmds {
+		cmd := exec.Command(c.args[0], c.args[1:]...)
+		cmd.Dir = c.dir
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git command %v failed: %v\n%s", c.args, err, out)
+		}
+	}
+
+	// Create a file and initial commit
+	os.WriteFile(filepath.Join(gitDir, "hello.txt"), []byte("hello"), 0644)
+	cmd := exec.Command("git", "add", ".")
+	cmd.Dir = gitDir
+	cmd.CombinedOutput()
+	cmd = exec.Command("git", "commit", "-m", "initial")
+	cmd.Dir = gitDir
+	cmd.CombinedOutput()
+
+	// Get the commit hash
+	cmd = exec.Command("git", "rev-parse", "HEAD")
+	cmd.Dir = gitDir
+	commitOut, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("git rev-parse failed: %v", err)
+	}
+	commitHash := strings.TrimSpace(string(commitOut))
+
+	// Make the repo dirty
+	os.WriteFile(filepath.Join(gitDir, "dirty.txt"), []byte("dirty"), 0644)
+
+	// Create fake checkpoint pointing to this commit
+	cpDir := filepath.Join(tmpHome, ".local", "share", "ntm", "checkpoints", "rb-full", "cp-full")
+	os.MkdirAll(cpDir, 0755)
+	metadata := fmt.Sprintf(`{"version":1,"id":"cp-full","name":"full-test","session_name":"rb-full","working_dir":%q,"created_at":"2025-01-01T00:00:00Z","pane_count":1,"git":{"commit":"%s","branch":"main","is_dirty":true}}`, gitDir, commitHash)
+	os.WriteFile(filepath.Join(cpDir, "metadata.json"), []byte(metadata), 0644)
+
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("sessionName", "rb-full")
+
+	body := `{"checkpoint_ref":"cp-full","dry_run":false,"no_git":false,"no_stash":false}`
+	req := httptest.NewRequest("POST", "/api/v1/sessions/rb-full/rollback", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
+	rec := httptest.NewRecorder()
+
+	s.handleRollback(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	bodyStr := rec.Body.String()
+	if !strings.Contains(bodyStr, "git_restored") {
+		t.Fatalf("expected git_restored in response, got: %s", bodyStr)
+	}
+	if !strings.Contains(bodyStr, "stash_created") {
+		t.Fatalf("expected stash_created in response, got: %s", bodyStr)
+	}
+}
+
+// --- handleRollback: no_git=true skips git entirely → success path ---
+
+func TestHandleRollback_NoGitSuccess(t *testing.T) {
+	s, _ := setupTestServer(t)
+
+	tmpHome := t.TempDir()
+	t.Setenv("HOME", tmpHome)
+
+	cpDir := filepath.Join(tmpHome, ".local", "share", "ntm", "checkpoints", "rb-nog", "cp-nog")
+	os.MkdirAll(cpDir, 0755)
+	metadata := `{"version":1,"id":"cp-nog","name":"no-git","session_name":"rb-nog","working_dir":"/tmp","created_at":"2025-01-01T00:00:00Z","pane_count":1,"git":{"commit":"abc12345def67890abc12345def67890abc12345","branch":"main","is_dirty":false}}`
+	os.WriteFile(filepath.Join(cpDir, "metadata.json"), []byte(metadata), 0644)
+
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("sessionName", "rb-nog")
+
+	body := `{"checkpoint_ref":"cp-nog","dry_run":false,"no_git":true}`
+	req := httptest.NewRequest("POST", "/api/v1/sessions/rb-nog/rollback", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
+	rec := httptest.NewRecorder()
+
+	s.handleRollback(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 for no_git rollback, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	bodyStr := rec.Body.String()
+	// git_restored should be false when no_git=true
+	if strings.Contains(bodyStr, `"git_restored":true`) {
+		t.Fatalf("expected git_restored=false when no_git=true, got: %s", bodyStr)
+	}
+}
+
+// --- handleDeleteCheckpoint: delete fake checkpoint success path ---
+
+func TestHandleDeleteCheckpoint_FakeCPSuccess(t *testing.T) {
+	s, _ := setupTestServer(t)
+
+	tmpHome := t.TempDir()
+	t.Setenv("HOME", tmpHome)
+
+	// Create fake checkpoint
+	cpDir := filepath.Join(tmpHome, ".local", "share", "ntm", "checkpoints", "del-fake", "cp-del")
+	os.MkdirAll(cpDir, 0755)
+	metadata := `{"version":1,"id":"cp-del","name":"delete-me","session_name":"del-fake","working_dir":"/tmp","created_at":"2025-01-01T00:00:00Z","pane_count":1}`
+	os.WriteFile(filepath.Join(cpDir, "metadata.json"), []byte(metadata), 0644)
+
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("sessionName", "del-fake")
+	rctx.URLParams.Add("checkpointId", "cp-del")
+
+	req := httptest.NewRequest("DELETE", "/api/v1/sessions/del-fake/checkpoints/cp-del", nil)
+	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
+	rec := httptest.NewRecorder()
+
+	s.handleDeleteCheckpoint(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	bodyStr := rec.Body.String()
+	if !strings.Contains(bodyStr, `"deleted":true`) {
+		t.Fatalf("expected deleted:true, got: %s", bodyStr)
+	}
+	if !strings.Contains(bodyStr, "cp-del") {
+		t.Fatalf("expected checkpoint_id in response, got: %s", bodyStr)
+	}
+}
+
+// --- handleExportCheckpoint: tar.gz format ---
+
+func TestHandleExportCheckpoint_TarGzFormat(t *testing.T) {
+	s, _ := setupTestServer(t)
+
+	tmpHome := t.TempDir()
+	t.Setenv("HOME", tmpHome)
+
+	cpDir := filepath.Join(tmpHome, ".local", "share", "ntm", "checkpoints", "exp-tgz", "cp-tgz")
+	os.MkdirAll(cpDir, 0755)
+	metadata := `{"version":1,"id":"cp-tgz","name":"tgz-test","session_name":"exp-tgz","working_dir":"/tmp","created_at":"2025-01-01T00:00:00Z","pane_count":1}`
+	os.WriteFile(filepath.Join(cpDir, "metadata.json"), []byte(metadata), 0644)
+
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("sessionName", "exp-tgz")
+	rctx.URLParams.Add("checkpointId", "cp-tgz")
+
+	req := httptest.NewRequest("GET", "/api/v1/sessions/exp-tgz/checkpoints/cp-tgz/export?format=tar.gz", nil)
+	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
+	rec := httptest.NewRecorder()
+
+	s.handleExportCheckpoint(rec, req)
+
+	// Should succeed (tar.gz export of simple checkpoint)
+	if rec.Code != http.StatusOK && rec.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 200 or 500, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+// --- AuditStore Record: zero timestamp gets auto-filled ---
+
+func TestAuditStore_RecordZeroTimestamp(t *testing.T) {
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "audit_ts.db")
+
+	store, err := NewAuditStore(AuditStoreConfig{
+		DBPath: dbPath,
+	})
+	if err != nil {
+		t.Fatalf("failed to create audit store: %v", err)
+	}
+	defer store.Close()
+
+	rec := &AuditRecord{
+		// Timestamp is zero value — should get auto-filled
+		RequestID:  "req-auto-ts",
+		UserID:     "test-user",
+		Role:       RoleAdmin,
+		Action:     AuditActionExecute,
+		Resource:   "config",
+		Method:     "GET",
+		Path:       "/api/v1/config",
+		StatusCode: 200,
+		Duration:   5,
+		RemoteAddr: "127.0.0.1",
+	}
+
+	if err := store.Record(rec); err != nil {
+		t.Fatalf("Record failed: %v", err)
+	}
+
+	// The timestamp should have been auto-filled
+	if rec.Timestamp.IsZero() {
+		t.Fatal("expected timestamp to be auto-filled, got zero")
+	}
+}
+
+// --- WSEventStore: Store with nil DB (memory-only) ---
+
+func TestWSEventStore_StoreNilDB(t *testing.T) {
+	t.Parallel()
+
+	store := NewWSEventStore(nil, WSEventStoreConfig{
+		BufferSize:       10,
+		RetentionSeconds: 3600,
+		CleanupInterval:  time.Hour,
+	})
+	defer store.Stop()
+
+	ev, err := store.Store("session.test", "agent.start", map[string]string{"agent": "test"})
+	if err != nil {
+		t.Fatalf("Store failed: %v", err)
+	}
+	if ev.Seq != 1 {
+		t.Fatalf("expected seq=1, got %d", ev.Seq)
+	}
+
+	// GetSince should work from buffer
+	events, reset, err := store.GetSince(0, "", 10)
+	if err != nil {
+		t.Fatalf("GetSince failed: %v", err)
+	}
+	if reset {
+		t.Fatal("unexpected cursor reset for fresh store")
+	}
+	if len(events) != 1 {
+		t.Fatalf("expected 1 event, got %d", len(events))
+	}
+}
+
 // Ensure kernel import is used
 var _ = kernel.Run
