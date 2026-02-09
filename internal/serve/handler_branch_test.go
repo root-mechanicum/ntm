@@ -16,6 +16,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Dicklesworthstone/ntm/internal/bv"
+	"github.com/Dicklesworthstone/ntm/internal/cass"
 	"github.com/Dicklesworthstone/ntm/internal/events"
 	"github.com/Dicklesworthstone/ntm/internal/scanner"
 	"github.com/go-chi/chi/v5"
@@ -5235,5 +5237,277 @@ func TestIdempotencyStore_Get_Expired(t *testing.T) {
 	if ok {
 		t.Error("expected expired entry to not be found")
 	}
+}
+
+// =============================================================================
+// Batch 13: CASS search/preview full path, bead handlers, checkpoint handlers
+// =============================================================================
+
+// --- handleCASSSearch: valid query (cass installed, full search path) ---
+
+func TestHandleCASSSearch_ValidQuery(t *testing.T) {
+	if !cassInstalled() {
+		t.Skip("cass not installed")
+	}
+	s, _ := setupTestServer(t)
+
+	body := `{"query":"test","limit":1}`
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/cass/search", strings.NewReader(body))
+	w := httptest.NewRecorder()
+	s.handleCASSSearch(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status=%d, want 200; body=%s", w.Code, w.Body.String())
+	}
+
+	var resp map[string]interface{}
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if resp["success"] != true {
+		t.Errorf("success=%v, want true", resp["success"])
+	}
+	// Should have hits array
+	if _, ok := resp["hits"]; !ok {
+		t.Error("response missing 'hits' field")
+	}
+}
+
+// --- handleCASSPreview: valid path (cass installed) ---
+
+func TestHandleCASSPreview_ValidPath(t *testing.T) {
+	if !cassInstalled() {
+		t.Skip("cass not installed")
+	}
+	s, _ := setupTestServer(t)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/cass/preview?path=/nonexistent/file.go", nil)
+	w := httptest.NewRecorder()
+	s.handleCASSPreview(w, req)
+
+	// Will either find the doc (200) or not find it (404) or search error (500)
+	// Key thing: we get past the install check AND the path validation
+	if w.Code == http.StatusServiceUnavailable {
+		t.Fatal("should not get 503 when cass is installed")
+	}
+	if w.Code == http.StatusBadRequest {
+		t.Fatal("should not get 400 with a valid path parameter")
+	}
+}
+
+// --- handleCASSPreview: missing path parameter ---
+
+func TestHandleCASSPreview_MissingPath(t *testing.T) {
+	if !cassInstalled() {
+		t.Skip("cass not installed")
+	}
+	s, _ := setupTestServer(t)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/cass/preview", nil)
+	w := httptest.NewRecorder()
+	s.handleCASSPreview(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status=%d, want 400", w.Code)
+	}
+}
+
+// --- handleListBeads: br installed but non-git project dir (exercises RunBd error path) ---
+
+func TestHandleListBeads_BrInstalledBadDir(t *testing.T) {
+	if !bv.IsBdInstalled() {
+		t.Skip("br not installed")
+	}
+	s, _ := setupTestServer(t)
+	s.projectDir = t.TempDir() // temp dir, no git, no .beads
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/beads", nil)
+	w := httptest.NewRecorder()
+	s.handleListBeads(w, req)
+
+	// br will fail because no .beads dir → 500
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("status=%d, want 500; body=%s", w.Code, w.Body.String())
+	}
+}
+
+// --- handleListBeads: with filters query params ---
+
+func TestHandleListBeads_WithFilters(t *testing.T) {
+	if !bv.IsBdInstalled() {
+		t.Skip("br not installed")
+	}
+	s, _ := setupTestServer(t)
+	s.projectDir = t.TempDir()
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/beads?status=open&label=test&assignee=user1", nil)
+	w := httptest.NewRecorder()
+	s.handleListBeads(w, req)
+
+	// Will fail at RunBd (no .beads dir) but exercises the filter-building branches
+	if w.Code == http.StatusServiceUnavailable {
+		t.Fatal("should not get 503 when br is installed")
+	}
+}
+
+// --- handleBeadsStats: br installed, temp dir ---
+
+func TestHandleBeadsStats_BrInstalledBadDir(t *testing.T) {
+	if !bv.IsBdInstalled() {
+		t.Skip("br not installed")
+	}
+	s, _ := setupTestServer(t)
+	s.projectDir = t.TempDir()
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/beads/stats", nil)
+	w := httptest.NewRecorder()
+	s.handleBeadsStats(w, req)
+
+	// br stats will fail in temp dir → 500
+	if w.Code == http.StatusServiceUnavailable {
+		t.Fatal("should not get 503 when br is installed")
+	}
+}
+
+// --- handleBeadsReady: br installed, temp dir ---
+
+func TestHandleBeadsReady_BrInstalledBadDir(t *testing.T) {
+	if !bv.IsBdInstalled() {
+		t.Skip("br not installed")
+	}
+	s, _ := setupTestServer(t)
+	s.projectDir = t.TempDir()
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/beads/ready", nil)
+	w := httptest.NewRecorder()
+	s.handleBeadsReady(w, req)
+
+	if w.Code == http.StatusServiceUnavailable {
+		t.Fatal("should not get 503 when br is installed")
+	}
+}
+
+// --- handleBeadsBlocked: br installed, temp dir ---
+
+func TestHandleBeadsBlocked_BrInstalledBadDir(t *testing.T) {
+	if !bv.IsBdInstalled() {
+		t.Skip("br not installed")
+	}
+	s, _ := setupTestServer(t)
+	s.projectDir = t.TempDir()
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/beads/blocked", nil)
+	w := httptest.NewRecorder()
+	s.handleBeadsBlocked(w, req)
+
+	if w.Code == http.StatusServiceUnavailable {
+		t.Fatal("should not get 503 when br is installed")
+	}
+}
+
+// --- handleBeadsInProgress: br installed, temp dir ---
+
+func TestHandleBeadsInProgress_BrInstalledBadDir(t *testing.T) {
+	if !bv.IsBdInstalled() {
+		t.Skip("br not installed")
+	}
+	s, _ := setupTestServer(t)
+	s.projectDir = t.TempDir()
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/beads/in-progress", nil)
+	w := httptest.NewRecorder()
+	s.handleBeadsInProgress(w, req)
+
+	if w.Code == http.StatusServiceUnavailable {
+		t.Fatal("should not get 503 when br is installed")
+	}
+}
+
+// --- handleBeadsDaemonStatus: br installed, temp dir (hits error → returns 200 with running:false) ---
+
+func TestHandleBeadsDaemonStatus_BrInstalledBadDir(t *testing.T) {
+	if !bv.IsBdInstalled() {
+		t.Skip("br not installed")
+	}
+	s, _ := setupTestServer(t)
+	s.projectDir = t.TempDir()
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/beads/daemon/status", nil)
+	w := httptest.NewRecorder()
+	s.handleBeadsDaemonStatus(w, req)
+
+	// The daemon status handler returns 200 with running:false on error
+	if w.Code != http.StatusOK {
+		t.Fatalf("status=%d, want 200; body=%s", w.Code, w.Body.String())
+	}
+	var resp map[string]interface{}
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if resp["running"] != false {
+		t.Errorf("running=%v, want false", resp["running"])
+	}
+}
+
+// --- handleBeadsDaemonStart: br installed, temp dir ---
+
+func TestHandleBeadsDaemonStart_BrInstalledBadDir(t *testing.T) {
+	if !bv.IsBdInstalled() {
+		t.Skip("br not installed")
+	}
+	s, _ := setupTestServer(t)
+	s.projectDir = t.TempDir()
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/beads/daemon/start", nil)
+	w := httptest.NewRecorder()
+	s.handleBeadsDaemonStart(w, req)
+
+	// Will fail → 500
+	if w.Code == http.StatusServiceUnavailable {
+		t.Fatal("should not get 503 when br is installed")
+	}
+}
+
+// --- handleBeadsDaemonStop: br installed, temp dir ---
+
+func TestHandleBeadsDaemonStop_BrInstalledBadDir(t *testing.T) {
+	if !bv.IsBdInstalled() {
+		t.Skip("br not installed")
+	}
+	s, _ := setupTestServer(t)
+	s.projectDir = t.TempDir()
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/beads/daemon/stop", nil)
+	w := httptest.NewRecorder()
+	s.handleBeadsDaemonStop(w, req)
+
+	if w.Code == http.StatusServiceUnavailable {
+		t.Fatal("should not get 503 when br is installed")
+	}
+}
+
+// --- handleBeadsSync: br installed, temp dir ---
+
+func TestHandleBeadsSync_BrInstalledBadDir(t *testing.T) {
+	if !bv.IsBdInstalled() {
+		t.Skip("br not installed")
+	}
+	s, _ := setupTestServer(t)
+	s.projectDir = t.TempDir()
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/beads/sync", nil)
+	w := httptest.NewRecorder()
+	s.handleBeadsSync(w, req)
+
+	if w.Code == http.StatusServiceUnavailable {
+		t.Fatal("should not get 503 when br is installed")
+	}
+}
+
+// --- helper: check if cass is installed ---
+
+func cassInstalled() bool {
+	c := cass.NewClient()
+	return c.IsInstalled()
 }
 
