@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/Dicklesworthstone/ntm/internal/process"
 	"github.com/Dicklesworthstone/ntm/internal/tmux"
 )
 
@@ -159,7 +160,7 @@ func hardKillAgent(session string, pane int, seq *RestartSequence) (*HardKillRes
 	result.ShellPID = shellPID
 
 	// Step 2: Get child PID via pgrep
-	childPID, err := getChildPID(shellPID)
+	childPID, err := process.GetChildPID(shellPID)
 	if err != nil {
 		// No child process might mean agent already exited
 		result.KillMethod = "no_child_process"
@@ -212,7 +213,7 @@ func getShellPID(session string, pane int) (int, error) {
 	return 0, newError("pane not found")
 }
 
-// Note: getChildPID is defined in status_enrich.go and reused here
+// Note: getChildPID is now in the shared process package (internal/process)
 
 // killProcess sends SIGKILL (kill -9) to a process.
 func killProcess(pid int) error {

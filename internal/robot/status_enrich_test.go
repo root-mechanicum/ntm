@@ -8,6 +8,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/Dicklesworthstone/ntm/internal/process"
 )
 
 // ====================
@@ -287,22 +289,22 @@ func TestGetProcessState_CurrentProcess(t *testing.T) {
 	pid := os.Getpid()
 	t.Logf("INPUT: pid=%d (current process)", pid)
 
-	state, stateName, err := getProcessState(pid)
+	state, stateName, err := process.GetProcessState(pid)
 
 	t.Logf("OUTPUT: state=%q stateName=%q err=%v", state, stateName, err)
 
 	if err != nil {
-		t.Errorf("getProcessState(self) error = %v", err)
+		t.Errorf("process.GetProcessState(self) error = %v", err)
 	}
 
 	// Current process should be running or sleeping
 	validStates := map[string]bool{"R": true, "S": true}
 	if !validStates[state] {
-		t.Errorf("getProcessState(self) state = %q, want R or S", state)
+		t.Errorf("process.GetProcessState(self) state = %q, want R or S", state)
 	}
 
 	if stateName == "" {
-		t.Error("getProcessState(self) stateName is empty")
+		t.Error("process.GetProcessState(self) stateName is empty")
 	}
 }
 
@@ -315,13 +317,13 @@ func TestGetProcessState_NonExistentProcess(t *testing.T) {
 	pid := 999999999
 	t.Logf("INPUT: pid=%d (non-existent)", pid)
 
-	state, stateName, err := getProcessState(pid)
+	state, stateName, err := process.GetProcessState(pid)
 
 	t.Logf("OUTPUT: state=%q stateName=%q err=%v", state, stateName, err)
 
 	// Should return error for non-existent process
 	if err == nil {
-		t.Errorf("getProcessState(non-existent) expected error, got state=%q", state)
+		t.Errorf("process.GetProcessState(non-existent) expected error, got state=%q", state)
 	}
 }
 
@@ -381,7 +383,7 @@ func TestGetChildPID_NoChildren(t *testing.T) {
 	pid := os.Getpid()
 	t.Logf("INPUT: pid=%d (current process, likely no children)", pid)
 
-	childPID, err := getChildPID(pid)
+	childPID, err := process.GetChildPID(pid)
 
 	t.Logf("OUTPUT: childPID=%d err=%v", childPID, err)
 
@@ -399,12 +401,12 @@ func TestGetChildPID_NonExistentProcess(t *testing.T) {
 	pid := 999999999
 	t.Logf("INPUT: pid=%d (non-existent)", pid)
 
-	childPID, err := getChildPID(pid)
+	childPID, err := process.GetChildPID(pid)
 
 	t.Logf("OUTPUT: childPID=%d err=%v", childPID, err)
 
 	if err == nil && childPID != 0 {
-		t.Errorf("getChildPID(non-existent) expected error or 0, got childPID=%d", childPID)
+		t.Errorf("process.GetChildPID(non-existent) expected error or 0, got childPID=%d", childPID)
 	}
 }
 
