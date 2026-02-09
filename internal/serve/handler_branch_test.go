@@ -13307,5 +13307,287 @@ func TestHandleSafetyInstallV1_HookDirCreateError(t *testing.T) {
 	}
 }
 
+// ---------------------------------------------------------------------------
+// Batch 37: Audit store error branches, AuditMiddleware RBAC/error,
+// safety install default policy write error, uninstall partial remove
+// ---------------------------------------------------------------------------
+
+// TestNewAuditStore_DBPathMkdirAllError exercises the MkdirAll error for DBPath
+// in NewAuditStore (lines 104-106 of audit.go).
+func TestNewAuditStore_DBPathMkdirAllError(t *testing.T) {
+	t.Parallel()
+
+	// Create a file where the directory should be so MkdirAll fails
+	tmpDir := t.TempDir()
+	blocker := filepath.Join(tmpDir, "audit_dir")
+	os.WriteFile(blocker, []byte("not a dir"), 0644)
+
+	_, err := NewAuditStore(AuditStoreConfig{
+		DBPath: filepath.Join(blocker, "sub", "audit.db"),
+	})
+	if err == nil {
+		t.Fatal("expected MkdirAll error for DBPath, got nil")
+	}
+	if !strings.Contains(err.Error(), "create audit db dir") {
+		t.Errorf("expected 'create audit db dir' error, got: %v", err)
+	}
+}
+
+// TestNewAuditStore_JSONLOpenFileError exercises the OpenFile error for JSONL
+// in NewAuditStore (lines 136-141 of audit.go) by using a directory as the JSONL path.
+func TestNewAuditStore_JSONLOpenFileError(t *testing.T) {
+	t.Parallel()
+
+	tmpDir := t.TempDir()
+	// Create JSONL path as a directory so OpenFile fails
+	jsonlDir := filepath.Join(tmpDir, "audit.jsonl")
+	os.MkdirAll(jsonlDir, 0755)
+
+	_, err := NewAuditStore(AuditStoreConfig{
+		JSONLPath: jsonlDir,
+	})
+	if err == nil {
+		t.Fatal("expected OpenFile error for directory-as-JSONL, got nil")
+	}
+	if !strings.Contains(err.Error(), "open audit log") {
+		t.Errorf("expected 'open audit log' error, got: %v", err)
+	}
+}
+
+// TestAuditStore_RecordDBExecError exercises the db.Exec error path
+// in Record (lines 223-225 of audit.go) by using a closed database.
+func TestAuditStore_RecordDBExecError(t *testing.T) {
+	t.Parallel()
+
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "audit_exec.db")
+
+	store, err := NewAuditStore(AuditStoreConfig{
+		DBPath:          dbPath,
+		CleanupInterval: time.Hour,
+	})
+	if err != nil {
+		t.Fatalf("failed to create store: %v", err)
+	}
+
+	// Close the DB to trigger Exec error
+	store.db.Close()
+	defer store.Close()
+
+	rec := &AuditRecord{
+		RequestID:  "req-123",
+		UserID:     "user-1",
+		Role:       RoleAdmin,
+		Action:     "test.action",
+		Resource:   "test.resource",
+		Method:     "POST",
+		Path:       "/api/test",
+		StatusCode: 200,
+		RemoteAddr: "127.0.0.1",
+	}
+
+	err = store.Record(rec)
+	if err == nil {
+		t.Fatal("expected error from Record with closed DB")
+	}
+	if !strings.Contains(err.Error(), "insert audit record") {
+		t.Errorf("expected 'insert audit record' error, got: %v", err)
+	}
+}
+
+// TestAuditMiddleware_WithRBACContext exercises the rc != nil branch
+// in AuditMiddleware (lines 565-568 of audit.go) to extract non-anonymous user.
+func TestAuditMiddleware_WithRBACContext(t *testing.T) {
+	t.Parallel()
+
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "audit_rbac.db")
+
+	store, err := NewAuditStore(AuditStoreConfig{
+		DBPath:          dbPath,
+		CleanupInterval: time.Hour,
+	})
+	if err != nil {
+		t.Fatalf("failed to create store: %v", err)
+	}
+	defer store.Close()
+
+	s, _ := setupTestServer(t)
+	middleware := s.AuditMiddleware(store)
+
+	handler := middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	// Create a POST request with RBAC context
+	req := httptest.NewRequest("POST", "/api/v1/test", nil)
+	ctx := withRoleContext(req.Context(), &RoleContext{
+		Role:   RoleAdmin,
+		UserID: "admin-user-42",
+	})
+	req = req.WithContext(ctx)
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+
+	// Verify the audit record was created with the RBAC user
+	records, err := store.Query(AuditFilter{UserID: "admin-user-42"})
+	if err != nil {
+		t.Fatalf("query failed: %v", err)
+	}
+	if len(records) != 1 {
+		t.Fatalf("expected 1 audit record for admin-user-42, got %d", len(records))
+	}
+	if records[0].Role != RoleAdmin {
+		t.Errorf("expected role=admin, got %v", records[0].Role)
+	}
+}
+
+// TestAuditMiddleware_RecordError exercises the store.Record error log path
+// in AuditMiddleware (lines 595-597 of audit.go) by using a closed-DB store.
+func TestAuditMiddleware_RecordError(t *testing.T) {
+	t.Parallel()
+
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "audit_recerr.db")
+
+	store, err := NewAuditStore(AuditStoreConfig{
+		DBPath:          dbPath,
+		CleanupInterval: time.Hour,
+	})
+	if err != nil {
+		t.Fatalf("failed to create store: %v", err)
+	}
+	// Close DB to make Record fail
+	store.db.Close()
+	defer store.Close()
+
+	s, _ := setupTestServer(t)
+	middleware := s.AuditMiddleware(store)
+
+	handler := middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	// POST request triggers audit (mutating method)
+	req := httptest.NewRequest("POST", "/api/v1/test", nil)
+	rec := httptest.NewRecorder()
+
+	// Should not panic even though Record fails
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 (handler completes despite audit error), got %d", rec.Code)
+	}
+}
+
+// TestHandleSafetyInstallV1_DefaultPolicyWriteError exercises the writeDefaultPolicyFile
+// error in handleSafetyInstallV1 (lines 307-311 of safety.go) by making policy.yaml a directory.
+func TestHandleSafetyInstallV1_DefaultPolicyWriteError(t *testing.T) {
+	tmpHome := t.TempDir()
+	t.Setenv("HOME", tmpHome)
+	s, _ := setupTestServer(t)
+
+	// Pre-create all directories needed for install to succeed up to policy write
+	ntmDir := filepath.Join(tmpHome, ".ntm")
+	binDir := filepath.Join(ntmDir, "bin")
+	logsDir := filepath.Join(ntmDir, "logs")
+	os.MkdirAll(binDir, 0755)
+	os.MkdirAll(logsDir, 0755)
+	hookDir := filepath.Join(tmpHome, ".claude", "hooks", "PreToolUse")
+	os.MkdirAll(hookDir, 0755)
+
+	// Make policy.yaml a directory so writeDefaultPolicyFile fails
+	policyPath := filepath.Join(ntmDir, "policy.yaml")
+	os.MkdirAll(policyPath, 0755)
+
+	body := `{"force":true}`
+	req := httptest.NewRequest("POST", "/api/v1/safety/install", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	s.handleSafetyInstallV1(rec, req)
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500 for policy write error, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+// TestHandleSafetyUninstallV1_OnlyRmWrapper exercises the wrapper loop
+// in handleSafetyUninstallV1 where only the rm wrapper exists (not git).
+func TestHandleSafetyUninstallV1_OnlyRmWrapper(t *testing.T) {
+	tmpHome := t.TempDir()
+	t.Setenv("HOME", tmpHome)
+	s, _ := setupTestServer(t)
+
+	// Create only rm wrapper (no git wrapper)
+	binDir := filepath.Join(tmpHome, ".ntm", "bin")
+	os.MkdirAll(binDir, 0755)
+	os.WriteFile(filepath.Join(binDir, "rm"), []byte("#!/bin/sh\n"), 0755)
+
+	req := httptest.NewRequest("POST", "/api/v1/safety/uninstall", nil)
+	rec := httptest.NewRecorder()
+	s.handleSafetyUninstallV1(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var resp map[string]interface{}
+	json.Unmarshal(rec.Body.Bytes(), &resp)
+	removed, _ := resp["removed"].([]interface{})
+	if len(removed) != 1 {
+		t.Errorf("expected 1 removed (rm only), got %d", len(removed))
+	}
+}
+
+// TestHandleSafetyInstallV1_RmWrapperConflictAfterGit exercises the rm wrapper
+// conflict error after git wrapper installs successfully (lines 285-287 of safety.go).
+func TestHandleSafetyInstallV1_RmWrapperConflictAfterGit(t *testing.T) {
+	tmpHome := t.TempDir()
+	t.Setenv("HOME", tmpHome)
+	s, _ := setupTestServer(t)
+
+	// Pre-create rm wrapper (but not git) → git installs OK, rm conflicts
+	binDir := filepath.Join(tmpHome, ".ntm", "bin")
+	os.MkdirAll(binDir, 0755)
+	os.WriteFile(filepath.Join(binDir, "rm"), []byte("existing-wrapper"), 0755)
+
+	req := httptest.NewRequest("POST", "/api/v1/safety/install", nil)
+	rec := httptest.NewRecorder()
+	s.handleSafetyInstallV1(rec, req)
+
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("expected 409 for rm wrapper conflict, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+// TestNewAuditStore_JSONLMkdirAllErrorClosesDB exercises the combined DB+JSONL init path
+// where the JSONL MkdirAll error closes the already-opened DB (lines 131-133).
+func TestNewAuditStore_JSONLMkdirAllErrorClosesDB(t *testing.T) {
+	t.Parallel()
+
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "audit_combo.db")
+
+	// Create a file to block the JSONL directory creation
+	blocker := filepath.Join(tmpDir, "jsonl_blocker")
+	os.WriteFile(blocker, []byte("not a dir"), 0644)
+
+	_, err := NewAuditStore(AuditStoreConfig{
+		DBPath:    dbPath,
+		JSONLPath: filepath.Join(blocker, "sub", "audit.jsonl"),
+	})
+	if err == nil {
+		t.Fatal("expected JSONL MkdirAll error, got nil")
+	}
+	if !strings.Contains(err.Error(), "create audit log dir") {
+		t.Errorf("expected 'create audit log dir' error, got: %v", err)
+	}
+}
+
 // Ensure kernel import is used
 var _ = kernel.Run
