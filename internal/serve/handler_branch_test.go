@@ -3,6 +3,7 @@ package serve
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -12,6 +13,7 @@ import (
 	"time"
 
 	"github.com/Dicklesworthstone/ntm/internal/events"
+	"github.com/Dicklesworthstone/ntm/internal/scanner"
 	"github.com/go-chi/chi/v5"
 )
 
@@ -3493,5 +3495,337 @@ func TestNewWSEventStore_ZeroConfig(t *testing.T) {
 	}
 	if store.retentionSecs != 3600 {
 		t.Errorf("retentionSecs = %d, want 3600", store.retentionSecs)
+	}
+}
+
+// =============================================================================
+// BATCH 8: scanner handler branches, memory daemon, audit store, publish events
+// =============================================================================
+
+// --- Scanner handler branches ---
+
+func TestHandleListFindings_IncludeDismissedAndPagination(t *testing.T) {
+	resetScannerStoreForTest()
+	addTestFinding("scan-a", "finding-pg1", scanner.SeverityWarning, "main.go", "security", false, "")
+	addTestFinding("scan-a", "finding-pg2", scanner.SeverityCritical, "other.go", "perf", true, "")
+	addTestFinding("scan-a", "finding-pg3", scanner.SeverityInfo, "util.go", "style", false, "")
+
+	srv, _ := setupTestServer(t)
+
+	// Test include_dismissed=true with limit and offset
+	req := httptest.NewRequest(http.MethodGet,
+		"/api/v1/scanner/findings?include_dismissed=true&limit=2&offset=0", nil)
+	rec := httptest.NewRecorder()
+	srv.handleListFindings(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d, want 200", rec.Code)
+	}
+	var resp map[string]interface{}
+	json.NewDecoder(rec.Body).Decode(&resp)
+	count := int(resp["count"].(float64))
+	if count != 2 {
+		t.Errorf("count=%d, want 2 (limit=2 from 3 findings)", count)
+	}
+	if int(resp["offset"].(float64)) != 0 {
+		t.Errorf("offset=%v, want 0", resp["offset"])
+	}
+
+	// Test with offset past all findings
+	req2 := httptest.NewRequest(http.MethodGet,
+		"/api/v1/scanner/findings?include_dismissed=true&limit=10&offset=100", nil)
+	rec2 := httptest.NewRecorder()
+	srv.handleListFindings(rec2, req2)
+	var resp2 map[string]interface{}
+	json.NewDecoder(rec2.Body).Decode(&resp2)
+	if int(resp2["count"].(float64)) != 0 {
+		t.Errorf("count=%v, want 0 for offset past end", resp2["count"])
+	}
+}
+
+func TestHandleListBugs_OffsetPastTotal(t *testing.T) {
+	resetScannerStoreForTest()
+	addTestFinding("scan-1", "finding-bugs-1", scanner.SeverityWarning, "main.go", "security", false, "")
+
+	srv, _ := setupTestServer(t)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/bugs?offset=100", nil)
+	rec := httptest.NewRecorder()
+	srv.handleListBugs(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d, want 200", rec.Code)
+	}
+	var resp map[string]interface{}
+	json.NewDecoder(rec.Body).Decode(&resp)
+	if int(resp["count"].(float64)) != 0 {
+		t.Errorf("count=%v, want 0 for offset past total", resp["count"])
+	}
+}
+
+func TestHandleListBugs_CategoryFilter(t *testing.T) {
+	resetScannerStoreForTest()
+	addTestFinding("scan-1", "finding-cat1", scanner.SeverityWarning, "main.go", "security", false, "")
+	addTestFinding("scan-1", "finding-cat2", scanner.SeverityCritical, "main.go", "performance", false, "")
+	addTestFinding("scan-1", "finding-cat3", scanner.SeverityInfo, "main.go", "style", false, "")
+
+	srv, _ := setupTestServer(t)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/bugs?category=performance", nil)
+	rec := httptest.NewRecorder()
+	srv.handleListBugs(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d, want 200", rec.Code)
+	}
+	var resp map[string]interface{}
+	json.NewDecoder(rec.Body).Decode(&resp)
+	if int(resp["count"].(float64)) != 1 {
+		t.Errorf("count=%v, want 1 for category=performance", resp["count"])
+	}
+}
+
+func TestHandleListBugs_LimitPagination(t *testing.T) {
+	resetScannerStoreForTest()
+	for i := 0; i < 5; i++ {
+		addTestFinding("scan-1", fmt.Sprintf("finding-lim%d", i),
+			scanner.SeverityWarning, "main.go", "security", false, "")
+	}
+
+	srv, _ := setupTestServer(t)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/bugs?limit=2&offset=1", nil)
+	rec := httptest.NewRecorder()
+	srv.handleListBugs(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d, want 200", rec.Code)
+	}
+	var resp map[string]interface{}
+	json.NewDecoder(rec.Body).Decode(&resp)
+	if int(resp["count"].(float64)) != 2 {
+		t.Errorf("count=%v, want 2 (limit=2, offset=1)", resp["count"])
+	}
+	if int(resp["total"].(float64)) != 5 {
+		t.Errorf("total=%v, want 5", resp["total"])
+	}
+}
+
+func TestHandleScannerHistory_LimitCapped(t *testing.T) {
+	resetScannerStoreForTest()
+	addTestScan("scan-cap1", ScanStateCompleted)
+
+	srv, _ := setupTestServer(t)
+	// limit > 1000 should be capped
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/scanner/history?limit=9999", nil)
+	rec := httptest.NewRecorder()
+	srv.handleScannerHistory(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d, want 200", rec.Code)
+	}
+	var resp map[string]interface{}
+	json.NewDecoder(rec.Body).Decode(&resp)
+	if int(resp["limit"].(float64)) != 1000 {
+		t.Errorf("limit=%v, want 1000 (capped)", resp["limit"])
+	}
+}
+
+func TestHandleListFindings_LimitCapped(t *testing.T) {
+	resetScannerStoreForTest()
+
+	srv, _ := setupTestServer(t)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/scanner/findings?limit=9999", nil)
+	rec := httptest.NewRecorder()
+	srv.handleListFindings(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d, want 200", rec.Code)
+	}
+	var resp map[string]interface{}
+	json.NewDecoder(rec.Body).Decode(&resp)
+	if int(resp["limit"].(float64)) != 1000 {
+		t.Errorf("limit=%v, want 1000 (capped)", resp["limit"])
+	}
+}
+
+func TestHandleDismissFinding_NoRBACContext(t *testing.T) {
+	resetScannerStoreForTest()
+	addTestFinding("scan-1", "finding-norbac", scanner.SeverityWarning, "main.go", "security", false, "")
+
+	srv, _ := setupTestServer(t)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/scanner/findings/finding-norbac/dismiss", nil)
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("id", "finding-norbac")
+	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
+	// Intentionally no RBAC context
+	rec := httptest.NewRecorder()
+
+	srv.handleDismissFinding(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d, want 200", rec.Code)
+	}
+
+	finding, _ := scannerStore.GetFinding("finding-norbac")
+	if finding.DismissedBy != "unknown" {
+		t.Errorf("DismissedBy=%q, want 'unknown' when no RBAC context", finding.DismissedBy)
+	}
+}
+
+func TestHandleDismissFinding_NotFoundBranch(t *testing.T) {
+	resetScannerStoreForTest()
+	srv, _ := setupTestServer(t)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/scanner/findings/ghost/dismiss", nil)
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("id", "ghost")
+	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
+	rec := httptest.NewRecorder()
+
+	srv.handleDismissFinding(rec, req)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status=%d, want 404", rec.Code)
+	}
+}
+
+func TestHandleCreateBeadFromFinding_NotFound(t *testing.T) {
+	resetScannerStoreForTest()
+	srv, _ := setupTestServer(t)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/scanner/findings/ghost/create-bead", nil)
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("id", "ghost")
+	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
+	rec := httptest.NewRecorder()
+
+	srv.handleCreateBeadFromFinding(rec, req)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status=%d, want 404", rec.Code)
+	}
+}
+
+func TestPublishScannerEvent_NilHub(t *testing.T) {
+	t.Parallel()
+	srv := &Server{} // no wsHub
+	// Should not panic
+	srv.publishScannerEvent("test.event", map[string]interface{}{"key": "val"})
+}
+
+// --- Memory daemon start/stop deeper branches ---
+
+func TestHandleMemoryDaemonStart_CMNotInstalled(t *testing.T) {
+	srv := New(Config{})
+	srv.projectDir = t.TempDir()
+
+	// Ensure cm is not in PATH by using a temp empty dir
+	t.Setenv("PATH", t.TempDir())
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/memory/daemon/start", nil)
+	srv.handleMemoryDaemonStart(rec, req)
+
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status=%d, want 503; body: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestHandleMemoryDaemonStop_RunningDaemon(t *testing.T) {
+	t.Parallel()
+	tmpDir := t.TempDir()
+	pidsDir := filepath.Join(tmpDir, ".ntm", "pids")
+	os.MkdirAll(pidsDir, 0o755)
+
+	// Write a valid-looking PID file with a non-existent PID (Signal will silently fail)
+	pidInfo := map[string]interface{}{
+		"pid":        999999999,
+		"port":       8200,
+		"session_id": "test-session",
+		"started_at": time.Now().Format(time.RFC3339),
+	}
+	data, _ := json.Marshal(pidInfo)
+	os.WriteFile(filepath.Join(pidsDir, "cm-test-session.pid"), data, 0o644)
+
+	srv := New(Config{})
+	srv.projectDir = tmpDir
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/memory/daemon/stop", nil)
+	srv.handleMemoryDaemonStop(rec, req)
+
+	// Should succeed (200) — the daemon appears running due to our PID file
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d, want 200; body: %s", rec.Code, rec.Body.String())
+	}
+}
+
+// --- Memory context CLI fallback branch ---
+
+func TestHandleMemoryContext_CLINotInstalled(t *testing.T) {
+	srv := New(Config{})
+	srv.projectDir = t.TempDir()
+
+	// Ensure cm is not in PATH
+	t.Setenv("PATH", t.TempDir())
+
+	body := `{"task":"test task"}`
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/memory/context", strings.NewReader(body))
+	srv.handleMemoryContext(rec, req)
+
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status=%d, want 503; body: %s", rec.Code, rec.Body.String())
+	}
+}
+
+// --- Memory rules CLI not installed ---
+
+func TestHandleMemoryRules_CLINotInstalled(t *testing.T) {
+	srv := New(Config{})
+	srv.projectDir = t.TempDir()
+
+	// Ensure cm is not in PATH
+	t.Setenv("PATH", t.TempDir())
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/memory/rules", nil)
+	srv.handleMemoryRules(rec, req)
+
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status=%d, want 503; body: %s", rec.Code, rec.Body.String())
+	}
+}
+
+// --- Audit store config defaults ---
+
+func TestNewAuditStore_DefaultRetention(t *testing.T) {
+	t.Parallel()
+	tmpDir := t.TempDir()
+
+	store, err := NewAuditStore(AuditStoreConfig{
+		DBPath:    filepath.Join(tmpDir, "audit.db"),
+		JSONLPath: filepath.Join(tmpDir, "audit.jsonl"),
+		Retention: 0, // zero → should apply default
+	})
+	if err != nil {
+		t.Fatalf("NewAuditStore: %v", err)
+	}
+	defer store.Close()
+
+	if store.retention != 90*24*time.Hour {
+		t.Errorf("retention = %v, want 90 days", store.retention)
+	}
+}
+
+func TestNewAuditStore_NoPaths(t *testing.T) {
+	t.Parallel()
+	// No DBPath or JSONLPath → minimal store
+	store, err := NewAuditStore(AuditStoreConfig{
+		Retention:       time.Hour,
+		CleanupInterval: time.Hour,
+	})
+	if err != nil {
+		t.Fatalf("NewAuditStore: %v", err)
+	}
+	defer store.Close()
+
+	if store.db != nil {
+		t.Error("expected nil db with empty DBPath")
 	}
 }
