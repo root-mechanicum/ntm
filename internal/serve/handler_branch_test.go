@@ -19,14 +19,18 @@ import (
 	"testing"
 	"time"
 
+	"database/sql"
+
 	"github.com/Dicklesworthstone/ntm/internal/bv"
 	"github.com/Dicklesworthstone/ntm/internal/cass"
 	"github.com/Dicklesworthstone/ntm/internal/events"
 	"github.com/Dicklesworthstone/ntm/internal/kernel"
+	"github.com/Dicklesworthstone/ntm/internal/redaction"
 	"github.com/Dicklesworthstone/ntm/internal/robot"
 	"github.com/Dicklesworthstone/ntm/internal/scanner"
 	"github.com/Dicklesworthstone/ntm/internal/tools"
 	"github.com/go-chi/chi/v5"
+	_ "github.com/mattn/go-sqlite3"
 )
 
 // =============================================================================
@@ -10662,6 +10666,369 @@ func TestHandleExportCheckpoint_GetWithRedactSecrets(t *testing.T) {
 	// Should succeed or fail on export but exercise the query param parsing
 	if rec.Code != http.StatusOK && rec.Code != http.StatusInternalServerError {
 		t.Fatalf("expected 200 or 500, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+// =============================================================================
+// Batch 28: broadcastEvent buffer-full, audit record/close both paths,
+//           SSE no-flusher, RedactJSON ModeOff, import tar.gz, audit JSONL error
+// =============================================================================
+
+// --- broadcastEvent: client buffer full → default case ---
+
+func TestBroadcastEvent_BufferFull(t *testing.T) {
+	s, _ := setupTestServer(t)
+
+	// Create a channel with buffer size 1
+	ch := make(chan events.BusEvent, 1)
+	s.addSSEClient(ch)
+	defer s.removeSSEClient(ch)
+
+	// Fill the buffer
+	s.broadcastEvent(testSSEEvent{
+		eventType: "fill.event",
+		session:   "test",
+		timestamp: time.Now(),
+	})
+
+	// Second broadcast should hit the default (buffer full, skip) case
+	s.broadcastEvent(testSSEEvent{
+		eventType: "overflow.event",
+		session:   "test",
+		timestamp: time.Now(),
+	})
+
+	// Drain the channel — should only get the first event
+	select {
+	case ev := <-ch:
+		if ev.EventType() != "fill.event" {
+			t.Fatalf("expected fill.event, got %s", ev.EventType())
+		}
+	default:
+		t.Fatal("expected at least one event in channel")
+	}
+
+	// Channel should now be empty (overflow was dropped)
+	select {
+	case ev := <-ch:
+		t.Fatalf("expected empty channel, got event: %s", ev.EventType())
+	default:
+		// expected — overflow was dropped
+	}
+}
+
+// --- handleEventStream: writer without Flusher interface ---
+
+type noFlushWriter struct {
+	code int
+	hdr  http.Header
+	body bytes.Buffer
+}
+
+func (w *noFlushWriter) Header() http.Header {
+	if w.hdr == nil {
+		w.hdr = make(http.Header)
+	}
+	return w.hdr
+}
+func (w *noFlushWriter) WriteHeader(code int) { w.code = code }
+func (w *noFlushWriter) Write(b []byte) (int, error) {
+	return w.body.Write(b)
+}
+
+func TestHandleEventStream_NoFlusher(t *testing.T) {
+	s, _ := setupTestServer(t)
+
+	req := httptest.NewRequest("GET", "/events", nil)
+	w := &noFlushWriter{}
+
+	s.handleEventStream(w, req)
+
+	if w.code != http.StatusInternalServerError {
+		t.Fatalf("expected 500 for no-flusher, got %d", w.code)
+	}
+}
+
+// --- RedactJSON: ModeOff early return ---
+
+func TestRedactJSON_ModeOff(t *testing.T) {
+	t.Parallel()
+
+	cfg := redaction.Config{Mode: redaction.ModeOff}
+	input := map[string]interface{}{
+		"secret":   "password123",
+		"api_key":  "sk-test-abc",
+		"harmless": "hello",
+	}
+
+	result, findings := RedactJSON(input, cfg)
+	if findings != 0 {
+		t.Fatalf("expected 0 findings in ModeOff, got %d", findings)
+	}
+
+	// Result should be unchanged (same reference)
+	resultMap, ok := result.(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected map result, got %T", result)
+	}
+	if resultMap["secret"] != "password123" {
+		t.Fatalf("expected secret unchanged, got %v", resultMap["secret"])
+	}
+}
+
+// --- AuditStore: Record with both DB and JSONL active ---
+
+func TestAuditStore_RecordBothDBAndJSONL(t *testing.T) {
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "audit.db")
+	jsonlPath := filepath.Join(tmpDir, "audit.jsonl")
+
+	store, err := NewAuditStore(AuditStoreConfig{
+		DBPath:    dbPath,
+		JSONLPath: jsonlPath,
+	})
+	if err != nil {
+		t.Fatalf("failed to create audit store: %v", err)
+	}
+	defer store.Close()
+
+	rec := &AuditRecord{
+		RequestID:  "req-both-1",
+		UserID:     "test-user",
+		Role:       RoleAdmin,
+		Action:     AuditActionCreate,
+		Resource:   "session",
+		Method:     "POST",
+		Path:       "/api/v1/sessions",
+		StatusCode: 200,
+		Duration:   42,
+		RemoteAddr: "127.0.0.1",
+	}
+
+	if err := store.Record(rec); err != nil {
+		t.Fatalf("Record failed: %v", err)
+	}
+
+	// Verify JSONL file was written
+	jsonlData, err := os.ReadFile(jsonlPath)
+	if err != nil {
+		t.Fatalf("failed to read JSONL: %v", err)
+	}
+	if !strings.Contains(string(jsonlData), "req-both-1") {
+		t.Fatalf("JSONL missing request_id, got: %s", string(jsonlData))
+	}
+
+	// Verify DB was written
+	records, err := store.Query(AuditFilter{Limit: 10})
+	if err != nil {
+		t.Fatalf("Query failed: %v", err)
+	}
+	if len(records) != 1 {
+		t.Fatalf("expected 1 record in DB, got %d", len(records))
+	}
+}
+
+// --- AuditStore: Close with both DB and JSONL ---
+
+func TestAuditStore_CloseBothDBAndJSONL(t *testing.T) {
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "audit_close.db")
+	jsonlPath := filepath.Join(tmpDir, "audit_close.jsonl")
+
+	store, err := NewAuditStore(AuditStoreConfig{
+		DBPath:    dbPath,
+		JSONLPath: jsonlPath,
+	})
+	if err != nil {
+		t.Fatalf("failed to create audit store: %v", err)
+	}
+
+	if err := store.Close(); err != nil {
+		t.Fatalf("Close failed: %v", err)
+	}
+}
+
+// --- NewAuditStore: unwritable JSONL dir (error branch) ---
+
+func TestNewAuditStore_UnwritableJSONLDir(t *testing.T) {
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "audit_uw.db")
+
+	// Use /proc/1/audit.jsonl as unwritable path (Linux)
+	jsonlPath := "/proc/1/audit.jsonl"
+
+	_, err := NewAuditStore(AuditStoreConfig{
+		DBPath:    dbPath,
+		JSONLPath: jsonlPath,
+	})
+	if err == nil {
+		t.Fatal("expected error for unwritable JSONL path, got nil")
+	}
+}
+
+// --- WSEventStore: cleanup direct invocation with old events ---
+
+func TestWSEventStore_CleanupRemovesExpired(t *testing.T) {
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "ws_cleanup.db")
+
+	db, err := sql.Open("sqlite3", dbPath+"?_journal=WAL")
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer db.Close()
+
+	// Create schema
+	db.Exec(`CREATE TABLE IF NOT EXISTS ws_events (
+		seq INTEGER PRIMARY KEY,
+		topic TEXT NOT NULL,
+		event_type TEXT NOT NULL,
+		data TEXT NOT NULL,
+		created_at DATETIME NOT NULL
+	)`)
+	db.Exec(`CREATE TABLE IF NOT EXISTS ws_dropped_events (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		client_id TEXT NOT NULL,
+		topic TEXT NOT NULL,
+		dropped_count INTEGER NOT NULL,
+		first_dropped_seq INTEGER,
+		last_dropped_seq INTEGER,
+		reason TEXT NOT NULL,
+		created_at DATETIME NOT NULL
+	)`)
+
+	// Insert an old event (2 hours ago)
+	oldTime := time.Now().Add(-2 * time.Hour)
+	db.Exec("INSERT INTO ws_events (seq, topic, event_type, data, created_at) VALUES (1, 'test', 'old', '{}', ?)", oldTime)
+
+	// Insert a recent event
+	db.Exec("INSERT INTO ws_events (seq, topic, event_type, data, created_at) VALUES (2, 'test', 'new', '{}', ?)", time.Now())
+
+	// Insert an old dropped event (25 hours ago)
+	db.Exec("INSERT INTO ws_dropped_events (client_id, topic, dropped_count, reason, created_at) VALUES ('c1', 'test', 5, 'buffer_full', ?)", time.Now().Add(-25*time.Hour))
+
+	store := NewWSEventStore(db, WSEventStoreConfig{
+		BufferSize:       100,
+		RetentionSeconds: 3600, // 1 hour retention
+		CleanupInterval:  time.Hour,
+	})
+	defer store.Stop()
+
+	// Directly invoke cleanup
+	err = store.cleanup()
+	if err != nil {
+		t.Fatalf("cleanup error: %v", err)
+	}
+
+	// Verify old event was removed
+	var count int
+	db.QueryRow("SELECT COUNT(*) FROM ws_events").Scan(&count)
+	if count != 1 {
+		t.Fatalf("expected 1 event after cleanup, got %d", count)
+	}
+
+	// Verify old dropped event was removed
+	db.QueryRow("SELECT COUNT(*) FROM ws_dropped_events").Scan(&count)
+	if count != 0 {
+		t.Fatalf("expected 0 dropped events after cleanup, got %d", count)
+	}
+}
+
+// --- handleImportCheckpoint: tar.gz magic bytes detection ---
+
+func TestHandleImportCheckpoint_TarGzMagic(t *testing.T) {
+	s, _ := setupTestServer(t)
+
+	tmpHome := t.TempDir()
+	t.Setenv("HOME", tmpHome)
+
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("sessionName", "imp-tgz")
+
+	// gzip magic bytes (1f 8b) followed by garbage
+	gzipLike := append([]byte{0x1f, 0x8b, 0x08, 0x00}, []byte("not a real gzip stream but has magic bytes")...)
+	data := base64.StdEncoding.EncodeToString(gzipLike)
+	body := fmt.Sprintf(`{"data":"%s"}`, data)
+	req := httptest.NewRequest("POST", "/api/v1/sessions/imp-tgz/checkpoints/import", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
+	rec := httptest.NewRecorder()
+
+	s.handleImportCheckpoint(rec, req)
+
+	// Should fail during tar.gz parsing
+	if rec.Code != http.StatusBadRequest && rec.Code != http.StatusInternalServerError {
+		t.Fatalf("expected error, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+// --- handleRollback: fake checkpoint with git state but restore fails ---
+
+func TestHandleRollback_FakeGitCheckpointNoGit(t *testing.T) {
+	s, _ := setupTestServer(t)
+
+	tmpHome := t.TempDir()
+	t.Setenv("HOME", tmpHome)
+
+	// Create fake checkpoint with git state
+	cpDir := filepath.Join(tmpHome, ".local", "share", "ntm", "checkpoints", "rb-git", "cp-git")
+	os.MkdirAll(cpDir, 0755)
+	metadata := `{"version":1,"id":"cp-git","name":"git-test","session_name":"rb-git","working_dir":"/tmp","created_at":"2025-01-01T00:00:00Z","pane_count":1,"git":{"commit":"abc12345def67890abc12345def67890abc12345","branch":"main","is_dirty":false}}`
+	os.WriteFile(filepath.Join(cpDir, "metadata.json"), []byte(metadata), 0644)
+
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("sessionName", "rb-git")
+
+	// Request non-dry-run rollback (will fail at git checkout since /tmp is not a git repo)
+	body := `{"checkpoint_ref":"cp-git","dry_run":false,"no_stash":true}`
+	req := httptest.NewRequest("POST", "/api/v1/sessions/rb-git/rollback", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
+	rec := httptest.NewRecorder()
+
+	s.handleRollback(rec, req)
+
+	// Should fail at git checkout (not a git repo)
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500 for git checkout in non-git dir, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+// --- handleRollback: fake checkpoint with git state, dry_run=true, no_stash=false, dirty ---
+
+func TestHandleRollback_DryRunDirtyNoStash(t *testing.T) {
+	s, _ := setupTestServer(t)
+
+	tmpHome := t.TempDir()
+	t.Setenv("HOME", tmpHome)
+
+	cpDir := filepath.Join(tmpHome, ".local", "share", "ntm", "checkpoints", "rb-dns", "cp-dns")
+	os.MkdirAll(cpDir, 0755)
+	metadata := `{"version":1,"id":"cp-dns","name":"dns-test","session_name":"rb-dns","working_dir":"/tmp","created_at":"2025-01-01T00:00:00Z","pane_count":1,"git":{"commit":"abc12345def67890abc12345def67890abc12345","branch":"main","is_dirty":true}}`
+	os.WriteFile(filepath.Join(cpDir, "metadata.json"), []byte(metadata), 0644)
+
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("sessionName", "rb-dns")
+
+	// dry_run=true, no_git=false, no_stash=false → exercises "would stash" warning branch
+	body := `{"checkpoint_ref":"cp-dns","dry_run":true,"no_git":false,"no_stash":false}`
+	req := httptest.NewRequest("POST", "/api/v1/sessions/rb-dns/rollback", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
+	rec := httptest.NewRecorder()
+
+	s.handleRollback(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 for dry_run, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	bodyStr := rec.Body.String()
+	if !strings.Contains(bodyStr, "would rollback") {
+		t.Fatalf("expected rollback warning, got: %s", bodyStr)
+	}
+	if !strings.Contains(bodyStr, "would stash") {
+		t.Fatalf("expected stash warning, got: %s", bodyStr)
 	}
 }
 
