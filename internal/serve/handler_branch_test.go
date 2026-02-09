@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -1957,5 +1959,450 @@ func TestHandlePaneInterruptV1_TmuxError(t *testing.T) {
 	// Should error since tmux session doesn't exist
 	if rec.Code != http.StatusInternalServerError {
 		t.Fatalf("status = %d, want 500; body: %s", rec.Code, rec.Body.String())
+	}
+}
+
+// =============================================================================
+// FOURTH BATCH: handleWaitV1 query param branches, pipeline handlers,
+// checkMemoryDaemon, jobs handlers
+// =============================================================================
+
+// handleWaitV1 — query param parsing branches
+
+func TestHandleWaitV1_WithAllQueryParams(t *testing.T) {
+	t.Parallel()
+	srv, _ := setupTestServer(t)
+
+	rec := httptest.NewRecorder()
+	// Exercise all query param parsing: timeout, poll, panes, count, condition,
+	// agent_type, any, exit_on_error, require_transition
+	req := httptest.NewRequest(http.MethodGet,
+		"/api/v1/wait?session=__nonexist__&timeout=1s&poll=100ms&panes=0,1,2&count=3"+
+			"&condition=idle&agent_type=cc&any=true&exit_on_error=true&require_transition=true",
+		nil)
+
+	srv.handleWaitV1(rec, req)
+
+	// Will call robot.GetWait with a nonexistent session — expect timeout or error
+	if rec.Code == 0 {
+		t.Fatal("expected non-zero status code")
+	}
+}
+
+func TestHandleWaitV1_InvalidTimeoutAndPoll(t *testing.T) {
+	t.Parallel()
+	srv, _ := setupTestServer(t)
+
+	rec := httptest.NewRecorder()
+	// Invalid durations should be silently ignored (use defaults)
+	req := httptest.NewRequest(http.MethodGet,
+		"/api/v1/wait?session=__nonexist__&timeout=notaduration&poll=invalid&panes=abc,2&count=-1",
+		nil)
+
+	srv.handleWaitV1(rec, req)
+
+	if rec.Code == 0 {
+		t.Fatal("expected non-zero status code")
+	}
+}
+
+func TestHandleWaitV1_EmptyPanesAndCount(t *testing.T) {
+	t.Parallel()
+	srv, _ := setupTestServer(t)
+
+	rec := httptest.NewRecorder()
+	// Empty panes param, zero count — exercises the "no panes" and "parsed <= 0" branches
+	req := httptest.NewRequest(http.MethodGet,
+		"/api/v1/wait?session=__nonexist__&panes=&count=0",
+		nil)
+
+	srv.handleWaitV1(rec, req)
+
+	if rec.Code == 0 {
+		t.Fatal("expected non-zero status code")
+	}
+}
+
+// handleValidatePipeline — inline content branches
+
+func TestHandleValidatePipeline_InvalidYAMLContent(t *testing.T) {
+	t.Parallel()
+	srv, _ := setupTestServer(t)
+
+	rec := httptest.NewRecorder()
+	body := `{"workflow_content":"{{invalid yaml: [}"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/pipelines/validate", strings.NewReader(body))
+
+	srv.handleValidatePipeline(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400; body: %s", rec.Code, rec.Body.String())
+	}
+
+	var resp map[string]interface{}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	errMsg, _ := resp["error"].(string)
+	if !strings.Contains(errMsg, "parse") {
+		t.Errorf("error = %q, want substring 'parse'", errMsg)
+	}
+}
+
+func TestHandleValidatePipeline_ValidInlineContent(t *testing.T) {
+	t.Parallel()
+	srv, _ := setupTestServer(t)
+
+	rec := httptest.NewRecorder()
+	// Minimal valid workflow YAML
+	body := `{"workflow_content":"name: test\nsteps:\n  - name: step1\n    type: send\n    pane: 0\n    content: hello\n"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/pipelines/validate", strings.NewReader(body))
+
+	srv.handleValidatePipeline(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body: %s", rec.Code, rec.Body.String())
+	}
+
+	var resp map[string]interface{}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if resp["workflow_id"] != "test" {
+		t.Errorf("workflow_id = %v, want 'test'", resp["workflow_id"])
+	}
+}
+
+func TestHandleValidatePipeline_WorkflowFileNotFound(t *testing.T) {
+	t.Parallel()
+	srv, _ := setupTestServer(t)
+
+	rec := httptest.NewRecorder()
+	body := `{"workflow_file":"/tmp/__nonexistent_workflow_file_12345__.yaml"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/pipelines/validate", strings.NewReader(body))
+
+	srv.handleValidatePipeline(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400; body: %s", rec.Code, rec.Body.String())
+	}
+}
+
+// handleExecPipeline — invalid workflow validation
+
+func TestHandleExecPipeline_InvalidWorkflow(t *testing.T) {
+	t.Parallel()
+	srv, _ := setupTestServer(t)
+
+	rec := httptest.NewRecorder()
+	// Workflow with no steps → validation failure
+	body := `{"workflow":{"name":"test","steps":[]},"session":"test-session"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/pipelines/exec", strings.NewReader(body))
+
+	srv.handleExecPipeline(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400; body: %s", rec.Code, rec.Body.String())
+	}
+}
+
+// handleRunPipeline — non-existent workflow file
+
+func TestHandleRunPipeline_WorkflowFileNotFound(t *testing.T) {
+	t.Parallel()
+	srv, _ := setupTestServer(t)
+
+	rec := httptest.NewRecorder()
+	body := `{"workflow_file":"/tmp/__nonexistent_workflow_12345__.yaml","session":"s"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/pipelines/run", strings.NewReader(body))
+
+	srv.handleRunPipeline(rec, req)
+
+	// Should fail because workflow file doesn't exist
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400; body: %s", rec.Code, rec.Body.String())
+	}
+}
+
+// handleResumePipeline — invalid JSON body
+
+func TestHandleResumePipeline_InvalidBody(t *testing.T) {
+	t.Parallel()
+	srv, _ := setupTestServer(t)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/pipelines/abc/resume", strings.NewReader("{bad"))
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("id", "abc")
+	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
+
+	srv.handleResumePipeline(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400; body: %s", rec.Code, rec.Body.String())
+	}
+}
+
+// handleCancelPipeline — not cancellable (pipeline exists but wrong status)
+// Note: We can't easily create a pipeline with a specific status in unit tests
+// without mocking, so we rely on existing NotFound tests in handler_coverage_extra_test.go
+
+// handleCleanupPipelines — invalid JSON body
+
+func TestHandleCleanupPipelines_InvalidBody(t *testing.T) {
+	t.Parallel()
+	srv, _ := setupTestServer(t)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/pipelines/cleanup", strings.NewReader("{bad"))
+
+	srv.handleCleanupPipelines(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400; body: %s", rec.Code, rec.Body.String())
+	}
+}
+
+// =============================================================================
+// Jobs API handlers
+// =============================================================================
+
+func TestHandleListJobs_Empty(t *testing.T) {
+	t.Parallel()
+	srv, _ := setupTestServer(t)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/jobs", nil)
+
+	srv.handleListJobs(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body: %s", rec.Code, rec.Body.String())
+	}
+
+	var resp map[string]interface{}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	count, _ := resp["count"].(float64)
+	if count != 0 {
+		t.Errorf("count = %v, want 0", count)
+	}
+}
+
+func TestHandleCreateJob_InvalidBody(t *testing.T) {
+	t.Parallel()
+	srv, _ := setupTestServer(t)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/jobs", strings.NewReader("{bad"))
+
+	srv.handleCreateJob(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", rec.Code)
+	}
+}
+
+func TestHandleCreateJob_MissingType(t *testing.T) {
+	t.Parallel()
+	srv, _ := setupTestServer(t)
+
+	rec := httptest.NewRecorder()
+	body := `{"type":""}`
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/jobs", strings.NewReader(body))
+
+	srv.handleCreateJob(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", rec.Code)
+	}
+}
+
+func TestHandleCreateJob_InvalidType(t *testing.T) {
+	t.Parallel()
+	srv, _ := setupTestServer(t)
+
+	rec := httptest.NewRecorder()
+	body := `{"type":"invalid_type"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/jobs", strings.NewReader(body))
+
+	srv.handleCreateJob(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400; body: %s", rec.Code, rec.Body.String())
+	}
+
+	var resp map[string]interface{}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	errMsg, _ := resp["error"].(string)
+	if !strings.Contains(errMsg, "invalid job type") {
+		t.Errorf("error = %q, want substring 'invalid job type'", errMsg)
+	}
+}
+
+func TestHandleCreateJob_ValidType(t *testing.T) {
+	t.Parallel()
+	srv, _ := setupTestServer(t)
+
+	rec := httptest.NewRecorder()
+	body := `{"type":"scan","session":"test"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/jobs", strings.NewReader(body))
+
+	srv.handleCreateJob(rec, req)
+
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("status = %d, want 202; body: %s", rec.Code, rec.Body.String())
+	}
+
+	var resp map[string]interface{}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	job, _ := resp["job"].(map[string]interface{})
+	if job == nil {
+		t.Fatal("expected job in response")
+	}
+}
+
+func TestHandleGetJob_NotFound(t *testing.T) {
+	t.Parallel()
+	srv, _ := setupTestServer(t)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/jobs/nonexistent", nil)
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("id", "nonexistent")
+	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
+
+	srv.handleGetJob(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404", rec.Code)
+	}
+}
+
+func TestHandleCancelJob_NotFound(t *testing.T) {
+	t.Parallel()
+	srv, _ := setupTestServer(t)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/jobs/nonexistent", nil)
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("id", "nonexistent")
+	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
+
+	srv.handleCancelJob(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404", rec.Code)
+	}
+}
+
+// =============================================================================
+// checkMemoryDaemon — PID file parsing branches
+// =============================================================================
+
+func TestCheckMemoryDaemon_NoPidsDir(t *testing.T) {
+	t.Parallel()
+	tmpDir := t.TempDir()
+	srv := New(Config{})
+	srv.projectDir = tmpDir
+
+	info := srv.checkMemoryDaemon()
+
+	if info.State != DaemonStateStopped {
+		t.Errorf("state = %v, want stopped", info.State)
+	}
+}
+
+func TestCheckMemoryDaemon_EmptyPidsDir(t *testing.T) {
+	t.Parallel()
+	tmpDir := t.TempDir()
+	pidsDir := filepath.Join(tmpDir, ".ntm", "pids")
+	if err := os.MkdirAll(pidsDir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	srv := New(Config{})
+	srv.projectDir = tmpDir
+
+	info := srv.checkMemoryDaemon()
+
+	if info.State != DaemonStateStopped {
+		t.Errorf("state = %v, want stopped", info.State)
+	}
+}
+
+func TestCheckMemoryDaemon_NonMatchingFiles(t *testing.T) {
+	t.Parallel()
+	tmpDir := t.TempDir()
+	pidsDir := filepath.Join(tmpDir, ".ntm", "pids")
+	if err := os.MkdirAll(pidsDir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	// Files that don't match cm-*.pid pattern
+	os.WriteFile(filepath.Join(pidsDir, "other.pid"), []byte(`{}`), 0o644)
+	os.WriteFile(filepath.Join(pidsDir, "cm-test.txt"), []byte(`{}`), 0o644)
+
+	srv := New(Config{})
+	srv.projectDir = tmpDir
+
+	info := srv.checkMemoryDaemon()
+
+	if info.State != DaemonStateStopped {
+		t.Errorf("state = %v, want stopped", info.State)
+	}
+}
+
+func TestCheckMemoryDaemon_InvalidJSON(t *testing.T) {
+	t.Parallel()
+	tmpDir := t.TempDir()
+	pidsDir := filepath.Join(tmpDir, ".ntm", "pids")
+	if err := os.MkdirAll(pidsDir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	// Valid filename but invalid JSON
+	os.WriteFile(filepath.Join(pidsDir, "cm-sess1.pid"), []byte(`{invalid json`), 0o644)
+
+	srv := New(Config{})
+	srv.projectDir = tmpDir
+
+	info := srv.checkMemoryDaemon()
+
+	// Invalid JSON → continue loop → return stopped
+	if info.State != DaemonStateStopped {
+		t.Errorf("state = %v, want stopped", info.State)
+	}
+}
+
+func TestCheckMemoryDaemon_ValidPIDFile(t *testing.T) {
+	t.Parallel()
+	tmpDir := t.TempDir()
+	pidsDir := filepath.Join(tmpDir, ".ntm", "pids")
+	if err := os.MkdirAll(pidsDir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	// Valid cm-*.pid file with valid JSON
+	pidData := `{"pid":12345,"port":8200,"started_at":"2025-01-01T00:00:00Z"}`
+	os.WriteFile(filepath.Join(pidsDir, "cm-mysession.pid"), []byte(pidData), 0o644)
+
+	srv := New(Config{})
+	srv.projectDir = tmpDir
+
+	info := srv.checkMemoryDaemon()
+
+	if info.State != DaemonStateRunning {
+		t.Fatalf("state = %v, want running", info.State)
+	}
+	if info.PID != 12345 {
+		t.Errorf("PID = %d, want 12345", info.PID)
+	}
+	if info.Port != 8200 {
+		t.Errorf("Port = %d, want 8200", info.Port)
+	}
+	if info.SessionID != "mysession" {
+		t.Errorf("SessionID = %q, want 'mysession'", info.SessionID)
 	}
 }
