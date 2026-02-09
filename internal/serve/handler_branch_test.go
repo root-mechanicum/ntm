@@ -10257,5 +10257,183 @@ func TestHandleRollback_DefaultRefToLatest(t *testing.T) {
 	}
 }
 
+// =============================================================================
+// Batch 26 – missing-parameter validation branches across server.go handlers
+// =============================================================================
+
+// --- handleAgentActivityV1: missing sessionId ---
+
+func TestHandleAgentActivityV1_MissingSessionID(t *testing.T) {
+	s, _ := setupTestServer(t)
+
+	rctx := chi.NewRouteContext()
+
+	req := httptest.NewRequest("GET", "/api/v1/sessions//agents/activity", nil)
+	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
+	rec := httptest.NewRecorder()
+
+	s.handleAgentActivityV1(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+// --- handleAgentHealthV1: missing sessionId ---
+
+func TestHandleAgentHealthV1_MissingSessionID(t *testing.T) {
+	s, _ := setupTestServer(t)
+
+	rctx := chi.NewRouteContext()
+
+	req := httptest.NewRequest("GET", "/api/v1/sessions//agents/health", nil)
+	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
+	rec := httptest.NewRecorder()
+
+	s.handleAgentHealthV1(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+// --- handleAgentContextV1: missing sessionId ---
+
+func TestHandleAgentContextV1_MissingSessionID(t *testing.T) {
+	s, _ := setupTestServer(t)
+
+	rctx := chi.NewRouteContext()
+
+	req := httptest.NewRequest("GET", "/api/v1/sessions//agents/context", nil)
+	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
+	rec := httptest.NewRecorder()
+
+	s.handleAgentContextV1(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+// --- handleAgentRestartV1: missing sessionId ---
+
+func TestHandleAgentRestartV1_MissingSessionID(t *testing.T) {
+	s, _ := setupTestServer(t)
+
+	rctx := chi.NewRouteContext()
+
+	req := httptest.NewRequest("POST", "/api/v1/sessions//agents/restart", strings.NewReader(`{}`))
+	req.Header.Set("Content-Type", "application/json")
+	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
+	rec := httptest.NewRecorder()
+
+	s.handleAgentRestartV1(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+// --- handleSessionStatusV1: missing session ID ---
+
+func TestHandleSessionStatusV1_MissingID(t *testing.T) {
+	s, _ := setupTestServer(t)
+
+	rctx := chi.NewRouteContext()
+
+	req := httptest.NewRequest("GET", "/api/v1/sessions//status", nil)
+	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
+	rec := httptest.NewRecorder()
+
+	s.handleSessionStatusV1(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+// --- handleSessionAttachV1: missing session ID ---
+
+func TestHandleSessionAttachV1_MissingID(t *testing.T) {
+	s, _ := setupTestServer(t)
+
+	rctx := chi.NewRouteContext()
+
+	req := httptest.NewRequest("POST", "/api/v1/sessions//attach", nil)
+	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
+	rec := httptest.NewRecorder()
+
+	s.handleSessionAttachV1(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+// --- handleSessionViewV1: missing session ID ---
+
+func TestHandleSessionViewV1_MissingID(t *testing.T) {
+	s, _ := setupTestServer(t)
+
+	rctx := chi.NewRouteContext()
+
+	req := httptest.NewRequest("POST", "/api/v1/sessions//view", nil)
+	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
+	rec := httptest.NewRecorder()
+
+	s.handleSessionViewV1(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+// --- handleSessionZoomV1: missing session ID ---
+
+func TestHandleSessionZoomV1_MissingID(t *testing.T) {
+	s, _ := setupTestServer(t)
+
+	rctx := chi.NewRouteContext()
+
+	req := httptest.NewRequest("POST", "/api/v1/sessions//zoom", strings.NewReader(`{"pane":0}`))
+	req.Header.Set("Content-Type", "application/json")
+	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
+	rec := httptest.NewRecorder()
+
+	s.handleSessionZoomV1(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+// --- handleVerifyCheckpoint: success with fake checkpoint ---
+
+func TestHandleVerifyCheckpoint_FakeCheckpoint(t *testing.T) {
+	s, _ := setupTestServer(t)
+
+	tmpHome := t.TempDir()
+	t.Setenv("HOME", tmpHome)
+
+	cpDir := filepath.Join(tmpHome, ".local", "share", "ntm", "checkpoints", "vfy-sess2", "vfy-cp2")
+	os.MkdirAll(cpDir, 0755)
+	metadata := `{"version":1,"id":"vfy-cp2","name":"verify-test","session_name":"vfy-sess2","working_dir":"/tmp","created_at":"2025-01-01T00:00:00Z","pane_count":1}`
+	os.WriteFile(filepath.Join(cpDir, "metadata.json"), []byte(metadata), 0644)
+
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("sessionName", "vfy-sess2")
+	rctx.URLParams.Add("checkpointId", "vfy-cp2")
+
+	req := httptest.NewRequest("GET", "/api/v1/sessions/vfy-sess2/checkpoints/vfy-cp2/verify", nil)
+	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
+	rec := httptest.NewRecorder()
+
+	s.handleVerifyCheckpoint(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
 // Ensure kernel import is used
 var _ = kernel.Run
