@@ -13069,5 +13069,243 @@ func TestHandleSafetyInstallV1_PolicyWriteOnForce(t *testing.T) {
 	}
 }
 
+// ---------------------------------------------------------------------------
+// Batch 36: JobStore.Update unknown ID, RecordDropped min count,
+// safety uninstall Remove errors, automation LoadOrDefault/invalid/write errors,
+// policy update empty content/write error, install hookDir error
+// ---------------------------------------------------------------------------
+
+// TestJobStore_UpdateUnknownID exercises the early-return when Update is called
+// with an ID that does not exist in the store (lines 327-329 of server.go).
+func TestJobStore_UpdateUnknownID(t *testing.T) {
+	t.Parallel()
+	store := NewJobStore()
+
+	// Should be a no-op (no panic, no error)
+	store.Update("nonexistent-job-id", JobStatusCompleted, 1.0, nil, "")
+
+	// Verify no job was created
+	got := store.Get("nonexistent-job-id")
+	if got != nil {
+		t.Error("expected nil for unknown job ID after Update")
+	}
+}
+
+// TestWSEventStore_RecordDroppedMinCount exercises the count < 1 guard
+// in RecordDropped (lines 338-339 of ws_events.go) when lastSeq < firstSeq.
+func TestWSEventStore_RecordDroppedMinCount(t *testing.T) {
+	db, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	cfg := DefaultWSEventStoreConfig()
+	cfg.CleanupInterval = time.Hour
+	store := NewWSEventStore(db, cfg)
+	defer store.Stop()
+
+	// lastSeq < firstSeq → count forced to 1
+	if err := store.RecordDropped("c1", "test", "bad_range", 10, 5); err != nil {
+		t.Fatalf("RecordDropped failed: %v", err)
+	}
+
+	// Verify it was recorded with count=1
+	stats, err := store.GetDroppedStats("c1", time.Now().Add(-1*time.Minute))
+	if err != nil {
+		t.Fatalf("GetDroppedStats failed: %v", err)
+	}
+	if len(stats) != 1 {
+		t.Fatalf("expected 1 stat entry, got %d", len(stats))
+	}
+	if stats[0].DroppedCount != 1 {
+		t.Errorf("expected DroppedCount=1 (min clamped), got %d", stats[0].DroppedCount)
+	}
+}
+
+// TestHandleSafetyUninstallV1_WrapperRemoveError exercises the os.Remove error
+// for git wrapper (lines 353-356 of safety.go) when the bin dir is read-only.
+func TestHandleSafetyUninstallV1_WrapperRemoveError(t *testing.T) {
+	tmpHome := t.TempDir()
+	t.Setenv("HOME", tmpHome)
+	s, _ := setupTestServer(t)
+
+	// Create git wrapper in read-only directory
+	binDir := filepath.Join(tmpHome, ".ntm", "bin")
+	os.MkdirAll(binDir, 0755)
+	os.WriteFile(filepath.Join(binDir, "git"), []byte("#!/bin/sh\n"), 0755)
+	// Make binDir read-only so Remove fails
+	os.Chmod(binDir, 0555)
+	defer os.Chmod(binDir, 0755)
+
+	req := httptest.NewRequest("POST", "/api/v1/safety/uninstall", nil)
+	rec := httptest.NewRecorder()
+	s.handleSafetyUninstallV1(rec, req)
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500 for wrapper Remove error, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+// TestHandleSafetyUninstallV1_HookRemoveError exercises the os.Remove error
+// for the hook file (lines 365-367 of safety.go) when the hook dir is read-only.
+func TestHandleSafetyUninstallV1_HookRemoveError(t *testing.T) {
+	tmpHome := t.TempDir()
+	t.Setenv("HOME", tmpHome)
+	s, _ := setupTestServer(t)
+
+	// No wrappers installed (skip wrapper removal loop)
+	// Create hook in read-only directory
+	hookDir := filepath.Join(tmpHome, ".claude", "hooks", "PreToolUse")
+	os.MkdirAll(hookDir, 0755)
+	os.WriteFile(filepath.Join(hookDir, "ntm-safety.sh"), []byte("#!/bin/sh\n"), 0755)
+	// Make hookDir read-only so Remove fails
+	os.Chmod(hookDir, 0555)
+	defer os.Chmod(hookDir, 0755)
+
+	req := httptest.NewRequest("POST", "/api/v1/safety/uninstall", nil)
+	rec := httptest.NewRecorder()
+	s.handleSafetyUninstallV1(rec, req)
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500 for hook Remove error, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+// TestHandlePolicyAutomationGetV1_LoadOrDefaultError exercises the LoadOrDefault
+// error branch in handlePolicyAutomationGetV1 (lines 774-778 of safety.go).
+func TestHandlePolicyAutomationGetV1_LoadOrDefaultError(t *testing.T) {
+	tmpHome := t.TempDir()
+	t.Setenv("HOME", tmpHome)
+	s, _ := setupTestServer(t)
+
+	// Write corrupt policy.yaml
+	ntmDir := filepath.Join(tmpHome, ".ntm")
+	os.MkdirAll(ntmDir, 0755)
+	os.WriteFile(filepath.Join(ntmDir, "policy.yaml"), []byte("{{{not yaml"), 0644)
+
+	req := httptest.NewRequest("GET", "/api/v1/policy/automation", nil)
+	rec := httptest.NewRecorder()
+	s.handlePolicyAutomationGetV1(rec, req)
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500 for corrupt policy, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+// TestHandlePolicyAutomationUpdateV1_InvalidForceReleaseBranch exercises the default
+// switch case in handlePolicyAutomationUpdateV1 (lines 860-863 of safety.go).
+func TestHandlePolicyAutomationUpdateV1_InvalidForceReleaseBranch(t *testing.T) {
+	t.Parallel()
+	s, _ := setupTestServer(t)
+
+	badValue := "bogus"
+	body := fmt.Sprintf(`{"force_release":"%s"}`, badValue)
+	req := httptest.NewRequest("PUT", "/api/v1/policy/automation", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	s.handlePolicyAutomationUpdateV1(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for invalid force_release, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var resp map[string]interface{}
+	json.Unmarshal(rec.Body.Bytes(), &resp)
+	if msg, _ := resp["error"].(string); !strings.Contains(msg, "invalid force_release") {
+		t.Errorf("expected error about invalid force_release, got %q", msg)
+	}
+}
+
+// TestHandlePolicyAutomationUpdateV1_WriteFileError exercises the WriteFile error
+// in handlePolicyAutomationUpdateV1 (lines 877-880 of safety.go).
+func TestHandlePolicyAutomationUpdateV1_WriteFileError(t *testing.T) {
+	tmpHome := t.TempDir()
+	t.Setenv("HOME", tmpHome)
+	s, _ := setupTestServer(t)
+
+	// Create .ntm dir (no policy.yaml → DefaultPolicy is used) then make read-only
+	// so the new file cannot be created when modified=true triggers write.
+	ntmDir := filepath.Join(tmpHome, ".ntm")
+	os.MkdirAll(ntmDir, 0755)
+	os.Chmod(ntmDir, 0555)
+	defer os.Chmod(ntmDir, 0755)
+
+	// Default has auto_commit=true; set to false → modified=true → WriteFile fails (dir read-only, no file)
+	body := `{"auto_commit":false}`
+	req := httptest.NewRequest("PUT", "/api/v1/policy/automation", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	s.handlePolicyAutomationUpdateV1(rec, req)
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500 for write error, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+// TestHandlePolicyUpdateV1_EmptyContentBranch exercises the "content is required"
+// validation branch in handlePolicyUpdateV1 (lines 518-522 of safety.go).
+func TestHandlePolicyUpdateV1_EmptyContentBranch(t *testing.T) {
+	t.Parallel()
+	s, _ := setupTestServer(t)
+
+	body := `{"content":""}`
+	req := httptest.NewRequest("PUT", "/api/v1/policy", strings.NewReader(body))
+	rec := httptest.NewRecorder()
+	s.handlePolicyUpdateV1(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for empty content, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var resp map[string]interface{}
+	json.Unmarshal(rec.Body.Bytes(), &resp)
+	if msg, _ := resp["error"].(string); !strings.Contains(msg, "content is required") {
+		t.Errorf("expected 'content is required' error, got %q", msg)
+	}
+}
+
+// TestHandlePolicyUpdateV1_WriteFileError exercises the os.WriteFile error
+// in handlePolicyUpdateV1 (lines 554-558 of safety.go) when .ntm dir is read-only.
+func TestHandlePolicyUpdateV1_WriteFileError(t *testing.T) {
+	tmpHome := t.TempDir()
+	t.Setenv("HOME", tmpHome)
+	s, _ := setupTestServer(t)
+
+	// Create .ntm dir then make it read-only to block file write
+	ntmDir := filepath.Join(tmpHome, ".ntm")
+	os.MkdirAll(ntmDir, 0755)
+	os.Chmod(ntmDir, 0555)
+	defer os.Chmod(ntmDir, 0755)
+
+	validPolicy := "version: 1\nblocked:\n  - pattern: \"rm -rf /\"\n    reason: dangerous\n"
+	body := fmt.Sprintf(`{"content":%q}`, validPolicy)
+	req := httptest.NewRequest("PUT", "/api/v1/policy", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	s.handlePolicyUpdateV1(rec, req)
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500 for write error, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+// TestHandleSafetyInstallV1_HookDirCreateError exercises the hookDir MkdirAll
+// error in handleSafetyInstallV1 (lines 292-295 of safety.go) by making
+// .claude a regular file so MkdirAll cannot create subdirectories.
+func TestHandleSafetyInstallV1_HookDirCreateError(t *testing.T) {
+	tmpHome := t.TempDir()
+	t.Setenv("HOME", tmpHome)
+	s, _ := setupTestServer(t)
+
+	// Create .claude as a regular file to block hookDir MkdirAll
+	os.WriteFile(filepath.Join(tmpHome, ".claude"), []byte("not a dir"), 0644)
+
+	body := `{"force":true}`
+	req := httptest.NewRequest("POST", "/api/v1/safety/install", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	s.handleSafetyInstallV1(rec, req)
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500 for hookDir MkdirAll error, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
 // Ensure kernel import is used
 var _ = kernel.Run
