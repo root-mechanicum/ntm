@@ -4770,3 +4770,470 @@ func TestHandleStopPaneStreamV1_EmptySession(t *testing.T) {
 	}
 }
 
+// =============================================================================
+// Batch 12: handleRunScan, ScannerStatus available, AuditStore Query filters,
+//           AuditStore cleanup with data, handleRouteV1 exclude valid parse
+// =============================================================================
+
+// --- handleRunScan: bad JSON body ---
+
+func TestHandleRunScan_BadJSON(t *testing.T) {
+	if !scanner.IsAvailable() {
+		t.Skip("ubs not installed")
+	}
+	resetScannerStoreForTest()
+	s, _ := setupTestServer(t)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/scanner/run", strings.NewReader("{bad"))
+	req.Header.Set("Content-Length", "4")
+	w := httptest.NewRecorder()
+	s.handleRunScan(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status=%d, want 400", w.Code)
+	}
+}
+
+// --- handleRunScan: successful start (ubs installed, no running scan, empty body) ---
+
+func TestHandleRunScan_SuccessEmptyBody(t *testing.T) {
+	if !scanner.IsAvailable() {
+		t.Skip("ubs not installed")
+	}
+	resetScannerStoreForTest()
+	s, _ := setupTestServer(t)
+	s.projectDir = t.TempDir()
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/scanner/run", nil)
+	w := httptest.NewRecorder()
+	s.handleRunScan(w, req)
+	if w.Code != http.StatusAccepted {
+		t.Fatalf("status=%d, want 202; body=%s", w.Code, w.Body.String())
+	}
+
+	var resp map[string]interface{}
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if resp["state"] != string(ScanStatePending) {
+		t.Errorf("state=%v, want pending", resp["state"])
+	}
+	scanID, ok := resp["scan_id"].(string)
+	if !ok || scanID == "" {
+		t.Errorf("scan_id missing or empty: %v", resp["scan_id"])
+	}
+	// Give async goroutine a moment then clean up
+	time.Sleep(50 * time.Millisecond)
+}
+
+// --- handleRunScan: successful start with custom path ---
+
+func TestHandleRunScan_SuccessWithPath(t *testing.T) {
+	if !scanner.IsAvailable() {
+		t.Skip("ubs not installed")
+	}
+	resetScannerStoreForTest()
+	s, _ := setupTestServer(t)
+
+	customPath := t.TempDir()
+	body := fmt.Sprintf(`{"path":%q}`, customPath)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/scanner/run", strings.NewReader(body))
+	req.Header.Set("Content-Length", fmt.Sprintf("%d", len(body)))
+	w := httptest.NewRecorder()
+	s.handleRunScan(w, req)
+	if w.Code != http.StatusAccepted {
+		t.Fatalf("status=%d, want 202; body=%s", w.Code, w.Body.String())
+	}
+	time.Sleep(50 * time.Millisecond)
+}
+
+// --- handleScannerStatus: with ubs available (tests version retrieval path) ---
+
+func TestHandleScannerStatus_Available(t *testing.T) {
+	if !scanner.IsAvailable() {
+		t.Skip("ubs not installed")
+	}
+	resetScannerStoreForTest()
+	addTestScan("scan-done", ScanStateCompleted)
+
+	s, _ := setupTestServer(t)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/scanner/status", nil)
+	w := httptest.NewRecorder()
+	s.handleScannerStatus(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status=%d, want 200", w.Code)
+	}
+
+	var resp map[string]interface{}
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if resp["available"] != true {
+		t.Errorf("available=%v, want true", resp["available"])
+	}
+	// Version should be populated when ubs is installed
+	if v, ok := resp["version"].(string); !ok || v == "" {
+		t.Errorf("version should be non-empty when ubs is available, got %v", resp["version"])
+	}
+}
+
+// --- AuditStore Query: exercise all filter branches ---
+
+func TestAuditStore_QueryFilterBranches(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "audit.db")
+	jsonlPath := filepath.Join(dir, "audit.jsonl")
+
+	store, err := NewAuditStore(AuditStoreConfig{
+		DBPath:          dbPath,
+		JSONLPath:       jsonlPath,
+		Retention:       24 * time.Hour,
+		CleanupInterval: time.Hour,
+	})
+	if err != nil {
+		t.Fatalf("NewAuditStore: %v", err)
+	}
+	defer store.Close()
+
+	now := time.Now()
+
+	// Insert a record with all fields populated
+	rec := &AuditRecord{
+		Timestamp: now,
+		RequestID: "req-filter-001",
+		UserID:    "user-alice",
+		Role:      "admin",
+		Action:    AuditActionCreate,
+		Resource:  "session",
+		Method:    "POST",
+		Path:      "/api/v1/sessions",
+		StatusCode: 201,
+		SessionID: "sess-abc",
+		ApprovalID: "approval-xyz",
+	}
+	if err := store.Record(rec); err != nil {
+		t.Fatalf("Record: %v", err)
+	}
+
+	// Insert a second record with different fields
+	rec2 := &AuditRecord{
+		Timestamp: now.Add(-time.Minute),
+		RequestID: "req-filter-002",
+		UserID:    "user-bob",
+		Role:      "viewer",
+		Action:    AuditActionExecute,
+		Resource:  "pane",
+		Method:    "GET",
+		Path:      "/api/v1/panes",
+		StatusCode: 200,
+		SessionID: "sess-def",
+	}
+	if err := store.Record(rec2); err != nil {
+		t.Fatalf("Record: %v", err)
+	}
+
+	// Filter by Action
+	results, err := store.Query(AuditFilter{Action: AuditActionCreate})
+	if err != nil {
+		t.Fatalf("Query(action): %v", err)
+	}
+	if len(results) != 1 || results[0].RequestID != "req-filter-001" {
+		t.Errorf("action filter: got %d results, want 1 with req-filter-001", len(results))
+	}
+
+	// Filter by Resource
+	results, err = store.Query(AuditFilter{Resource: "pane"})
+	if err != nil {
+		t.Fatalf("Query(resource): %v", err)
+	}
+	if len(results) != 1 || results[0].RequestID != "req-filter-002" {
+		t.Errorf("resource filter: got %d results", len(results))
+	}
+
+	// Filter by SessionID
+	results, err = store.Query(AuditFilter{SessionID: "sess-abc"})
+	if err != nil {
+		t.Fatalf("Query(session): %v", err)
+	}
+	if len(results) != 1 {
+		t.Errorf("session filter: got %d results, want 1", len(results))
+	}
+
+	// Filter by ApprovalID
+	results, err = store.Query(AuditFilter{ApprovalID: "approval-xyz"})
+	if err != nil {
+		t.Fatalf("Query(approval): %v", err)
+	}
+	if len(results) != 1 {
+		t.Errorf("approval filter: got %d results, want 1", len(results))
+	}
+
+	// Filter by Since
+	results, err = store.Query(AuditFilter{Since: now.Add(-30 * time.Second)})
+	if err != nil {
+		t.Fatalf("Query(since): %v", err)
+	}
+	if len(results) != 1 || results[0].RequestID != "req-filter-001" {
+		t.Errorf("since filter: got %d results, want 1 (recent only)", len(results))
+	}
+
+	// Filter by Until
+	results, err = store.Query(AuditFilter{Until: now.Add(-30 * time.Second)})
+	if err != nil {
+		t.Fatalf("Query(until): %v", err)
+	}
+	if len(results) != 1 || results[0].RequestID != "req-filter-002" {
+		t.Errorf("until filter: got %d results, want 1 (old only)", len(results))
+	}
+
+	// Filter by Limit + Offset
+	results, err = store.Query(AuditFilter{Limit: 10, Offset: 1})
+	if err != nil {
+		t.Fatalf("Query(offset): %v", err)
+	}
+	if len(results) != 1 {
+		t.Errorf("offset filter: got %d results, want 1 (second record)", len(results))
+	}
+}
+
+// --- AuditStore.cleanup: actually removes old records ---
+
+func TestAuditStore_CleanupRemovesOldRecords(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "audit.db")
+
+	store, err := NewAuditStore(AuditStoreConfig{
+		DBPath:          dbPath,
+		Retention:       1 * time.Millisecond, // Very short retention
+		CleanupInterval: time.Hour,            // We'll call cleanup manually
+	})
+	if err != nil {
+		t.Fatalf("NewAuditStore: %v", err)
+	}
+	defer store.Close()
+
+	// Insert a record
+	rec := &AuditRecord{
+		Timestamp:  time.Now().Add(-time.Hour), // Old record
+		RequestID:  "req-old-001",
+		UserID:     "user-test",
+		Action:     AuditActionCreate,
+		Resource:   "test",
+		Method:     "POST",
+		Path:       "/test",
+		StatusCode: 200,
+	}
+	if err := store.Record(rec); err != nil {
+		t.Fatalf("Record: %v", err)
+	}
+
+	// Verify record exists
+	results, err := store.Query(AuditFilter{})
+	if err != nil {
+		t.Fatalf("Query before cleanup: %v", err)
+	}
+	if len(results) == 0 {
+		t.Fatal("expected at least 1 record before cleanup")
+	}
+
+	// Wait for retention to expire and run cleanup
+	time.Sleep(5 * time.Millisecond)
+	store.cleanup()
+
+	// Verify record is gone
+	results, err = store.Query(AuditFilter{})
+	if err != nil {
+		t.Fatalf("Query after cleanup: %v", err)
+	}
+	if len(results) != 0 {
+		t.Errorf("expected 0 records after cleanup, got %d", len(results))
+	}
+}
+
+// --- handleRouteV1: valid exclude parameter ---
+
+func TestHandleRouteV1_ValidExclude(t *testing.T) {
+	t.Parallel()
+	s, _ := setupTestServer(t)
+	// Provide session + valid exclude; will fail at robot.GetRoute (no tmux) but
+	// exercises the exclude parsing success path
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/route?session=test-sess&exclude=0,2&strategy=round-robin", nil)
+	w := httptest.NewRecorder()
+	s.handleRouteV1(w, req)
+	// Robot will fail since no tmux session exists, but we get past the exclude parsing
+	// Accept either 200 (with error in body) or 400 (robot error)
+	if w.Code == http.StatusBadRequest {
+		var resp map[string]interface{}
+		if err := json.NewDecoder(w.Body).Decode(&resp); err == nil {
+			// Should NOT be about exclude parsing — that succeeded
+			if msg, ok := resp["message"].(string); ok && strings.Contains(msg, "invalid exclude") {
+				t.Errorf("exclude should have parsed successfully, got: %s", msg)
+			}
+		}
+	}
+}
+
+// --- handleAgentWaitV1: custom timeout_ms and poll_ms ---
+
+func TestHandleAgentWaitV1_CustomTimeoutAndPoll(t *testing.T) {
+	t.Parallel()
+	s, _ := setupTestServer(t)
+
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("sessionId", "test-sess")
+	body := `{"condition":"idle","timeout_ms":100,"poll_ms":50}`
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/sessions/test-sess/agents/wait", strings.NewReader(body))
+	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
+	w := httptest.NewRecorder()
+	s.handleAgentWaitV1(w, req)
+	// Robot will try to check tmux and either timeout or error, but we exercise
+	// the timeout_ms and poll_ms custom parsing branches
+	// Accept 200 (timeout result), 408 (timeout), or 500 (no tmux)
+	if w.Code == http.StatusBadRequest {
+		t.Fatalf("should not get 400 for valid request, got body: %s", w.Body.String())
+	}
+}
+
+// --- ScannerStore.GetScans offset beyond range ---
+
+func TestScannerStore_GetScans_OffsetBeyondRange(t *testing.T) {
+	t.Parallel()
+	store := NewScannerStore()
+	store.AddScan(&ScanRecord{ID: "scan-1", State: ScanStateCompleted, StartedAt: time.Now()})
+
+	result := store.GetScans(10, 100) // offset=100 but only 1 scan
+	if len(result) != 0 {
+		t.Errorf("expected empty slice for offset beyond range, got %d", len(result))
+	}
+}
+
+// --- ScannerStore.GetFindings: severity filter + dismissed filter + pagination ---
+
+func TestScannerStore_GetFindings_FilterAndPaginate(t *testing.T) {
+	t.Parallel()
+	store := NewScannerStore()
+	now := time.Now()
+
+	// Add findings with different attributes
+	store.AddFinding(&FindingRecord{
+		ID: "f1", ScanID: "scan-a",
+		Finding: scanner.Finding{Severity: scanner.SeverityWarning, File: "a.go", Category: "sec"},
+		CreatedAt: now.Add(-2 * time.Second),
+	})
+	store.AddFinding(&FindingRecord{
+		ID: "f2", ScanID: "scan-a",
+		Finding: scanner.Finding{Severity: scanner.SeverityCritical, File: "b.go", Category: "perf"},
+		CreatedAt: now.Add(-time.Second),
+	})
+	store.AddFinding(&FindingRecord{
+		ID: "f3", ScanID: "scan-b",
+		Finding:   scanner.Finding{Severity: scanner.SeverityWarning, File: "c.go", Category: "sec"},
+		Dismissed: true,
+		CreatedAt: now,
+	})
+
+	// Filter by scan_id
+	results := store.GetFindings("scan-a", true, "", 100, 0)
+	if len(results) != 2 {
+		t.Errorf("scan_id filter: got %d, want 2", len(results))
+	}
+
+	// Filter by severity
+	results = store.GetFindings("", false, "warning", 100, 0)
+	if len(results) != 1 {
+		t.Errorf("severity filter: got %d, want 1 (non-dismissed warning)", len(results))
+	}
+
+	// Include dismissed
+	results = store.GetFindings("", true, "warning", 100, 0)
+	if len(results) != 2 {
+		t.Errorf("include dismissed: got %d, want 2", len(results))
+	}
+
+	// Pagination: limit=1, offset=0
+	results = store.GetFindings("", true, "", 1, 0)
+	if len(results) != 1 {
+		t.Errorf("pagination limit=1: got %d, want 1", len(results))
+	}
+
+	// Pagination: offset beyond range
+	results = store.GetFindings("", true, "", 10, 100)
+	if len(results) != 0 {
+		t.Errorf("offset beyond range: got %d, want 0", len(results))
+	}
+}
+
+// --- ScannerStore.GetFindingsByScan ---
+
+func TestScannerStore_GetFindingsByScan(t *testing.T) {
+	t.Parallel()
+	store := NewScannerStore()
+	store.AddFinding(&FindingRecord{
+		ID: "f1", ScanID: "scan-x",
+		Finding:   scanner.Finding{File: "a.go"},
+		CreatedAt: time.Now(),
+	})
+	store.AddFinding(&FindingRecord{
+		ID: "f2", ScanID: "scan-y",
+		Finding:   scanner.Finding{File: "b.go"},
+		CreatedAt: time.Now(),
+	})
+
+	results := store.GetFindingsByScan("scan-x")
+	if len(results) != 1 || results[0].ID != "f1" {
+		t.Errorf("GetFindingsByScan: got %d results, want 1 with f1", len(results))
+	}
+}
+
+// --- NewIdempotencyStore: default TTL for zero/negative ---
+
+func TestNewIdempotencyStore_DefaultTTL(t *testing.T) {
+	t.Parallel()
+	store := NewIdempotencyStore(0)
+	defer store.Stop()
+
+	// Should not panic; TTL defaults to 24h
+	store.Set("key1", []byte(`{"ok":true}`), 200)
+	data, code, ok := store.Get("key1")
+	if !ok {
+		t.Fatal("expected key1 to be found")
+	}
+	if code != 200 {
+		t.Errorf("code=%d, want 200", code)
+	}
+	if string(data) != `{"ok":true}` {
+		t.Errorf("data=%q, want {\"ok\":true}", string(data))
+	}
+}
+
+// --- NewIdempotencyStore: negative TTL defaults to 24h ---
+
+func TestNewIdempotencyStore_NegativeTTL(t *testing.T) {
+	t.Parallel()
+	store := NewIdempotencyStore(-5 * time.Second)
+	defer store.Stop()
+
+	store.Set("k", []byte("v"), 201)
+	_, code, ok := store.Get("k")
+	if !ok || code != 201 {
+		t.Errorf("expected key found with code 201, got ok=%v code=%d", ok, code)
+	}
+}
+
+// --- IdempotencyStore.Get: expired entry returns not found ---
+
+func TestIdempotencyStore_Get_Expired(t *testing.T) {
+	t.Parallel()
+	store := NewIdempotencyStore(1 * time.Millisecond)
+	defer store.Stop()
+
+	store.Set("ephemeral", []byte("data"), 200)
+	time.Sleep(5 * time.Millisecond) // Wait for TTL to expire
+
+	_, _, ok := store.Get("ephemeral")
+	if ok {
+		t.Error("expected expired entry to not be found")
+	}
+}
+
