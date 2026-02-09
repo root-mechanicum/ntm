@@ -13589,5 +13589,240 @@ func TestNewAuditStore_JSONLMkdirAllErrorClosesDB(t *testing.T) {
 	}
 }
 
+// =============================================================================
+// BATCH 38 — WSEventStore DB error branches, AuditStore.Close, WSClient, RBAC
+// =============================================================================
+
+// --- WSEventStore.cleanup — DB exec error (91.7% → ~100%) ---
+
+func TestWSEventStore_CleanupDBExecError(t *testing.T) {
+	db, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	cfg := WSEventStoreConfig{
+		BufferSize:       10,
+		RetentionSeconds: 3600,
+		CleanupInterval:  time.Hour,
+	}
+	store := NewWSEventStore(db, cfg)
+	defer store.Stop()
+
+	// Close the DB to trigger exec error
+	db.Close()
+
+	err := store.cleanup()
+	if err == nil {
+		t.Fatal("expected error from cleanup with closed DB")
+	}
+	if !strings.Contains(err.Error(), "delete old events") {
+		t.Errorf("expected 'delete old events' in error, got: %v", err)
+	}
+}
+
+// --- WSEventStore.Store — DB persist error, log & continue (92.3% → ~100%) ---
+
+func TestWSEventStore_StoreDBPersistError(t *testing.T) {
+	db, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	cfg := WSEventStoreConfig{
+		BufferSize:       10,
+		RetentionSeconds: 3600,
+		CleanupInterval:  time.Hour,
+	}
+	store := NewWSEventStore(db, cfg)
+	defer store.Stop()
+
+	// Close the DB to trigger persist error (Store logs and continues)
+	db.Close()
+
+	ev, err := store.Store("test.topic", "test.event", map[string]interface{}{"key": "val"})
+	if err != nil {
+		t.Fatalf("Store should not return error (logs instead), got: %v", err)
+	}
+	if ev == nil {
+		t.Fatal("expected non-nil event even with DB error")
+	}
+	if ev.Topic != "test.topic" {
+		t.Errorf("expected topic=test.topic, got %q", ev.Topic)
+	}
+}
+
+// --- WSEventStore.getFromDB — query error (88.5%) ---
+
+func TestWSEventStore_GetSinceDBQueryError(t *testing.T) {
+	db, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	cfg := WSEventStoreConfig{
+		BufferSize:       5,
+		RetentionSeconds: 3600,
+		CleanupInterval:  time.Hour,
+	}
+	store := NewWSEventStore(db, cfg)
+	defer store.Stop()
+
+	// Store enough events to overflow buffer so GetSince falls to DB
+	for i := 0; i < 10; i++ {
+		store.Store("test", "ev", map[string]interface{}{"i": i})
+	}
+
+	// Close DB to trigger query error on DB fallback
+	db.Close()
+
+	// Use since=0 to force buffer miss (buffer only has last 5)
+	_, _, err := store.GetSince(0, "", 100)
+	if err == nil {
+		t.Fatal("expected error from GetSince with closed DB")
+	}
+	if !strings.Contains(err.Error(), "query events") {
+		t.Errorf("expected 'query events' in error, got: %v", err)
+	}
+}
+
+// --- WSEventStore.getFromDB — cursor too old, reset=true (88.5%) ---
+
+func TestWSEventStore_GetFromDBCursorTooOldReset(t *testing.T) {
+	db, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	cfg := WSEventStoreConfig{
+		BufferSize:       10,
+		RetentionSeconds: 3600,
+		CleanupInterval:  time.Hour,
+	}
+	store := NewWSEventStore(db, cfg)
+	defer store.Stop()
+
+	// Insert events directly into DB with high seq values.
+	// Using topic "other" so a topic-filtered query finds nothing.
+	for i := 100; i < 105; i++ {
+		db.Exec(
+			"INSERT INTO ws_events (seq, topic, event_type, data, created_at) VALUES (?, 'other', 'ev', '{}', datetime('now'))",
+			i,
+		)
+	}
+
+	// GetSince with since=5, topic="nope" — buffer empty (no store.Store calls
+	// match this range), falls to getFromDB. Query returns events with seq>5
+	// but topic filter removes all ("nope" != "other"), so len(events)==0.
+	// minSeq=100, since=5 < 100-1=99 → reset=true.
+	events, needsReset, err := store.GetSince(5, "nope", 100)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !needsReset {
+		t.Error("expected needsReset=true for stale cursor with mismatched topic")
+	}
+	if len(events) != 0 {
+		t.Errorf("expected 0 events, got %d", len(events))
+	}
+}
+
+// --- WSEventStore.GetDroppedStats — query error (88.9%) ---
+
+func TestWSEventStore_GetDroppedStatsQueryError(t *testing.T) {
+	db, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	cfg := WSEventStoreConfig{
+		BufferSize:       10,
+		RetentionSeconds: 3600,
+		CleanupInterval:  time.Hour,
+	}
+	store := NewWSEventStore(db, cfg)
+	defer store.Stop()
+
+	// Close DB to trigger query error
+	db.Close()
+
+	_, err := store.GetDroppedStats("client-1", time.Now().Add(-time.Hour))
+	if err == nil {
+		t.Fatal("expected error from GetDroppedStats with closed DB")
+	}
+	if !strings.Contains(err.Error(), "query dropped stats") {
+		t.Errorf("expected 'query dropped stats' in error, got: %v", err)
+	}
+}
+
+// --- redactingResponseWriter.finalize — double-call early return (94.7%) ---
+
+func TestRedactingResponseWriter_FinalizeDouble(t *testing.T) {
+	t.Parallel()
+
+	rr := httptest.NewRecorder()
+	rw := &redactingResponseWriter{
+		ResponseWriter: rr,
+		cfg:            redaction.Config{Mode: redaction.ModeRedact},
+		summary:        &RedactionSummary{},
+		categories:     make(map[string]int),
+		buffer:         new(bytes.Buffer),
+	}
+
+	// Write some body content
+	rw.Write([]byte(`{"key": "value"}`))
+
+	// First finalize — writes response
+	rw.finalize()
+	if rr.Code != http.StatusOK {
+		t.Errorf("expected 200 after first finalize, got %d", rr.Code)
+	}
+
+	// Second finalize — early return, no-op
+	rw.finalize()
+	// Should not panic or double-write
+}
+
+// --- WSClient.sendPong — buffer full (80% → ~100%) ---
+
+func TestWSClient_SendPong_FullBuffer(t *testing.T) {
+	t.Parallel()
+	c := &WSClient{
+		id:   "test-pong-full",
+		send: make(chan []byte), // unbuffered — will be full
+	}
+
+	// Should not panic — just drops the message
+	c.sendPong("req-pong-full")
+}
+
+// --- Role.HasPermission — unknown role (85.7% → 100%) ---
+
+func TestHasPermission_UnknownRole(t *testing.T) {
+	t.Parallel()
+	unknown := Role("nonexistent_role")
+	if unknown.HasPermission(PermReadSessions) {
+		t.Error("unknown role should not have any permissions")
+	}
+	if unknown.HasPermission(PermDangerousOps) {
+		t.Error("unknown role should not have dangerous ops")
+	}
+}
+
+// --- checkWSOrigin — allowed origin with empty scheme triggers continue (86.4%) ---
+
+func TestCheckWSOrigin_AllowedOriginEmptyScheme(t *testing.T) {
+	t.Parallel()
+	srv := &Server{
+		auth: AuthConfig{Mode: AuthModeAPIKey, APIKey: "key"},
+		// First origin has no scheme (url.Parse returns empty Scheme/Host)
+		// Second origin is valid and matches
+		corsAllowedOrigins: []string{"just-a-word", "https://allowed.example.com"},
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.Header.Set("Origin", "https://allowed.example.com")
+	if !srv.checkWSOrigin(req) {
+		t.Error("should skip allowed origin with empty scheme and match subsequent valid one")
+	}
+
+	// Verify that a non-matching origin is still rejected (origin loop exhausted)
+	req2 := httptest.NewRequest(http.MethodGet, "/", nil)
+	req2.Header.Set("Origin", "https://evil.example.com")
+	if srv.checkWSOrigin(req2) {
+		t.Error("should reject non-matching origin")
+	}
+}
+
 // Ensure kernel import is used
 var _ = kernel.Run
