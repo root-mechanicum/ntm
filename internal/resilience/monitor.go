@@ -55,6 +55,7 @@ type Monitor struct {
 	cfg              *config.Config
 	notifier         *notify.Notifier
 	rateLimitTracker *ratelimit.RateLimitTracker
+	codexThrottle    *ratelimit.CodexThrottle // AIMD throttle for cod launches (bd-3qoly)
 
 	autoRestart bool // Whether to automatically restart crashed agents
 
@@ -90,6 +91,14 @@ func NewMonitor(session, projectDir string, cfg *config.Config, autoRestart bool
 		agents:           make(map[string]*AgentState),
 		done:             make(chan struct{}),
 	}
+}
+
+// SetCodexThrottle attaches a CodexThrottle to the monitor so that
+// rate-limit events on cod agents are propagated to the throttle.
+func (m *Monitor) SetCodexThrottle(ct *ratelimit.CodexThrottle) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.codexThrottle = ct
 }
 
 // RegisterAgent adds an agent to be monitored.
@@ -318,6 +327,10 @@ func (m *Monitor) checkHealth(ctx context.Context) {
 			agentState.RateLimited = false
 			agentState.WaitSeconds = 0
 			log.Printf("[resilience] Agent %s rate limit cleared", agentState.PaneID)
+			// Notify Codex throttle of success (bd-3qoly)
+			if agentState.AgentType == "cod" && m.codexThrottle != nil {
+				m.codexThrottle.RecordSuccess()
+			}
 		}
 
 		// Check for error status or process exit
@@ -400,6 +413,15 @@ func (m *Monitor) handleRateLimit(agent *AgentState, waitSeconds int) {
 
 	log.Printf("[resilience] Agent %s (pane %d, type %s) hit rate limit (wait %ds)",
 		agent.PaneID, agent.PaneIndex, agent.AgentType, waitSeconds)
+
+	// Propagate to Codex throttle for cod agents (bd-3qoly)
+	if agent.AgentType == "cod" && m.codexThrottle != nil {
+		m.codexThrottle.RecordRateLimit(agent.PaneID, waitSeconds)
+		status := m.codexThrottle.Status()
+		log.Printf("[resilience] Codex throttle engaged: phase=%s, allowed=%d/%d, cooldown=%s",
+			status.Phase, status.AllowedConcurrent, status.MaxConcurrent,
+			ratelimit.FormatDelay(status.CooldownRemaining))
+	}
 
 	events.DefaultEmitter().Emit(events.NewWebhookEvent(
 		events.WebhookAgentRateLimit,
