@@ -17,6 +17,7 @@ import (
 	"golang.org/x/term"
 
 	"github.com/Dicklesworthstone/ntm/internal/assignment"
+	"github.com/Dicklesworthstone/ntm/internal/config"
 	"github.com/Dicklesworthstone/ntm/internal/cli/suggestions"
 	"github.com/Dicklesworthstone/ntm/internal/handoff"
 	"github.com/Dicklesworthstone/ntm/internal/kernel"
@@ -375,9 +376,22 @@ func runList(tags []string) error {
 	width, _, _ := term.GetSize(int(os.Stdout.Fd()))
 	isWide := width >= 100
 
+	// Check if any sessions have labels (bd-3cu02.6)
+	hasLabels := false
+	for _, s := range resp.Sessions {
+		if s.Label != "" {
+			hasLabels = true
+			break
+		}
+	}
+
 	if isWide {
 		w := tabwriter.NewWriter(os.Stdout, 0, 0, 3, ' ', 0)
-		fmt.Fprintln(w, "SESSION\tWINDOWS\tSTATE\tAGENTS")
+		if hasLabels {
+			fmt.Fprintln(w, "SESSION\tPROJECT\tLABEL\tWINDOWS\tSTATE\tAGENTS")
+		} else {
+			fmt.Fprintln(w, "SESSION\tWINDOWS\tSTATE\tAGENTS")
+		}
 
 		for _, s := range resp.Sessions {
 			attached := "detached"
@@ -415,7 +429,15 @@ func runList(tags []string) error {
 				}
 			}
 
-			fmt.Fprintf(w, "%s\t%d\t%s\t%s\n", s.Name, s.Windows, attached, agents)
+			if hasLabels {
+				labelDisplay := "-"
+				if s.Label != "" {
+					labelDisplay = s.Label
+				}
+				fmt.Fprintf(w, "%s\t%s\t%s\t%d\t%s\t%s\n", s.Name, s.BaseProject, labelDisplay, s.Windows, attached, agents)
+			} else {
+				fmt.Fprintf(w, "%s\t%d\t%s\t%s\n", s.Name, s.Windows, attached, agents)
+			}
 		}
 		w.Flush()
 	} else {
@@ -484,8 +506,11 @@ func buildSessionListResponse(tags []string) (output.ListResponse, error) {
 
 	items := make([]output.SessionListItem, len(sessions))
 	for i, s := range sessions {
+		base, label := config.ParseSessionLabel(s.Name)
 		item := output.SessionListItem{
 			Name:             s.Name,
+			BaseProject:      base,
+			Label:            label,
 			Windows:          s.Windows,
 			Attached:         s.Attached,
 			WorkingDirectory: s.Directory,
@@ -529,6 +554,20 @@ func buildSessionListResponse(tags []string) (output.ListResponse, error) {
 		}
 		items[i] = item
 	}
+
+	// Sort by base project, then unlabeled first, then label alphabetically (bd-3cu02.6)
+	sort.Slice(items, func(i, j int) bool {
+		if items[i].BaseProject != items[j].BaseProject {
+			return items[i].BaseProject < items[j].BaseProject
+		}
+		if items[i].Label == "" {
+			return true
+		}
+		if items[j].Label == "" {
+			return false
+		}
+		return items[i].Label < items[j].Label
+	})
 
 	return output.ListResponse{
 		TimestampedResponse: output.NewTimestamped(),

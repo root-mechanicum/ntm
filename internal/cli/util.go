@@ -186,7 +186,8 @@ func inferSessionFromCWD(sessions []tmux.Session) (string, string) {
 		activeCfg = config.Default()
 	}
 
-	bestName := ""
+	// Collect all sessions matching CWD, grouped by longest prefix (bd-3cu02.8)
+	var bestMatches []tmux.Session
 	bestLen := 0
 	for _, s := range sessions {
 		projectDir := filepath.Clean(activeCfg.GetProjectDir(s.Name))
@@ -194,14 +195,30 @@ func inferSessionFromCWD(sessions []tmux.Session) (string, string) {
 			continue
 		}
 		if cwd == projectDir || strings.HasPrefix(cwd, projectDir+string(os.PathSeparator)) {
-			if len(projectDir) > bestLen {
-				bestName = s.Name
-				bestLen = len(projectDir)
+			dirLen := len(projectDir)
+			if dirLen > bestLen {
+				bestMatches = []tmux.Session{s}
+				bestLen = dirLen
+			} else if dirLen == bestLen {
+				bestMatches = append(bestMatches, s)
 			}
 		}
 	}
-	if bestName != "" {
-		return bestName, "current directory"
+	if len(bestMatches) == 1 {
+		return bestMatches[0].Name, "current directory"
+	}
+	if len(bestMatches) > 1 {
+		// Tier 1: prefer unlabeled (base) session if it exists
+		for _, m := range bestMatches {
+			if !config.HasLabel(m.Name) {
+				return m.Name, "current directory (base session preferred)"
+			}
+		}
+		// Tier 2: all labeled, ambiguous — pick first alphabetically for determinism
+		sort.Slice(bestMatches, func(i, j int) bool {
+			return bestMatches[i].Name < bestMatches[j].Name
+		})
+		return bestMatches[0].Name, "current directory (first labeled session)"
 	}
 
 	// Fallback heuristic: match session name to the current directory name.

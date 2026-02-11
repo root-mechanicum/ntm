@@ -11,6 +11,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/Dicklesworthstone/ntm/internal/audit"
+	"github.com/Dicklesworthstone/ntm/internal/config"
 	"github.com/Dicklesworthstone/ntm/internal/hooks"
 	"github.com/Dicklesworthstone/ntm/internal/kernel"
 	"github.com/Dicklesworthstone/ntm/internal/output"
@@ -73,7 +74,10 @@ func init() {
 }
 
 func newCreateCmd() *cobra.Command {
-	var panes int
+	var (
+		panes int
+		label string
+	)
 
 	cmd := &cobra.Command{
 		Use:   "create <session-name>",
@@ -83,14 +87,26 @@ The session directory is created under PROJECTS_BASE if it doesn't exist.
 
 Example:
   ntm create myproject           # Create with default panes
-  ntm create myproject --panes=6 # Create with 6 panes`,
+  ntm create myproject --panes=6 # Create with 6 panes
+  ntm create myproject --label frontend  # Labeled session`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runCreate(args[0], panes)
+			sessionName := args[0]
+
+			// Apply goal label to session name (bd-3cu02.5)
+			if label != "" {
+				if err := config.ValidateLabel(label); err != nil {
+					return fmt.Errorf("invalid label: %w", err)
+				}
+				sessionName = config.FormatSessionName(sessionName, label)
+			}
+
+			return runCreate(sessionName, panes)
 		},
 	}
 
 	cmd.Flags().IntVarP(&panes, "panes", "p", 0, "number of panes to create (default from config)")
+	cmd.Flags().StringVarP(&label, "label", "l", "", "Goal label for multi-session support (e.g., --label frontend creates session PROJECT--frontend)")
 
 	return cmd
 }
