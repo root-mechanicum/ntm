@@ -45,7 +45,8 @@ type statusOptions struct {
 
 // SessionListInput is the kernel input for sessions.list.
 type SessionListInput struct {
-	Tags []string `json:"tags,omitempty"`
+	Tags    []string `json:"tags,omitempty"`
+	Project string   `json:"project,omitempty"` // Filter by base project name (bd-3cu02.14)
 }
 
 // SessionStatusInput is the kernel input for sessions.status.
@@ -121,7 +122,7 @@ func init() {
 				opts = *value
 			}
 		}
-		return buildSessionListResponse(opts.Tags)
+		return buildSessionListResponse(opts.Tags, opts.Project)
 	})
 
 	kernel.MustRegister(kernel.Command{
@@ -336,20 +337,26 @@ func runAttach(session string) error {
 
 func newListCmd() *cobra.Command {
 	var tags []string
+	var project string
 	cmd := &cobra.Command{
 		Use:     "list",
 		Aliases: []string{"ls", "l"},
 		Short:   "List all tmux sessions",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runList(tags)
+			return runList(tags, project)
 		},
 	}
 	cmd.Flags().StringSliceVar(&tags, "tag", nil, "filter sessions by agent tag (shows session if any agent matches)")
+	cmd.Flags().StringVarP(&project, "project", "p", "", "filter by base project name (shows all labeled sessions for the project)")
 	return cmd
 }
 
-func runList(tags []string) error {
-	result, err := kernel.Run(context.Background(), "sessions.list", SessionListInput{Tags: tags})
+func runList(tags []string, project ...string) error {
+	input := SessionListInput{Tags: tags}
+	if len(project) > 0 {
+		input.Project = project[0]
+	}
+	result, err := kernel.Run(context.Background(), "sessions.list", input)
 	if err != nil {
 		if IsJSONOutput() {
 			_ = output.PrintJSON(output.NewError(err.Error()))
@@ -468,7 +475,7 @@ func coerceSessionListResponse(result any) (output.ListResponse, error) {
 	}
 }
 
-func buildSessionListResponse(tags []string) (output.ListResponse, error) {
+func buildSessionListResponse(tags []string, project string) (output.ListResponse, error) {
 	if err := tmux.EnsureInstalled(); err != nil {
 		return output.ListResponse{}, err
 	}
@@ -498,6 +505,17 @@ func buildSessionListResponse(tags []string) (output.ListResponse, error) {
 				}
 			}
 			if hasTag {
+				filtered = append(filtered, s)
+			}
+		}
+		sessions = filtered
+	}
+
+	// Filter sessions by base project name (bd-3cu02.14)
+	if project != "" {
+		var filtered []tmux.Session
+		for _, s := range sessions {
+			if config.SessionBase(s.Name) == project {
 				filtered = append(filtered, s)
 			}
 		}
