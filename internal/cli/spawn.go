@@ -668,6 +668,15 @@ Local fallback (--local-fallback):
   converted to cloud agents instead of failing spawn.
   --local-fallback-provider selects fallback target (cc, cod, gmi).
 
+For running multiple agent swarms on the same project with different goals,
+use --label:
+
+  ntm spawn myproject --label frontend --cc=3
+  ntm spawn myproject --label backend --cc=2
+
+This creates separate sessions (myproject--frontend, myproject--backend) that
+share the same project directory. Use ntm list --project myproject to see all.
+
 Examples:
   ntm spawn myproject --cc=2 --cod=2           # 2 Claude, 2 Codex + user pane
   ntm spawn myproject --cc=3 --cod=3 --gmi=1   # 3 Claude, 3 Codex, 1 Gemini

@@ -168,6 +168,19 @@ ntm dashboard myproject       # Open interactive visual dashboard
 ntm kill -f myproject         # Kill session (force, no confirmation)
 ```
 
+### Multi-Session Labels
+
+Run multiple agent swarms on the same project with different goals:
+
+    ntm spawn myproject --label frontend --cc=3
+    ntm spawn myproject --label backend --cc=2
+
+Both sessions work in the same project directory. Labels are organizational — agents coordinate via Agent Mail.
+
+    ntm list --project myproject     # show all sessions
+    ntm send --project myproject "commit changes"  # broadcast
+    ntm kill --project myproject     # kill all
+
 ### Output Capture
 
 ```bash
