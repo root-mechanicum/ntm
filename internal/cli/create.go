@@ -93,6 +93,11 @@ Example:
 		RunE: func(cmd *cobra.Command, args []string) error {
 			sessionName := args[0]
 
+			// Reject project names containing "--" (reserved separator) (bd-1933u)
+			if err := config.ValidateProjectName(sessionName); err != nil {
+				return err
+			}
+
 			// Apply goal label to session name (bd-3cu02.5)
 			if label != "" {
 				if err := config.ValidateLabel(label); err != nil {

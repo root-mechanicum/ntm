@@ -493,11 +493,13 @@ func buildCommandRegistry() []RobotCommandInfo {
 				{Name: "spawn-preset", Flag: "--spawn-preset", Type: "string", Required: false, Description: "Use recipe preset instead of counts"},
 				{Name: "spawn-no-user", Flag: "--spawn-no-user", Type: "bool", Required: false, Description: "Skip user pane creation"},
 				{Name: "spawn-dir", Flag: "--spawn-dir", Type: "string", Required: false, Description: "Working directory for session"},
+				{Name: "spawn-label", Flag: "--spawn-label", Type: "string", Required: false, Description: "Goal label for multi-session support (creates SESSION--LABEL)"},
 				{Name: "dry-run", Flag: "--dry-run", Type: "bool", Required: false, Description: "Preview without executing"},
 			},
 			Examples: []string{
 				"ntm --robot-spawn=myproject --spawn-cc=2 --spawn-cod=1",
 				"ntm --robot-spawn=myproject --spawn-preset=standard",
+				"ntm --robot-spawn=myproject --spawn-label=frontend --spawn-cc=3",
 			},
 		},
 		{

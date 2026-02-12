@@ -100,6 +100,14 @@ func GetSpawn(opts SpawnOptions, cfg *config.Config) (*SpawnOutput, error) {
 
 	// Apply goal label to session name (bd-1933u)
 	if opts.Label != "" {
+		if err := config.ValidateProjectName(opts.Session); err != nil {
+			errOutput := &SpawnOutput{
+				RobotResponse: NewErrorResponse(err, ErrCodeInvalidFlag, "Project names cannot contain '--' (reserved as label separator)"),
+				Session:       opts.Session,
+				Error:         err.Error(),
+			}
+			return errOutput, nil
+		}
 		if err := config.ValidateLabel(opts.Label); err != nil {
 			errOutput := &SpawnOutput{
 				RobotResponse: NewErrorResponse(fmt.Errorf("invalid label: %w", err), ErrCodeInvalidFlag, "Use a valid label (alphanumeric, dash, underscore)"),

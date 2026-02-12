@@ -331,6 +331,68 @@ func TestValidateLabel_Extended(t *testing.T) {
 	}
 }
 
+func TestValidateProjectName(t *testing.T) {
+	valid := []string{
+		"myproject",
+		"my-project",
+		"my_project",
+		"a",
+		"project123",
+		"foo-bar-baz",
+	}
+	for _, name := range valid {
+		t.Run("valid/"+name, func(t *testing.T) {
+			if err := ValidateProjectName(name); err != nil {
+				t.Errorf("ValidateProjectName(%q) unexpected error: %v", name, err)
+			}
+		})
+	}
+
+	invalid := []struct {
+		name        string
+		errContains string
+	}{
+		{"my--project", "reserved"},
+		{"--frontend", "reserved"},
+		{"project--", "reserved"},
+		{"a--b--c", "reserved"},
+	}
+	for _, tt := range invalid {
+		t.Run("invalid/"+tt.name, func(t *testing.T) {
+			err := ValidateProjectName(tt.name)
+			if err == nil {
+				t.Errorf("ValidateProjectName(%q) expected error containing %q, got nil", tt.name, tt.errContains)
+				return
+			}
+			if !strings.Contains(err.Error(), tt.errContains) {
+				t.Errorf("ValidateProjectName(%q) error = %q, want containing %q", tt.name, err.Error(), tt.errContains)
+			}
+		})
+	}
+}
+
+func TestSessionLabel(t *testing.T) {
+	tests := []struct {
+		input string
+		want  string
+	}{
+		{"myproject", ""},
+		{"myproject--frontend", "frontend"},
+		{"my-project--backend", "backend"},
+		{"foo--bar--baz", "bar--baz"},
+		{"a--b", "b"},
+		{"simple", ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			got := SessionLabel(tt.input)
+			if got != tt.want {
+				t.Errorf("SessionLabel(%q) = %q, want %q", tt.input, got, tt.want)
+			}
+		})
+	}
+}
+
 // TestGetProjectDir_WithLabel_TableDriven provides table-driven coverage for label stripping
 // in GetProjectDir, complementing the inline assertions below.
 func TestGetProjectDir_WithLabel_TableDriven(t *testing.T) {

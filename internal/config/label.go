@@ -76,3 +76,25 @@ func ValidateLabel(label string) error {
 	}
 	return nil
 }
+
+// ValidateProjectName checks that a project name does not contain the reserved
+// label separator "--". Project names with "--" would be ambiguous when combined
+// with labels (e.g., "my--project--frontend" is unparseable).
+func ValidateProjectName(project string) error {
+	if strings.Contains(project, "--") {
+		return fmt.Errorf("project name %q contains '--' which is reserved as the session-label separator", project)
+	}
+	return nil
+}
+
+// SessionLabel extracts the label from a session name, or empty string if unlabeled.
+// Convenience wrapper around ParseSessionLabel.
+//
+// Examples:
+//
+//	SessionLabel("myproject")            -> ""
+//	SessionLabel("myproject--frontend")  -> "frontend"
+func SessionLabel(sessionName string) string {
+	_, label := ParseSessionLabel(sessionName)
+	return label
+}
