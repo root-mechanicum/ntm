@@ -131,6 +131,29 @@ func BatchAppend(entries []*HistoryEntry) error {
 		return nil
 	}
 
+	// Prepare all data in memory before locking to ensure atomicity
+	var buf bytes.Buffer
+	for _, entry := range toWrite {
+		// Apply redaction if configured
+		entryToWrite := RedactEntry(entry)
+
+		data, err := json.Marshal(entryToWrite)
+		if err != nil {
+			return err
+		}
+		// Encrypt if configured
+		data, err = encryptJSONLine(data)
+		if err != nil {
+			return err
+		}
+		buf.Write(data)
+		buf.WriteByte('\n')
+	}
+
+	if buf.Len() == 0 {
+		return nil
+	}
+
 	unlock, err := acquireLock()
 	if err != nil {
 		return err
@@ -150,29 +173,8 @@ func BatchAppend(entries []*HistoryEntry) error {
 	}
 	defer f.Close()
 
-	writer := bufio.NewWriter(f)
-	for _, entry := range toWrite {
-		// Apply redaction if configured
-		entryToWrite := RedactEntry(entry)
-
-		data, err := json.Marshal(entryToWrite)
-		if err != nil {
-			return err
-		}
-		// Encrypt if configured
-		data, err = encryptJSONLine(data)
-		if err != nil {
-			return err
-		}
-		if _, err := writer.Write(data); err != nil {
-			return err
-		}
-		if err := writer.WriteByte('\n'); err != nil {
-			return err
-		}
-	}
-
-	return writer.Flush()
+	_, err = f.Write(buf.Bytes())
+	return err
 }
 
 // ReadAll reads all history entries from the file.
