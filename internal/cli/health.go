@@ -275,6 +275,7 @@ func runHealthWatch(session string) error {
 	// Set up signal handling for clean exit
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
+	defer signal.Stop(sigChan)
 
 	ticker := time.NewTicker(time.Duration(healthInterval) * time.Second)
 	defer ticker.Stop()

@@ -108,19 +108,19 @@ func runDiff(session, pane1ID, pane2ID string, unified, sideBySide, codeOnly boo
 		content2 = b2.String()
 	}
 
-	res := output.ComputeDiff(p1.Title, content1, p2.Title, content2)
+	diffRes := output.ComputeDiff(p1.Title, content1, p2.Title, content2)
 
 	if IsJSONOutput() {
-		return output.PrintJSON(res)
+		return output.PrintJSON(diffRes)
 	}
 
 	fmt.Printf("Comparing %s vs %s:\n", p1.Title, p2.Title)
-	fmt.Printf("  Lines: %d vs %d\n", res.LineCount1, res.LineCount2)
-	fmt.Printf("  Similarity: %.1f%%\n", res.Similarity*100)
+	fmt.Printf("  Lines: %d vs %d\n", diffRes.LineCount1, diffRes.LineCount2)
+	fmt.Printf("  Similarity: %.1f%%\n", diffRes.Similarity*100)
 
 	if unified {
 		fmt.Println("\nDiff:")
-		fmt.Println(res.UnifiedDiff)
+		fmt.Println(diffRes.UnifiedDiff)
 	} else if sideBySide {
 		fmt.Println("\nSide-by-side diff is not implemented yet. Using summary.")
 	}

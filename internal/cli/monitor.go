@@ -137,6 +137,7 @@ func runMonitor(session string) error {
 	// Wait for termination signal or session end
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+	defer signal.Stop(sigChan)
 
 	// Poll for session existence periodically to exit if session is killed
 	ticker := time.NewTicker(5 * time.Second)

@@ -1916,7 +1916,10 @@ func runKill(w io.Writer, session string, force bool, tags []string, noHooks boo
 		return fmt.Errorf("session '%s' not found", session)
 	}
 
-	dir := cfg.GetProjectDir(session)
+	var dir string
+	if cfg != nil {
+		dir = cfg.GetProjectDir(session)
+	}
 	auditStart := time.Now()
 	auditAborted := false
 	auditKilled := false
@@ -2420,7 +2423,10 @@ func generateKillSummary(session string) (*summary.SessionSummary, error) {
 	}
 
 	wd, _ := os.Getwd()
-	projectDir := cfg.GetProjectDir(session)
+	var projectDir string
+	if cfg != nil {
+		projectDir = cfg.GetProjectDir(session)
+	}
 	if projectDir == "" {
 		projectDir = wd
 	}
@@ -2808,7 +2814,10 @@ func checkCassDuplicates(session, prompt string, threshold float64, days int) er
 	}
 
 	// Get workspace from session
-	dir := cfg.GetProjectDir(session)
+	var dir string
+	if cfg != nil {
+		dir = cfg.GetProjectDir(session)
+	}
 
 	since := fmt.Sprintf("%dd", days)
 

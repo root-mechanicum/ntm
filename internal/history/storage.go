@@ -317,10 +317,12 @@ ReadEntries:
 		line := scanner.Bytes()
 		plain, err := decryptJSONLine(line)
 		if err != nil {
+			slog.Warn("history: skipping unreadable line", "error", err)
 			continue
 		}
 		var entry HistoryEntry
 		if err := json.Unmarshal(plain, &entry); err != nil {
+			slog.Warn("history: skipping malformed line", "error", err)
 			continue
 		}
 		entries = append(entries, entry)
@@ -424,17 +426,25 @@ func Prune(keep int) (int, error) {
 
 	// Rewrite file atomically (re-encrypt if enabled)
 	var buf bytes.Buffer
+	skipped := 0
 	for _, entry := range toKeep {
 		data, err := json.Marshal(entry)
 		if err != nil {
+			slog.Warn("history: prune: skipping entry that failed to marshal", "error", err)
+			skipped++
 			continue
 		}
 		data, err = encryptJSONLine(data)
 		if err != nil {
+			slog.Warn("history: prune: skipping entry that failed to encrypt", "error", err)
+			skipped++
 			continue
 		}
 		buf.Write(data)
 		buf.WriteByte('\n')
+	}
+	if skipped > 0 {
+		slog.Warn("history: prune: entries lost during rewrite", "skipped", skipped)
 	}
 
 	path := StoragePath()
@@ -472,17 +482,25 @@ func PruneByTime(cutoff time.Time) (int, error) {
 
 	// Rewrite file atomically (re-encrypt if enabled)
 	var buf bytes.Buffer
+	skipped := 0
 	for _, entry := range toKeep {
 		data, err := json.Marshal(entry)
 		if err != nil {
+			slog.Warn("history: prune-by-time: skipping entry that failed to marshal", "error", err)
+			skipped++
 			continue
 		}
 		data, err = encryptJSONLine(data)
 		if err != nil {
+			slog.Warn("history: prune-by-time: skipping entry that failed to encrypt", "error", err)
+			skipped++
 			continue
 		}
 		buf.Write(data)
 		buf.WriteByte('\n')
+	}
+	if skipped > 0 {
+		slog.Warn("history: prune-by-time: entries lost during rewrite", "skipped", skipped)
 	}
 
 	path := StoragePath()
@@ -562,9 +580,12 @@ func ExportTo(path string) error {
 	defer f.Close()
 
 	writer := bufio.NewWriter(f)
+	skipped := 0
 	for _, entry := range entries {
 		data, err := json.Marshal(entry)
 		if err != nil {
+			slog.Warn("history: export: skipping entry that failed to marshal", "error", err)
+			skipped++
 			continue
 		}
 		if _, err := writer.Write(data); err != nil {
@@ -573,6 +594,9 @@ func ExportTo(path string) error {
 		if err := writer.WriteByte('\n'); err != nil {
 			return err
 		}
+	}
+	if skipped > 0 {
+		slog.Warn("history: export: entries skipped during export", "skipped", skipped)
 	}
 
 	return writer.Flush()
@@ -591,17 +615,25 @@ func ImportFrom(path string) (int, error) {
 	// Set max line size for large prompts (5MB), start with 64KB
 	scanner.Buffer(make([]byte, 64*1024), 5*1024*1024)
 
+	skipped := 0
 	for scanner.Scan() {
 		line := scanner.Bytes()
 		plain, err := decryptJSONLine(line)
 		if err != nil {
+			slog.Warn("history: import: skipping unreadable line", "error", err)
+			skipped++
 			continue
 		}
 		var entry HistoryEntry
 		if err := json.Unmarshal(plain, &entry); err != nil {
+			slog.Warn("history: import: skipping malformed line", "error", err)
+			skipped++
 			continue
 		}
 		entries = append(entries, &entry)
+	}
+	if skipped > 0 {
+		slog.Warn("history: import: lines skipped during import", "skipped", skipped, "path", path)
 	}
 
 	if err := scanner.Err(); err != nil {

@@ -146,6 +146,7 @@ func runWatch(session string, opts watchOptions) error {
 	// Handle Ctrl+C
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
+	defer signal.Stop(sigChan)
 	go func() {
 		<-sigChan
 		fmt.Println("\n\nWatch mode stopped.")
