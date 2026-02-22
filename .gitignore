@@ -33,6 +33,10 @@ dashboard_debug.txt
 # Debug output files
 internal/cli/outputs/
 
+# Local scratch SQLite DBs (never tracked)
+storage.sqlite3
+storage.sqlite3-*
+
 # bv (beads viewer) local config and caches
 .bv/
 *.out
