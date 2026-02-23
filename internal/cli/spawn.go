@@ -1218,7 +1218,11 @@ func spawnSessionLogic(opts SpawnOptions) (err error) {
 		if !IsJSONOutput() {
 			steps.Start(fmt.Sprintf("Creating session '%s'", opts.Session))
 		}
-		if err := tmux.CreateSession(opts.Session, dir); err != nil {
+		historyLimit := tmux.DefaultHistoryLimit
+		if cfg != nil && cfg.Tmux.HistoryLimit > 0 {
+			historyLimit = cfg.Tmux.HistoryLimit
+		}
+		if err := tmux.CreateSessionWithHistoryLimit(opts.Session, dir, historyLimit); err != nil {
 			if !IsJSONOutput() {
 				steps.Fail()
 			}

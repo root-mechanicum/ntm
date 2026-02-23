@@ -271,6 +271,9 @@ func TestDefaultTmuxSettings(t *testing.T) {
 	if cfg.Tmux.PaneInitDelayMs != 1000 {
 		t.Errorf("Expected pane_init_delay_ms 1000, got %d", cfg.Tmux.PaneInitDelayMs)
 	}
+	if cfg.Tmux.HistoryLimit != 50000 {
+		t.Errorf("Expected history_limit 50000, got %d", cfg.Tmux.HistoryLimit)
+	}
 }
 
 func TestCustomTmuxSettings(t *testing.T) {

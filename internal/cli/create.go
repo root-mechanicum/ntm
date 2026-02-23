@@ -276,8 +276,12 @@ func runCreate(session string, panes int) (err error) {
 		fmt.Printf("Creating session '%s' with %d pane(s)...\n", session, panes)
 	}
 
-	// Create the session
-	if err := tmux.CreateSession(session, dir); err != nil {
+	// Create the session with scrollback history
+	historyLimit := tmux.DefaultHistoryLimit
+	if cfg != nil && cfg.Tmux.HistoryLimit > 0 {
+		historyLimit = cfg.Tmux.HistoryLimit
+	}
+	if err := tmux.CreateSessionWithHistoryLimit(session, dir, historyLimit); err != nil {
 		if IsJSONOutput() {
 			return output.PrintJSON(output.NewError(fmt.Sprintf("creating session: %v", err)))
 		}
@@ -452,8 +456,12 @@ func buildCreateResponse(session string, panes int) (resp output.CreateResponse,
 		return resp, nil
 	}
 
-	// Create the session
-	if err := tmux.CreateSession(session, dir); err != nil {
+	// Create the session with scrollback history
+	createHistoryLimit := tmux.DefaultHistoryLimit
+	if cfg != nil && cfg.Tmux.HistoryLimit > 0 {
+		createHistoryLimit = cfg.Tmux.HistoryLimit
+	}
+	if err := tmux.CreateSessionWithHistoryLimit(session, dir, createHistoryLimit); err != nil {
 		return output.CreateResponse{}, fmt.Errorf("creating session: %w", err)
 	}
 	auditCreated = true

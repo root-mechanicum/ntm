@@ -295,14 +295,43 @@ func GetSession(name string) (*Session, error) {
 	return DefaultClient.GetSession(name)
 }
 
-// CreateSession creates a new tmux session
+// DefaultHistoryLimit is the default scrollback buffer size for new sessions.
+// tmux's built-in default is only 2000 lines, which is far too small for AI agent
+// output. 50000 lines ensures that scrollback is accessible when reviewing
+// previous output in panes created via the palette or spawn commands.
+const DefaultHistoryLimit = 50000
+
+// CreateSession creates a new tmux session with a generous scrollback buffer.
+// The history-limit is set to DefaultHistoryLimit (50000 lines) to ensure pane
+// scrollback is accessible. Use CreateSessionWithHistoryLimit for a custom value.
 func (c *Client) CreateSession(name, directory string) error {
-	return c.RunSilent("new-session", "-d", "-s", name, "-c", directory)
+	return c.CreateSessionWithHistoryLimit(name, directory, DefaultHistoryLimit)
+}
+
+// CreateSessionWithHistoryLimit creates a new tmux session and sets the
+// history-limit (scrollback buffer size) for the session. A value of 0 skips
+// setting history-limit, leaving tmux's default (2000 lines).
+func (c *Client) CreateSessionWithHistoryLimit(name, directory string, historyLimit int) error {
+	if err := c.RunSilent("new-session", "-d", "-s", name, "-c", directory); err != nil {
+		return err
+	}
+	if historyLimit > 0 {
+		// Set history-limit on the session so all panes (including those created
+		// later via split-window) inherit the larger scrollback buffer.
+		_ = c.RunSilent("set-option", "-t", name, "history-limit", fmt.Sprintf("%d", historyLimit))
+	}
+	return nil
 }
 
 // CreateSession creates a new tmux session (default client)
 func CreateSession(name, directory string) error {
 	return DefaultClient.CreateSession(name, directory)
+}
+
+// CreateSessionWithHistoryLimit creates a new tmux session with a custom
+// history-limit (default client).
+func CreateSessionWithHistoryLimit(name, directory string, historyLimit int) error {
+	return DefaultClient.CreateSessionWithHistoryLimit(name, directory, historyLimit)
 }
 
 // GetPanes returns all panes in a session

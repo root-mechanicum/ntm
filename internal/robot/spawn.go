@@ -304,7 +304,11 @@ func GetSpawn(opts SpawnOptions, cfg *config.Config) (*SpawnOutput, error) {
 	// Create session if it doesn't exist
 	sessionCreated := false
 	if !tmux.SessionExists(opts.Session) {
-		if err := tmux.CreateSession(opts.Session, dir); err != nil {
+		historyLimit := tmux.DefaultHistoryLimit
+		if cfg != nil && cfg.Tmux.HistoryLimit > 0 {
+			historyLimit = cfg.Tmux.HistoryLimit
+		}
+		if err := tmux.CreateSessionWithHistoryLimit(opts.Session, dir, historyLimit); err != nil {
 			output.Error = fmt.Sprintf("creating session: %v", err)
 			output.RobotResponse = NewErrorResponse(err, ErrCodeInternalError, "Check tmux availability and session name")
 			return output, nil

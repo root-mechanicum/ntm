@@ -836,6 +836,7 @@ type TmuxConfig struct {
 	DefaultPanes    int    `toml:"default_panes"`
 	PaletteKey      string `toml:"palette_key"`
 	PaneInitDelayMs int    `toml:"pane_init_delay_ms"` // Delay before sending keys to new panes
+	HistoryLimit    int    `toml:"history_limit"`       // Scrollback buffer lines per pane (default 50000)
 	// ActivityIndicators control pane border activity coloring.
 	ActivityIndicators ActivityIndicatorConfig `toml:"activity_indicators"`
 }
@@ -1934,6 +1935,7 @@ func Default() *Config {
 			DefaultPanes:       10,
 			PaletteKey:         "F6",
 			PaneInitDelayMs:    1000,
+			HistoryLimit:       50000,
 			ActivityIndicators: DefaultActivityIndicatorConfig(),
 		},
 		Robot: DefaultRobotConfig(),
