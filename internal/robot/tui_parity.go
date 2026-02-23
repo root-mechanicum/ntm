@@ -899,12 +899,13 @@ func GetPalette(cfg *config.Config, opts PaletteOptions) (*PaletteOutput, error)
 			continue
 		}
 
-		prompt := ""
-		if len(cmd.Examples) > 0 {
-			prompt = strings.TrimSpace(cmd.Examples[0].Command)
-		}
+		// Use the command's description as the prompt text sent to agent panes.
+		// NEVER use Examples[0].Command — examples are CLI documentation strings
+		// that may contain dangerous arguments (e.g. "rm -rf /") and must not be
+		// sent verbatim to AI agents. See ntm#56.
+		prompt := strings.TrimSpace(cmd.Description)
 		if prompt == "" {
-			prompt = key
+			prompt = label
 		}
 
 		palCmd := PaletteCmd{
