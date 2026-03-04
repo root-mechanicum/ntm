@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"crypto/md5"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"flag"
@@ -2530,14 +2531,21 @@ func registerSpawnedAgents(workingDir, sessionName string, agents []spawnedAgent
 			if !IsJSONOutput() {
 				output.PrintInfof("Reused existing identity for pane %d: %s", agent.paneIndex, existingName)
 			}
-			// Still write the identity file (it may have been cleaned from /tmp)
-			h := md5.Sum([]byte(workingDir))
-			projHash := hex.EncodeToString(h[:])[:12]
-			identityPath := "/tmp/agent-mail-name." + projHash
-			if agent.paneID != "" {
-				identityPath += "." + agent.paneID
+			// Write canonical identity file (XDG-compliant persistent location)
+			identityContent := existingName + "\n" + fmt.Sprintf("%d", time.Now().Unix()) + "\n"
+			if canonPath, err := getIdentityFilePath(workingDir, agent.paneID); err == nil {
+				_ = os.WriteFile(canonPath, []byte(identityContent), 0o600)
 			}
-			_ = os.WriteFile(identityPath, []byte(existingName+"\n"), 0o600)
+			// Backward compat: also write to legacy /tmp/ location
+			{
+				h := md5.Sum([]byte(workingDir))
+				projHash := hex.EncodeToString(h[:])[:12]
+				legacyPath := "/tmp/agent-mail-name." + projHash
+				if agent.paneID != "" {
+					legacyPath += "." + agent.paneID
+				}
+				_ = os.WriteFile(legacyPath, []byte(existingName+"\n"), 0o600)
+			}
 			continue
 		}
 
@@ -2566,19 +2574,27 @@ func registerSpawnedAgents(workingDir, sessionName string, agents []spawnedAgent
 
 		// Write per-pane identity file so notify hooks can resolve AGENT_MAIL_AGENT.
 		// Path contract (must match notify_wrapper.sh and register_agent.sh):
-		//   /tmp/agent-mail-name.<md5(project_key)[0:12]>[.<pane_id>]
+		//   Canonical: <XDG_STATE_HOME or ~/.local/state>/agent-mail/identity/<sha256(project_key)[0:12]>/<pane_id>
+		//   Legacy:    /tmp/agent-mail-name.<md5(project_key)[0:12]>[.<pane_id>]
 		{
+			identityContent := registered.Name + "\n" + fmt.Sprintf("%d", time.Now().Unix()) + "\n"
+			if canonPath, err := getIdentityFilePath(workingDir, agent.paneID); err == nil {
+				if writeErr := os.WriteFile(canonPath, []byte(identityContent), 0o600); writeErr != nil {
+					if !IsJSONOutput() {
+						output.PrintWarningf("Failed to write identity file for pane %d: %v", agent.paneIndex, writeErr)
+					}
+				}
+			} else if !IsJSONOutput() {
+				output.PrintWarningf("Failed to resolve identity path for pane %d: %v", agent.paneIndex, err)
+			}
+			// Backward compat: also write to legacy /tmp/ location
 			h := md5.Sum([]byte(workingDir))
 			projHash := hex.EncodeToString(h[:])[:12]
-			identityPath := "/tmp/agent-mail-name." + projHash
+			legacyPath := "/tmp/agent-mail-name." + projHash
 			if agent.paneID != "" {
-				identityPath += "." + agent.paneID
+				legacyPath += "." + agent.paneID
 			}
-			if writeErr := os.WriteFile(identityPath, []byte(registered.Name+"\n"), 0o600); writeErr != nil {
-				if !IsJSONOutput() {
-					output.PrintWarningf("Failed to write identity file for pane %d: %v", agent.paneIndex, writeErr)
-				}
-			}
+			_ = os.WriteFile(legacyPath, []byte(registered.Name+"\n"), 0o600)
 		}
 
 		status.AgentsRegistered++
@@ -2622,6 +2638,28 @@ func agentTypeToProgram(agentType string) string {
 	default:
 		return agentType
 	}
+}
+
+// getIdentityFilePath builds the canonical Agent Mail identity file path.
+// Convention: <state_dir>/agent-mail/identity/<sha256(projectKey)[0:12]>/<paneID>
+// Respects XDG_STATE_HOME; defaults to ~/.local/state.
+// Creates the parent directory (mode 0700) if it does not exist.
+func getIdentityFilePath(projectKey, paneID string) (string, error) {
+	stateDir := os.Getenv("XDG_STATE_HOME")
+	if stateDir == "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", fmt.Errorf("cannot determine home directory: %w", err)
+		}
+		stateDir = filepath.Join(home, ".local", "state")
+	}
+	h := sha256.Sum256([]byte(projectKey))
+	projHash := hex.EncodeToString(h[:])[:12]
+	dir := filepath.Join(stateDir, "agent-mail", "identity", projHash)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return "", fmt.Errorf("cannot create identity directory %s: %w", dir, err)
+	}
+	return filepath.Join(dir, paneID), nil
 }
 
 // getMemoryContext retrieves and formats CM (CASS Memory) memories for agent spawn.
