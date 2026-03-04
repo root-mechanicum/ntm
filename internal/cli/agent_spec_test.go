@@ -347,12 +347,12 @@ func TestResolveModel_WithConfig(t *testing.T) {
 		modelSpec string
 		want      string
 	}{
-		{"claude alias opus", AgentTypeClaude, "opus", "claude-opus-4-5-20251101"},
-		{"claude alias sonnet", AgentTypeClaude, "sonnet", "claude-sonnet-4-20250514"},
+		{"claude alias opus", AgentTypeClaude, "opus", "claude-opus-4-6"},
+		{"claude alias sonnet", AgentTypeClaude, "sonnet", "claude-sonnet-4-6"},
 		{"codex alias o3", AgentTypeCodex, "o3", "o3"},
 		{"gemini alias flash", AgentTypeGemini, "flash", "gemini-3-flash"},
 		{"unknown alias passthrough", AgentTypeClaude, "unknown-custom", "unknown-custom"},
-		{"claude default", AgentTypeClaude, "", "claude-opus-4-5-20251101"},
+		{"claude default", AgentTypeClaude, "", "claude-opus-4-6"},
 		{"codex default", AgentTypeCodex, "", "gpt-5.3-codex"},
 		{"gemini default", AgentTypeGemini, "", "gemini-3-pro-preview"},
 	}

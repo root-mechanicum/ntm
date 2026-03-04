@@ -81,7 +81,7 @@ func TestModelNameForPane(t *testing.T) {
 
 	cfg = nil
 
-	if got := modelNameForPane(tmux.Pane{Type: tmux.AgentClaude}); got != "claude-sonnet-4-20250514" {
+	if got := modelNameForPane(tmux.Pane{Type: tmux.AgentClaude}); got != "claude-sonnet-4-6" {
 		t.Errorf("default claude model = %q", got)
 	}
 	if got := modelNameForPane(tmux.Pane{Type: tmux.AgentCodex}); got != "gpt-4" {

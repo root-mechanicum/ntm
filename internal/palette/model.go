@@ -1299,7 +1299,8 @@ func (m Model) viewCommandPhase() string {
 		Width(listWidth - 4)
 
 	searchIcon := lipgloss.NewStyle().Foreground(t.Mauve).Render(ic.Search + " ")
-	b.WriteString("  " + filterBox.Render(searchIcon+m.filter.View()) + "\n\n")
+	filterRendered := lipgloss.NewStyle().MarginLeft(2).Render(filterBox.Render(searchIcon + m.filter.View()))
+	b.WriteString(filterRendered + "\n\n")
 
 	// ═══════════════════════════════════════════════════════════════
 	// RESPONSIVE LAYOUT: Adapts to terminal width
@@ -1370,7 +1371,7 @@ func (m Model) viewCommandPhase() string {
 	// ═══════════════════════════════════════════════════════════════
 	b.WriteString("  " + m.renderHelpBar() + "\n")
 
-	return b.String()
+	return lipgloss.Place(m.width, m.height, lipgloss.Left, lipgloss.Top, b.String())
 }
 
 func (m Model) renderCommandList(width int) string {

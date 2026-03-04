@@ -1344,18 +1344,19 @@ type ModelsConfig struct {
 	Gemini        map[string]string `toml:"gemini"`         // Gemini model aliases
 }
 
-// DefaultModels returns the default model configuration with sensible aliases
+// DefaultModels returns the default model configuration with sensible aliases.
+// Model IDs should match those in internal/agents/profiles.go (no date suffixes).
 func DefaultModels() ModelsConfig {
 	return ModelsConfig{
-		DefaultClaude: "claude-opus-4-6-20260116",
+		DefaultClaude: "claude-opus-4-6",
 		DefaultCodex:  "gpt-5.3-codex",
 		DefaultGemini: "gemini-3-pro-preview",
 		Claude: map[string]string{
-			"opus":      "claude-opus-4-6-20260116",
-			"sonnet":    "claude-sonnet-4-20250514",
-			"haiku":     "claude-haiku-3-20240307",
-			"architect": "claude-opus-4-6-20260116",
-			"fast":      "claude-sonnet-4-20250514",
+			"opus":      "claude-opus-4-6",
+			"sonnet":    "claude-sonnet-4-6",
+			"haiku":     "claude-haiku-4-5",
+			"architect": "claude-opus-4-6",
+			"fast":      "claude-sonnet-4-6",
 		},
 		Codex: map[string]string{
 			"gpt4":  "gpt-4",

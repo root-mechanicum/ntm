@@ -2751,7 +2751,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					if m.cfg != nil {
 						modelName = m.cfg.Models.DefaultClaude
 					} else {
-						modelName = "claude-sonnet-4-20250514"
+						modelName = "claude-sonnet-4-6"
 					}
 				case string(tmux.AgentCodex):
 					if m.cfg != nil {
@@ -5359,7 +5359,7 @@ func (m *Model) resolveCostModelForPane(pane tmux.Pane) string {
 		if m.cfg != nil && m.cfg.Models.DefaultClaude != "" {
 			return m.cfg.Models.DefaultClaude
 		}
-		return "claude-sonnet-4-20250514"
+		return "claude-sonnet-4-6"
 	case tmux.AgentCodex:
 		if m.cfg != nil && m.cfg.Models.DefaultCodex != "" {
 			return m.cfg.Models.DefaultCodex

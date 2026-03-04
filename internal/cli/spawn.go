@@ -2916,6 +2916,15 @@ func loadRecoveryMessages(ctx context.Context, sessionName, workingDir string) (
 		return nil, nil, nil, nil // Graceful degradation
 	}
 
+	// Ensure project exists before fetching inbox. Without this, fetch_inbox
+	// fails with "Project '/path' not found" if the project hasn't been
+	// registered yet (e.g. on first launch or with a fresh agent mail server).
+	if _, err := client.EnsureProject(ctx, workingDir); err != nil {
+		// Non-fatal: if ensure_project fails, we still try fetching in case
+		// the project already exists and the error is transient.
+		_ = err
+	}
+
 	agentName := resolveRecoveryAgentName(sessionName, workingDir)
 
 	// Fetch inbox

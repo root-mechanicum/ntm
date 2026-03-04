@@ -123,7 +123,7 @@ func TestRenderHeaderContextWarningLine(t *testing.T) {
 	m.paneStatus[1] = PaneStatus{
 		ContextPercent: 72,
 		ContextLimit:   1000,
-		ContextModel:   "claude-sonnet-4-20250514",
+		ContextModel:   "claude-sonnet-4-6",
 	}
 	m.paneStatus[2] = PaneStatus{
 		ContextPercent: 86,
@@ -147,7 +147,7 @@ func TestRenderHeaderContextWarningLine(t *testing.T) {
 	m.paneStatus[1] = PaneStatus{
 		ContextPercent: 60,
 		ContextLimit:   1000,
-		ContextModel:   "claude-sonnet-4-20250514",
+		ContextModel:   "claude-sonnet-4-6",
 	}
 	m.paneStatus[2] = PaneStatus{
 		ContextPercent: 65,

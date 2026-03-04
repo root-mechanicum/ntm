@@ -3992,7 +3992,7 @@ func modelNameForPane(pane tmux.Pane, cfg *config.Config) string {
 	}
 	switch pane.Type {
 	case tmux.AgentClaude:
-		return "claude-sonnet-4-20250514"
+		return "claude-sonnet-4-6"
 	case tmux.AgentCodex:
 		return "gpt-4"
 	case tmux.AgentGemini:
