@@ -2534,7 +2534,9 @@ func registerSpawnedAgents(workingDir, sessionName string, agents []spawnedAgent
 			// Write canonical identity file (XDG-compliant persistent location)
 			identityContent := existingName + "\n" + fmt.Sprintf("%d", time.Now().Unix()) + "\n"
 			if canonPath, err := getIdentityFilePath(workingDir, agent.paneID); err == nil {
-				_ = os.WriteFile(canonPath, []byte(identityContent), 0o600)
+				if writeErr := os.WriteFile(canonPath, []byte(identityContent), 0o600); writeErr != nil {
+					output.PrintWarningf("Failed to write canonical identity file %s: %v", canonPath, writeErr)
+				}
 			}
 			// Backward compat: also write to legacy /tmp/ location
 			{
