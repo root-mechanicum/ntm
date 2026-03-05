@@ -21,7 +21,9 @@ var (
 		"try again later",
 		"usage limit",
 		"request limit",
-		"exceeded.*limit",
+		"exceeded the limit",
+		"exceeded your limit",
+		"exceeded limit",
 	}
 
 	// ccContextWarnings indicates the agent is running low on context.
@@ -29,11 +31,14 @@ var (
 	ccContextWarnings = []string{
 		"this conversation is getting long",
 		"context limit",
-		"context.*limit",
+		"context is at its limit",
 		"running out of context",
-		"conversation.*long",
-		"approaching.*limit",
-		"nearing.*capacity",
+		"conversation is getting long",
+		"conversation is too long",
+		"approaching the limit",
+		"approaching its limit",
+		"nearing capacity",
+		"nearing its capacity",
 	}
 
 	// ccWorkingPatterns indicates the agent is actively producing output.
