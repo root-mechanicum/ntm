@@ -89,12 +89,6 @@ var (
 		regexp.MustCompile(`Running…`),            // Explicit running spinner
 	}
 
-	// ccSpinnerPastPatterns detect completed spinner lines that indicate recent work.
-	// These appear after a spinner finishes: "Scurried for 12s"
-	ccSpinnerPastPatterns = []*regexp.Regexp{
-		regexp.MustCompile(`\S+\s+for\s+\d+[ms]\b`), // Completed spinner: "Bunned for 3s"
-	}
-
 	// ccErrorPatterns indicates an error condition.
 	ccErrorPatterns = []string{
 		"error:",
