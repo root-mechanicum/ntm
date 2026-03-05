@@ -971,6 +971,15 @@ Override with config or: `export NTM_PROJECTS_BASE="/your/custom/path"`
 
 Each project creates a subdirectory: `$PROJECTS_BASE/<session-name>/`
 
+> **Session naming and Agent Mail coordination**: NTM computes the working
+> directory as `projects_base/session_name` and registers this path as the
+> Agent Mail project key. For cross-agent messaging to work, every session
+> targeting the same project must resolve to the same path. In practice this
+> means the session name should match an actual directory name under
+> `projects_base`. If your real projects live elsewhere, use
+> `ntm config set projects_base /your/actual/path` so the paths align.
+> Run `ntm list` and check the `project_dir` column to verify.
+
 ### Project Scaffolding (Quick Setup)
 
 The `ntm quick` command creates:
@@ -1514,6 +1523,12 @@ Reread AGENTS.md so it's still fresh in your mind. Use ultrathink.
 ## Agent Mail Integration
 
 NTM integrates with Agent Mail for multi-agent coordination across sessions and projects.
+
+> **Important**: Agent Mail uses the project working directory
+> (`projects_base/session_name`) as its routing key. Two sessions that
+> resolve to different paths — even if they target the same project — will
+> not be able to exchange messages. See [Directory Structure](#directory-structure)
+> for how to align `projects_base` with your actual project directories.
 
 ### Features
 

@@ -605,6 +605,10 @@ func newSpawnCmd() *cobra.Command {
 		Short: "Create session and spawn AI agents in panes",
 		Long: `Create a new tmux session and launch AI coding agents in separate panes.
 
+The session name determines the project working directory (projects_base/session_name)
+which is also used as the Agent Mail project key. For cross-agent messaging to work,
+the session name must match an actual directory under projects_base.
+
 By default, the first pane is reserved for the user. Agent panes are created
 and titled with their type (e.g., myproject__cc_1, myproject__cod_1).
 
