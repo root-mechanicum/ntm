@@ -69,19 +69,37 @@ func systemMemoryMB() uint64 {
 
 // nodeHeapMB computes a safe Node.js heap size based on system RAM.
 // Uses 25% of total RAM, clamped between 2048 MB and 16384 MB.
+// Deprecated: Claude Code is a native binary; NODE_OPTIONS has no effect.
+// Kept for backward compatibility with user-customized templates.
 func nodeHeapMB() string {
+	return memLimitMB()
+}
+
+// memLimitMB computes a per-agent memory limit based on system RAM.
+// Uses 25% of total RAM, clamped between 2048 MB and 16384 MB.
+func memLimitMB() string {
 	totalMB := systemMemoryMB()
 	if totalMB == 0 {
 		return "8192" // safe default for unknown systems
 	}
-	heapMB := totalMB / 4
-	if heapMB < 2048 {
-		heapMB = 2048
+	limitMB := totalMB / 4
+	if limitMB < 2048 {
+		limitMB = 2048
 	}
-	if heapMB > 16384 {
-		heapMB = 16384
+	if limitMB > 16384 {
+		limitMB = 16384
 	}
-	return fmt.Sprintf("%d", heapMB)
+	return fmt.Sprintf("%d", limitMB)
+}
+
+// memLimitPrefix returns a command prefix that enforces a real memory limit.
+// On Linux, uses systemd-run --user --scope -p MemoryMax= (cgroup v2).
+// On other platforms, returns an empty string (no OS-level limiting available).
+func memLimitPrefix() string {
+	if runtime.GOOS == "linux" {
+		return fmt.Sprintf("systemd-run --user --scope -q -p MemoryMax=%sM", memLimitMB())
+	}
+	return ""
 }
 
 // templateFuncs contains custom functions available in templates
@@ -125,7 +143,13 @@ var templateFuncs = template.FuncMap{
 	// Use this when inserting untrusted values into shell commands
 	"shellQuote": ShellQuote,
 	// nodeHeapMB returns a safe Node.js heap size based on system RAM
+	// Deprecated: kept for backward compat, use memLimitMB instead
 	"nodeHeapMB": nodeHeapMB,
+	// memLimitMB returns a per-agent memory limit in MB based on system RAM
+	"memLimitMB": memLimitMB,
+	// memLimitPrefix returns an OS-appropriate command prefix that enforces
+	// a real memory limit (systemd-run on Linux, empty on other platforms)
+	"memLimitPrefix": memLimitPrefix,
 }
 
 // GenerateAgentCommand renders an agent command template with the given variables.
@@ -172,7 +196,7 @@ func IsTemplateCommand(cmd string) bool {
 // System prompt injection is supported via SystemPromptFile for persona agents.
 func DefaultAgentTemplates() AgentConfig {
 	return AgentConfig{
-		Claude:   `NODE_OPTIONS="--max-old-space-size={{nodeHeapMB}}" claude --dangerously-skip-permissions{{if .Model}} --model {{shellQuote .Model}}{{end}}{{if .SystemPromptFile}} --system-prompt-file {{shellQuote .SystemPromptFile}}{{end}}`,
+		Claude:   `{{memLimitPrefix}} claude --dangerously-skip-permissions{{if .Model}} --model {{shellQuote .Model}}{{end}}{{if .SystemPromptFile}} --system-prompt-file {{shellQuote .SystemPromptFile}}{{end}}`,
 		Codex:    `{{if .SystemPromptFile}}CODEX_SYSTEM_PROMPT="$(cat {{shellQuote .SystemPromptFile}})" {{end}}codex --dangerously-bypass-approvals-and-sandbox -m {{shellQuote (.Model | default "gpt-5.3-codex")}} -c model_reasoning_effort="xhigh" -c model_reasoning_summary_format=experimental --search`,
 		Gemini:   `gemini{{if .Model}} --model {{shellQuote .Model}}{{end}} --yolo`,
 		Ollama:   `ollama run {{shellQuote (.Model | default "codellama:latest")}}`,

@@ -155,7 +155,7 @@ func TestGenerateAgentCommand_TemplateMode(t *testing.T) {
 			want: "agent --model claude-opus-4 --session test --pane 2",
 		},
 		{
-			name:     "complex template",
+			name:     "legacy NODE_OPTIONS template (backward compat)",
 			template: `NODE_OPTIONS="--max-old-space-size=32768" claude --dangerously-skip-permissions{{if .Model}} --model {{.Model}}{{end}}`,
 			vars:     AgentTemplateVars{Model: "claude-opus-4-20250514"},
 			want:     `NODE_OPTIONS="--max-old-space-size=32768" claude --dangerously-skip-permissions --model claude-opus-4-20250514`,

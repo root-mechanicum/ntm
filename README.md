@@ -1027,7 +1027,7 @@ projects_base = "~/Developer"
 
 [agents]
 # Commands used to launch each agent type
-claude = 'NODE_OPTIONS="--max-old-space-size=32768" claude --dangerously-skip-permissions'
+claude = '{{memLimitPrefix}} claude --dangerously-skip-permissions'
 codex = "codex --dangerously-bypass-approvals-and-sandbox -m gpt-5.1-codex-max"
 gemini = "gemini --yolo"
 
