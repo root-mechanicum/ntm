@@ -71,6 +71,9 @@ func NewSpinner() Spinner {
 
 // Init initializes the spinner
 func (s Spinner) Init() tea.Cmd {
+	if !styles.AnimationsEnabled() {
+		return nil
+	}
 	return s.tick()
 }
 
@@ -78,6 +81,9 @@ func (s Spinner) Init() tea.Cmd {
 func (s Spinner) Update(msg tea.Msg) (Spinner, tea.Cmd) {
 	switch msg.(type) {
 	case SpinnerTickMsg:
+		if !styles.AnimationsEnabled() {
+			return s, nil
+		}
 		frames, ok := spinnerFrames[s.Style]
 		if !ok || len(frames) == 0 {
 			frames = spinnerFrames[SpinnerDots]
@@ -110,6 +116,9 @@ func (s Spinner) View() string {
 }
 
 func (s Spinner) tick() tea.Cmd {
+	if !styles.AnimationsEnabled() {
+		return nil
+	}
 	return tea.Tick(s.FPS, func(t time.Time) tea.Msg {
 		return SpinnerTickMsg(t)
 	})

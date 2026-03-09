@@ -5,6 +5,17 @@ import (
 	"testing"
 )
 
+func enableAnimationsForTest(t *testing.T) {
+	t.Helper()
+	t.Setenv("NTM_ANIMATIONS", "1")
+	t.Setenv("NTM_REDUCE_MOTION", "")
+	t.Setenv("TMUX", "")
+	t.Setenv("STY", "")
+	t.Setenv("CI", "")
+	t.Setenv("TERM", "xterm-256color")
+	t.Setenv("COLORTERM", "truecolor")
+}
+
 // Banner tests
 func TestRenderBanner(t *testing.T) {
 	t.Run("static", func(t *testing.T) {
@@ -320,6 +331,7 @@ func TestLabeledDivider(t *testing.T) {
 
 // Spinner tests
 func TestNewSpinner(t *testing.T) {
+	enableAnimationsForTest(t)
 	s := NewSpinner()
 	if s.Style != SpinnerDots {
 		t.Error("NewSpinner should default to SpinnerDots")
@@ -330,6 +342,7 @@ func TestNewSpinner(t *testing.T) {
 }
 
 func TestSpinnerView(t *testing.T) {
+	enableAnimationsForTest(t)
 	s := NewSpinner()
 	result := s.View()
 	if result == "" {
@@ -338,6 +351,7 @@ func TestSpinnerView(t *testing.T) {
 }
 
 func TestSpinnerViewWithLabel(t *testing.T) {
+	enableAnimationsForTest(t)
 	s := NewSpinner()
 	s.Label = "Loading..."
 	result := s.View()
@@ -347,6 +361,7 @@ func TestSpinnerViewWithLabel(t *testing.T) {
 }
 
 func TestSpinnerViewWithGradient(t *testing.T) {
+	enableAnimationsForTest(t)
 	s := NewSpinner()
 	s.Gradient = true
 	result := s.View()
@@ -370,6 +385,7 @@ func TestSpinnerStyles(t *testing.T) {
 
 	for _, style := range styles {
 		t.Run("", func(t *testing.T) {
+			enableAnimationsForTest(t)
 			s := NewSpinner()
 			s.Style = style
 			result := s.View()
@@ -381,6 +397,7 @@ func TestSpinnerStyles(t *testing.T) {
 }
 
 func TestSpinnerUpdate(t *testing.T) {
+	enableAnimationsForTest(t)
 	s := NewSpinner()
 	initialFrame := s.Frame
 
@@ -397,6 +414,7 @@ func TestSpinnerUpdate(t *testing.T) {
 }
 
 func TestSpinnerUpdateUnknownMsg(t *testing.T) {
+	enableAnimationsForTest(t)
 	s := NewSpinner()
 	initialFrame := s.Frame
 
@@ -410,6 +428,7 @@ func TestSpinnerUpdateUnknownMsg(t *testing.T) {
 }
 
 func TestSpinnerTickCmd(t *testing.T) {
+	enableAnimationsForTest(t)
 	s := NewSpinner()
 	cmd := s.TickCmd()
 	if cmd == nil {
@@ -418,10 +437,33 @@ func TestSpinnerTickCmd(t *testing.T) {
 }
 
 func TestSpinnerInit(t *testing.T) {
+	enableAnimationsForTest(t)
 	s := NewSpinner()
 	cmd := s.Init()
 	if cmd == nil {
 		t.Error("Init should return a command")
+	}
+}
+
+func TestSpinnerDisablesAnimationInTmuxByDefault(t *testing.T) {
+	t.Setenv("NTM_ANIMATIONS", "")
+	t.Setenv("NTM_REDUCE_MOTION", "")
+	t.Setenv("TMUX", "/tmp/tmux-123/default,1,0")
+	t.Setenv("STY", "")
+	t.Setenv("CI", "")
+	t.Setenv("TERM", "tmux-256color")
+	t.Setenv("COLORTERM", "truecolor")
+
+	s := NewSpinner()
+	if cmd := s.Init(); cmd != nil {
+		t.Fatal("expected spinner init to avoid scheduling ticks inside tmux")
+	}
+	updated, cmd := s.Update(SpinnerTickMsg{})
+	if updated.Frame != 0 {
+		t.Fatalf("expected spinner frame to remain stable, got %d", updated.Frame)
+	}
+	if cmd != nil {
+		t.Fatal("expected no follow-up tick when animations are disabled")
 	}
 }
 

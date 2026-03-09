@@ -211,8 +211,8 @@ func TestTrueColorFallback(t *testing.T) {
 }
 
 func TestProgressBarInitAndUpdate(t *testing.T) {
+	enableAnimationsForTest(t)
 	bar := NewProgressBar(10)
-	bar.Animated = true
 	if cmd := bar.Init(); cmd == nil {
 		t.Fatal("expected Init to return a command when animated")
 	}
@@ -228,6 +228,7 @@ func TestProgressBarInitAndUpdate(t *testing.T) {
 }
 
 func TestProgressBarInitNoAnimation(t *testing.T) {
+	enableAnimationsForTest(t)
 	bar := NewProgressBar(10)
 	bar.Animated = false
 	if cmd := bar.Init(); cmd != nil {
@@ -236,6 +237,7 @@ func TestProgressBarInitNoAnimation(t *testing.T) {
 }
 
 func TestIndeterminateBarInitAndUpdate(t *testing.T) {
+	enableAnimationsForTest(t)
 	bar := NewIndeterminateBar(10)
 	if cmd := bar.Init(); cmd == nil {
 		t.Fatal("expected Init to return a command")
@@ -248,5 +250,55 @@ func TestIndeterminateBarInitAndUpdate(t *testing.T) {
 	}
 	if cmd == nil {
 		t.Fatal("expected Update to return a command on tick")
+	}
+}
+
+func TestProgressBarDisablesAnimationInTmuxByDefault(t *testing.T) {
+	t.Setenv("NTM_ANIMATIONS", "")
+	t.Setenv("NTM_REDUCE_MOTION", "")
+	t.Setenv("TMUX", "/tmp/tmux-123/default,1,0")
+	t.Setenv("STY", "")
+	t.Setenv("CI", "")
+	t.Setenv("TERM", "tmux-256color")
+	t.Setenv("COLORTERM", "truecolor")
+
+	bar := NewProgressBar(10)
+	if bar.Animated {
+		t.Fatal("expected progress bar animation to default off inside tmux")
+	}
+	if cmd := bar.Init(); cmd != nil {
+		t.Fatal("expected no progress tick command when animations are disabled")
+	}
+	updated, cmd := bar.Update(ProgressTickMsg{})
+	if updated.AnimationTick != 0 {
+		t.Fatalf("expected animation tick to remain stable, got %d", updated.AnimationTick)
+	}
+	if cmd != nil {
+		t.Fatal("expected no follow-up tick when progress animation is disabled")
+	}
+}
+
+func TestIndeterminateBarDisablesAnimationInTmuxByDefault(t *testing.T) {
+	t.Setenv("NTM_ANIMATIONS", "")
+	t.Setenv("NTM_REDUCE_MOTION", "")
+	t.Setenv("TMUX", "/tmp/tmux-123/default,1,0")
+	t.Setenv("STY", "")
+	t.Setenv("CI", "")
+	t.Setenv("TERM", "tmux-256color")
+	t.Setenv("COLORTERM", "truecolor")
+
+	bar := NewIndeterminateBar(10)
+	if bar.Animated {
+		t.Fatal("expected indeterminate bar animation to default off inside tmux")
+	}
+	if cmd := bar.Init(); cmd != nil {
+		t.Fatal("expected no indeterminate tick command when animations are disabled")
+	}
+	updated, cmd := bar.Update(ProgressTickMsg{})
+	if updated.Tick != 0 {
+		t.Fatalf("expected indeterminate tick to remain stable, got %d", updated.Tick)
+	}
+	if cmd != nil {
+		t.Fatal("expected no follow-up tick when indeterminate animation is disabled")
 	}
 }

@@ -57,7 +57,7 @@ func NewProgressBar(width int) ProgressBar {
 		EmptyColor:    t.Surface0,
 		FilledChar:    "█",
 		EmptyChar:     "░",
-		Animated:      true,
+		Animated:      styles.AnimationsEnabled() && terminal.SupportsTrueColor(),
 		AnimationTick: 0,
 	}
 }
@@ -74,6 +74,9 @@ func (p ProgressBar) Init() tea.Cmd {
 func (p ProgressBar) Update(msg tea.Msg) (ProgressBar, tea.Cmd) {
 	switch msg.(type) {
 	case ProgressTickMsg:
+		if !p.Animated {
+			return p, nil
+		}
 		p.AnimationTick++
 		return p, p.tick()
 	}
@@ -160,6 +163,7 @@ type IndeterminateBar struct {
 	Colors    []string
 	Label     string
 	ShowLabel bool
+	Animated  bool
 }
 
 // NewIndeterminateBar creates a new indeterminate progress bar
@@ -168,6 +172,7 @@ func NewIndeterminateBar(width int) IndeterminateBar {
 	return IndeterminateBar{
 		Width:    width,
 		BarWidth: 10,
+		Animated: styles.AnimationsEnabled(),
 		Colors: []string{
 			string(t.Blue),
 			string(t.Mauve),
@@ -180,6 +185,9 @@ func NewIndeterminateBar(width int) IndeterminateBar {
 func (b IndeterminateBar) Update(msg tea.Msg) (IndeterminateBar, tea.Cmd) {
 	switch msg.(type) {
 	case ProgressTickMsg:
+		if !b.Animated {
+			return b, nil
+		}
 		b.Tick++
 		return b, tea.Tick(progressTickInterval, func(t time.Time) tea.Msg {
 			return ProgressTickMsg(t)
@@ -252,6 +260,9 @@ func (b IndeterminateBar) View() string {
 
 // Init initializes the indeterminate bar
 func (b IndeterminateBar) Init() tea.Cmd {
+	if !b.Animated {
+		return nil
+	}
 	return tea.Tick(progressTickInterval, func(t time.Time) tea.Msg {
 		return ProgressTickMsg(t)
 	})
