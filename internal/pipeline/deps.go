@@ -7,12 +7,15 @@ import (
 
 // DependencyGraph represents step dependencies for execution ordering
 type DependencyGraph struct {
-	steps    map[string]*Step    // step ID -> step
-	edges    map[string][]string // step ID -> steps it depends on
-	reverse  map[string][]string // step ID -> steps that depend on it
-	inDegree map[string]int      // step ID -> number of dependencies
-	executed map[string]bool     // step ID -> has been executed
-	failed   map[string]bool     // step ID -> has failed (for CONTINUE mode)
+	steps         map[string]*Step    // step ID -> step
+	edges         map[string][]string // step ID -> steps it depends on
+	reverse       map[string][]string // step ID -> steps that depend on it
+	inDegree      map[string]int      // step ID -> number of dependencies
+	remainingDeps map[string]int      // step ID -> unresolved dependency count
+	ready         []string            // sorted ready step IDs
+	executed      map[string]bool     // step ID -> has been executed
+	executedCount int                 // number of executed steps
+	failed        map[string]bool     // step ID -> has failed (for CONTINUE mode)
 }
 
 // DependencyError represents an error in the dependency graph
@@ -37,12 +40,13 @@ type ExecutionPlan struct {
 // NewDependencyGraph creates a dependency graph from workflow steps
 func NewDependencyGraph(workflow *Workflow) *DependencyGraph {
 	g := &DependencyGraph{
-		steps:    make(map[string]*Step),
-		edges:    make(map[string][]string),
-		reverse:  make(map[string][]string),
-		inDegree: make(map[string]int),
-		executed: make(map[string]bool),
-		failed:   make(map[string]bool),
+		steps:         make(map[string]*Step),
+		edges:         make(map[string][]string),
+		reverse:       make(map[string][]string),
+		inDegree:      make(map[string]int),
+		remainingDeps: make(map[string]int),
+		executed:      make(map[string]bool),
+		failed:        make(map[string]bool),
 	}
 
 	// Add all steps including parallel sub-steps
@@ -53,6 +57,7 @@ func NewDependencyGraph(workflow *Workflow) *DependencyGraph {
 			g.steps[step.ID] = step
 			g.edges[step.ID] = step.DependsOn
 			g.inDegree[step.ID] = len(step.DependsOn)
+			g.remainingDeps[step.ID] = len(step.DependsOn)
 
 			// Build reverse edges
 			for _, dep := range step.DependsOn {
@@ -72,6 +77,11 @@ func NewDependencyGraph(workflow *Workflow) *DependencyGraph {
 	}
 
 	addSteps(workflow.Steps)
+	for id, remaining := range g.remainingDeps {
+		if remaining == 0 {
+			g.addReady(id)
+		}
+	}
 	return g
 }
 
@@ -266,25 +276,8 @@ func (g *DependencyGraph) Resolve() ExecutionPlan {
 
 // GetReadySteps returns steps that are ready to execute
 func (g *DependencyGraph) GetReadySteps() []string {
-	var ready []string
-	for id := range g.steps {
-		if g.executed[id] {
-			continue
-		}
-
-		allDepsExecuted := true
-		for _, dep := range g.edges[id] {
-			if !g.executed[dep] {
-				allDepsExecuted = false
-				break
-			}
-		}
-
-		if allDepsExecuted {
-			ready = append(ready, id)
-		}
-	}
-	sort.Strings(ready)
+	ready := make([]string, len(g.ready))
+	copy(ready, g.ready)
 	return ready
 }
 
@@ -293,7 +286,20 @@ func (g *DependencyGraph) MarkExecuted(id string) error {
 	if _, exists := g.steps[id]; !exists {
 		return fmt.Errorf("step %q not found", id)
 	}
+	if g.executed[id] {
+		return nil
+	}
 	g.executed[id] = true
+	g.executedCount++
+	g.removeReady(id)
+	for _, dependent := range g.reverse[id] {
+		if g.remainingDeps[dependent] > 0 {
+			g.remainingDeps[dependent]--
+		}
+		if g.remainingDeps[dependent] == 0 {
+			g.addReady(dependent)
+		}
+	}
 	return nil
 }
 
@@ -304,13 +310,7 @@ func (g *DependencyGraph) IsExecuted(id string) bool {
 
 // ExecutedCount returns the number of executed steps.
 func (g *DependencyGraph) ExecutedCount() int {
-	count := 0
-	for _, done := range g.executed {
-		if done {
-			count++
-		}
-	}
-	return count
+	return g.executedCount
 }
 
 // MarkFailed marks a step as failed (for CONTINUE mode dependency tracking)
@@ -373,4 +373,26 @@ func (g *DependencyGraph) Size() int {
 func ResolveWorkflow(workflow *Workflow) ExecutionPlan {
 	graph := NewDependencyGraph(workflow)
 	return graph.Resolve()
+}
+
+func (g *DependencyGraph) addReady(id string) {
+	if g.executed[id] {
+		return
+	}
+	idx := sort.SearchStrings(g.ready, id)
+	if idx < len(g.ready) && g.ready[idx] == id {
+		return
+	}
+	g.ready = append(g.ready, "")
+	copy(g.ready[idx+1:], g.ready[idx:])
+	g.ready[idx] = id
+}
+
+func (g *DependencyGraph) removeReady(id string) {
+	idx := sort.SearchStrings(g.ready, id)
+	if idx >= len(g.ready) || g.ready[idx] != id {
+		return
+	}
+	copy(g.ready[idx:], g.ready[idx+1:])
+	g.ready = g.ready[:len(g.ready)-1]
 }

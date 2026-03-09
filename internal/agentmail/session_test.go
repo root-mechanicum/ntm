@@ -1,6 +1,7 @@
 package agentmail
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"

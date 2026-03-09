@@ -1,6 +1,7 @@
 package pipeline
 
 import (
+	"fmt"
 	"testing"
 )
 
@@ -660,6 +661,65 @@ func TestDependencyGraph_ExecutedCount(t *testing.T) {
 	}
 }
 
+func TestDependencyGraph_MarkExecuted_OutOfOrderReplay(t *testing.T) {
+	t.Parallel()
+
+	w := &Workflow{
+		Steps: []Step{
+			{ID: "a", Prompt: "step a"},
+			{ID: "b", Prompt: "step b"},
+			{ID: "c", Prompt: "step c", DependsOn: []string{"a", "b"}},
+			{ID: "d", Prompt: "step d", DependsOn: []string{"c"}},
+		},
+	}
+
+	g := NewDependencyGraph(w)
+
+	if err := g.MarkExecuted("c"); err != nil {
+		t.Fatal(err)
+	}
+	if err := g.MarkExecuted("a"); err != nil {
+		t.Fatal(err)
+	}
+	if err := g.MarkExecuted("b"); err != nil {
+		t.Fatal(err)
+	}
+
+	ready := g.GetReadySteps()
+	if len(ready) != 1 || ready[0] != "d" {
+		t.Fatalf("expected only d ready after replaying completed steps, got %v", ready)
+	}
+}
+
+func TestDependencyGraph_MarkExecuted_Idempotent(t *testing.T) {
+	t.Parallel()
+
+	w := &Workflow{
+		Steps: []Step{
+			{ID: "a", Prompt: "step a"},
+			{ID: "b", Prompt: "step b", DependsOn: []string{"a"}},
+		},
+	}
+
+	g := NewDependencyGraph(w)
+
+	if err := g.MarkExecuted("a"); err != nil {
+		t.Fatal(err)
+	}
+	if err := g.MarkExecuted("a"); err != nil {
+		t.Fatal(err)
+	}
+
+	if count := g.ExecutedCount(); count != 1 {
+		t.Fatalf("ExecutedCount() = %d, want 1", count)
+	}
+
+	ready := g.GetReadySteps()
+	if len(ready) != 1 || ready[0] != "b" {
+		t.Fatalf("expected only b ready after duplicate mark, got %v", ready)
+	}
+}
+
 func TestFindUnreachable(t *testing.T) {
 	t.Parallel()
 
@@ -747,10 +807,10 @@ func TestResolve_WithLevels(t *testing.T) {
 
 	w := &Workflow{
 		Steps: []Step{
-			{ID: "a", Prompt: "step a"},                         // level 0
-			{ID: "b", Prompt: "step b"},                         // level 0
-			{ID: "c", Prompt: "step c", DependsOn: []string{"a"}}, // level 1
-			{ID: "d", Prompt: "step d", DependsOn: []string{"b"}}, // level 1
+			{ID: "a", Prompt: "step a"},                                // level 0
+			{ID: "b", Prompt: "step b"},                                // level 0
+			{ID: "c", Prompt: "step c", DependsOn: []string{"a"}},      // level 1
+			{ID: "d", Prompt: "step d", DependsOn: []string{"b"}},      // level 1
 			{ID: "e", Prompt: "step e", DependsOn: []string{"c", "d"}}, // level 2
 		},
 	}
@@ -789,4 +849,46 @@ func TestResolve_WithLevels(t *testing.T) {
 	if eIdx < cIdx || eIdx < dIdx {
 		t.Error("step e should come after c and d in execution order")
 	}
+}
+
+func BenchmarkDependencyGraphScheduling(b *testing.B) {
+	workflow := benchmarkDependencyWorkflow(32, 16)
+	b.ReportAllocs()
+
+	for i := 0; i < b.N; i++ {
+		graph := NewDependencyGraph(workflow)
+		for {
+			ready := graph.GetReadySteps()
+			if len(ready) == 0 {
+				if graph.ExecutedCount() == graph.Size() {
+					break
+				}
+				b.Fatalf("scheduler stalled with %d/%d executed", graph.ExecutedCount(), graph.Size())
+			}
+			for _, id := range ready {
+				if err := graph.MarkExecuted(id); err != nil {
+					b.Fatal(err)
+				}
+			}
+		}
+	}
+}
+
+func benchmarkDependencyWorkflow(levels, width int) *Workflow {
+	steps := make([]Step, 0, levels*width)
+	for level := 0; level < levels; level++ {
+		for slot := 0; slot < width; slot++ {
+			id := fmt.Sprintf("l%02d_s%02d", level, slot)
+			step := Step{ID: id, Prompt: id}
+			if level > 0 {
+				deps := make([]string, 0, width)
+				for depSlot := 0; depSlot < width; depSlot++ {
+					deps = append(deps, fmt.Sprintf("l%02d_s%02d", level-1, depSlot))
+				}
+				step.DependsOn = deps
+			}
+			steps = append(steps, step)
+		}
+	}
+	return &Workflow{Steps: steps}
 }
