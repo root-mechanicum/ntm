@@ -229,6 +229,11 @@ var (
 	pendingHeaders        = []string{"pending", "next", "next steps", "todo", "remaining", "follow up", "follow-ups"}
 	errorHeaders          = []string{"errors", "issues", "failures", "problems", "blockers"}
 	decisionHeaders       = []string{"decisions", "key decisions"}
+	pathLineRegexes       = []*regexp.Regexp{
+		regexp.MustCompile(`(?:^|[\s'"(,])((src|internal|pkg|cmd|lib|test|tests|spec|app|api|web|frontend|backend|client|server|utils|util|common|shared|core|modules|components|services|models|views|controllers|middleware|config|configs|scripts|tools|build|dist|bin|docs|examples|assets|resources|public|private|vendor|third_party|node_modules)\/[\w\-./]+\.[A-Za-z0-9]+)`),
+		regexp.MustCompile(`(?:^|[\s'"(,])(\./[\w\-./]+\.[A-Za-z0-9]+)`),
+		regexp.MustCompile(`(?:^|[\s'"(,])([\w\-./]+\.(?:go|py|js|ts|jsx|tsx|rs|rb|java|c|cpp|h|hpp|cs|php|swift|kt|scala|vue|svelte|md|txt|json|yaml|yml|toml|xml|html|css|scss|sass|less))(?:[\s'"\])\}:,]|$)`),
+	}
 )
 
 func parseStructuredJSON(text string) summaryData {
@@ -583,14 +588,7 @@ func extractFileChanges(lines []string) []FileChange {
 
 func extractPathsFromLine(line string) []string {
 	var paths []string
-	patterns := []string{
-		`(?:^|[\s'"(,])((src|internal|pkg|cmd|lib|test|tests|spec|app|api|web|frontend|backend|client|server|utils|util|common|shared|core|modules|components|services|models|views|controllers|middleware|config|configs|scripts|tools|build|dist|bin|docs|examples|assets|resources|public|private|vendor|third_party|node_modules)\/[\w\-./]+\.[A-Za-z0-9]+)`,
-		`(?:^|[\s'"(,])(\./[\w\-./]+\.[A-Za-z0-9]+)`,
-		`(?:^|[\s'"(,])([\w\-./]+\.(?:go|py|js|ts|jsx|tsx|rs|rb|java|c|cpp|h|hpp|cs|php|swift|kt|scala|vue|svelte|md|txt|json|yaml|yml|toml|xml|html|css|scss|sass|less))(?:[\s'"\])\}:,]|$)`,
-	}
-
-	for _, pattern := range patterns {
-		re := regexp.MustCompile(pattern)
+	for _, re := range pathLineRegexes {
 		matches := re.FindAllStringSubmatch(line, -1)
 		for _, match := range matches {
 			if len(match) > 1 {
