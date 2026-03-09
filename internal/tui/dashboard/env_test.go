@@ -2,6 +2,9 @@ package dashboard
 
 import (
 	"testing"
+	"time"
+
+	tea "github.com/charmbracelet/bubbletea"
 )
 
 // =============================================================================
@@ -221,6 +224,66 @@ func TestCalculateLayout(t *testing.T) {
 			t.Errorf("BodyHeight = %d, want 30", dims.BodyHeight)
 		}
 	})
+}
+
+func TestNew_ReducedMotionAutoDisablesInTmux(t *testing.T) {
+	t.Setenv("NTM_ANIMATIONS", "")
+	t.Setenv("NTM_REDUCE_MOTION", "")
+	t.Setenv("TMUX", "/tmp/tmux-123/default,1,0")
+	t.Setenv("STY", "")
+	t.Setenv("CI", "")
+	t.Setenv("TERM", "tmux-256color")
+	t.Setenv("COLORTERM", "truecolor")
+
+	m := New("test", "")
+	if !m.reduceMotion {
+		t.Fatal("expected dashboard reduced motion to auto-enable inside tmux")
+	}
+	if got := m.getTickInterval(); got != time.Second/4 {
+		t.Fatalf("expected reduced-motion base tick of 250ms, got %s", got)
+	}
+}
+
+func TestNew_ReducedMotionCanBeForcedOff(t *testing.T) {
+	t.Setenv("NTM_ANIMATIONS", "1")
+	t.Setenv("NTM_REDUCE_MOTION", "")
+	t.Setenv("TMUX", "/tmp/tmux-123/default,1,0")
+	t.Setenv("STY", "")
+	t.Setenv("CI", "")
+	t.Setenv("TERM", "tmux-256color")
+	t.Setenv("COLORTERM", "truecolor")
+
+	m := New("test", "")
+	if m.reduceMotion {
+		t.Fatal("expected NTM_ANIMATIONS=1 to keep dashboard animations enabled")
+	}
+	if got := m.getTickInterval(); got != 100*time.Millisecond {
+		t.Fatalf("expected default base tick of 100ms, got %s", got)
+	}
+}
+
+func TestHandleWindowSizeOnlyClearsRenderCacheOnWidthChange(t *testing.T) {
+	t.Setenv("NTM_ANIMATIONS", "1")
+	t.Setenv("TMUX", "")
+	t.Setenv("STY", "")
+	t.Setenv("CI", "")
+	t.Setenv("TERM", "xterm-256color")
+	t.Setenv("COLORTERM", "truecolor")
+
+	m := New("test", "")
+	m.width = 120
+	m.height = 40
+	m.renderedOutputCache["pane-1"] = "cached"
+
+	_, _ = m.handleWindowSize(tea.WindowSizeMsg{Width: 120, Height: 50})
+	if _, ok := m.renderedOutputCache["pane-1"]; !ok {
+		t.Fatal("expected height-only resize to preserve rendered output cache")
+	}
+
+	_, _ = m.handleWindowSize(tea.WindowSizeMsg{Width: 140, Height: 50})
+	if len(m.renderedOutputCache) != 0 {
+		t.Fatal("expected width resize to clear rendered output cache")
+	}
 }
 
 // =============================================================================

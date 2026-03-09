@@ -859,8 +859,13 @@ func New(session, projectDir string) Model {
 	// Initialize activity tracking for adaptive tick rate (fixes #32)
 	m.lastActivity = now
 	m.activityState = StateActive
+	m.reduceMotion = styles.ReducedMotionEnabled()
 	m.baseTick = 100 * time.Millisecond
 	m.idleTick = 500 * time.Millisecond
+	if m.reduceMotion {
+		m.baseTick = 250 * time.Millisecond
+		m.idleTick = 1 * time.Second
+	}
 	m.idleTimeout = 5 * time.Second
 
 	applyDashboardEnvOverrides(&m)
@@ -960,7 +965,6 @@ func (m *Model) acceptUpdate(src refreshSource, gen uint64) bool {
 
 func (m *Model) handleWindowSize(msg tea.WindowSizeMsg) (tea.Model, tea.Cmd) {
 	prevWidth := m.width
-	prevHeight := m.height
 	prevTier := m.tier
 
 	width := msg.Width
@@ -985,7 +989,7 @@ func (m *Model) handleWindowSize(msg tea.WindowSizeMsg) (tea.Model, tea.Cmd) {
 	}
 	m.initRenderer(contentWidth)
 
-	if prevWidth != m.width || prevHeight != m.height {
+	if prevWidth != m.width {
 		m.renderedOutputCache = make(map[string]string)
 	}
 
@@ -998,6 +1002,16 @@ func (m *Model) handleWindowSize(msg tea.WindowSizeMsg) (tea.Model, tea.Cmd) {
 		searchH = 10
 	}
 	m.cassSearch.SetSize(searchW, searchH)
+
+	modesW := m.width - 10
+	modesH := m.height - 6
+	if modesW < 30 {
+		modesW = 30
+	}
+	if modesH < 10 {
+		modesH = 10
+	}
+	m.ensembleModes.SetSize(modesW, modesH)
 
 	m.resizePanelsForLayout()
 
@@ -1017,12 +1031,12 @@ func (m *Model) handleWindowSize(msg tea.WindowSizeMsg) (tea.Model, tea.Cmd) {
 		)
 	}
 
-	if prevTier != m.tier {
+	if prevTier != m.tier && dashboardDebugEnabled(m) {
 		log.Printf("[dashboard] tier transition %s -> %s (width=%d height=%d)",
 			tierLabel(prevTier), tierLabel(m.tier), m.width, m.height)
 	}
 
-	return m, nil
+	return *m, nil
 }
 
 func (m Model) subscribeToConfig() tea.Cmd {
@@ -2521,64 +2535,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.WindowSizeMsg:
-		prevWidth := m.width
-		prevHeight := m.height
-		prevTier := m.tier
-
-		m.width = msg.Width
-		m.height = msg.Height
-		m.tier = layout.TierForWidthWithHysteresis(msg.Width, prevTier)
-
-		m.cycleFocus(0)
-
-		_, detailWidth := layout.SplitProportions(msg.Width)
-		contentWidth := detailWidth - 4
-		if contentWidth < 20 {
-			contentWidth = 20
+		updated, cmd := m.handleWindowSize(msg)
+		if cmd != nil {
+			cmds = append(cmds, cmd)
 		}
-		m.initRenderer(contentWidth)
-
-		if prevWidth != m.width || prevHeight != m.height {
-			m.renderedOutputCache = make(map[string]string)
-		}
-
-		searchW := int(float64(msg.Width) * 0.6)
-		searchH := int(float64(msg.Height) * 0.6)
-		m.cassSearch.SetSize(searchW, searchH)
-
-		modesW := msg.Width - 10
-		modesH := msg.Height - 6
-		if modesW < 30 {
-			modesW = 30
-		}
-		if modesH < 10 {
-			modesH = 10
-		}
-		m.ensembleModes.SetSize(modesW, modesH)
-
-		m.resizePanelsForLayout()
-
-		if dashboardDebugEnabled(&m) {
-			contentHeight := contentHeightFor(m.height)
-			log.Printf("[dashboard] resize width=%d height=%d contentHeight=%d tier=%s",
-				m.width, m.height, contentHeight, tierLabel(m.tier))
-			log.Printf("[dashboard] panels %s %s %s %s %s %s %s",
-				logPanelSize("beads", m.beadsPanel),
-				logPanelSize("alerts", m.alertsPanel),
-				logPanelSize("metrics", m.metricsPanel),
-				logPanelSize("history", m.historyPanel),
-				logPanelSize("files", m.filesPanel),
-				logPanelSize("cass", m.cassPanel),
-				logPanelSize("spawn", m.spawnPanel),
-			)
-		}
-
-		if prevTier != m.tier {
-			log.Printf("[dashboard] tier transition %s -> %s (width=%d height=%d)",
-				tierLabel(prevTier), tierLabel(m.tier), m.width, m.height)
-		}
-
-		return m, tea.Batch(cmds...)
+		return updated, tea.Batch(cmds...)
 
 	case DashboardTickMsg:
 		// Only increment animation tick when not in reduce motion mode
