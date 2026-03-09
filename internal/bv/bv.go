@@ -29,10 +29,12 @@ const DefaultTimeout = 30 * time.Second
 // noDBCache tracks which directories require --no-db flag.
 // Key: directory path, Value: bool (true if --no-db is needed)
 // We use a sync.Map for thread-safe concurrent access across sessions.
-var noDBCache atomic.Value // Stores *sync.Map
+var noDBCache atomic.Value    // Stores *sync.Map
+var runBDMutexes atomic.Value // Stores *sync.Map
 
 func init() {
 	noDBCache.Store(&sync.Map{})
+	runBDMutexes.Store(&sync.Map{})
 }
 
 func getNoDBState(dir string) bool {
@@ -54,6 +56,25 @@ func setNoDBState(dir string, val bool) {
 		return
 	}
 	m.Store(dir, val)
+}
+
+func workspaceBDMutex(dir string) *sync.Mutex {
+	m, ok := runBDMutexes.Load().(*sync.Map)
+	if !ok || m == nil {
+		m = &sync.Map{}
+		runBDMutexes.Store(m)
+	}
+	if existing, ok := m.Load(dir); ok {
+		if mu, ok := existing.(*sync.Mutex); ok {
+			return mu
+		}
+	}
+	mu := &sync.Mutex{}
+	actual, _ := m.LoadOrStore(dir, mu)
+	if existing, ok := actual.(*sync.Mutex); ok {
+		return existing
+	}
+	return mu
 }
 
 // IsInstalled checks if bv is available in PATH
@@ -651,13 +672,23 @@ func RunBd(dir string, args ...string) (string, error) {
 		return "", err
 	}
 	dir = normalizedDir
+	args = append([]string(nil), args...)
+
+	// br's SQLite-backed workspace can self-contend when a single ntm process
+	// launches multiple br subprocesses against the same directory in parallel.
+	mu := workspaceBDMutex(dir)
+	mu.Lock()
+	defer mu.Unlock()
 
 	// Check cache for this specific directory
 	if getNoDBState(dir) && !containsString(args, "--no-db") {
 		args = append([]string{"--no-db"}, args...)
 	}
+	if !containsString(args, "--no-db") && !containsString(args, "--lock-timeout") {
+		args = append([]string{"--lock-timeout", "5000"}, args...)
+	}
 
-	const maxAttempts = 3
+	const maxAttempts = 6
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
 		ctx, cancel := context.WithTimeout(context.Background(), DefaultTimeout)
 
@@ -676,30 +707,51 @@ func RunBd(dir string, args ...string) (string, error) {
 			return "", fmt.Errorf("br timed out after %v", DefaultTimeout)
 		}
 
+		stdoutStr := stdout.String()
 		stderrStr := stderr.String()
-		// If we haven't already forced no-db, check if we should
-		if !getNoDBState(dir) && !containsString(args, "--no-db") && isNoBeadsDBError(stderrStr) {
-			setNoDBState(dir, true)
-			return RunBd(dir, append([]string{"--no-db"}, args...)...)
+		diagnostics := stderrStr
+		if strings.TrimSpace(diagnostics) == "" {
+			diagnostics = stdoutStr
 		}
-		if attempt < maxAttempts && isTransientBeadsDBError(stderrStr) {
-			time.Sleep(time.Duration(attempt*50) * time.Millisecond)
+		// If we haven't already forced no-db, check if we should
+		if !getNoDBState(dir) && !containsString(args, "--no-db") && isNoBeadsDBError(stderrStr, stdoutStr) {
+			setNoDBState(dir, true)
+			args = append([]string{"--no-db"}, stripFlagWithValue(args, "--lock-timeout")...)
+			attempt = 0
 			continue
 		}
-		return "", fmt.Errorf("br %s: %w: %s", strings.Join(args, " "), err, stderrStr)
+		if attempt < maxAttempts && isTransientBeadsDBError(stderrStr, stdoutStr) {
+			time.Sleep(transientBeadsDBBackoff(attempt))
+			continue
+		}
+		return "", fmt.Errorf("br %s: %w: %s", strings.Join(args, " "), err, diagnostics)
 	}
 
 	return "", fmt.Errorf("br %s: exceeded retry budget", strings.Join(args, " "))
 }
 
-func isNoBeadsDBError(stderr string) bool {
-	s := strings.ToLower(stderr)
+func isNoBeadsDBError(streams ...string) bool {
+	s := strings.ToLower(strings.Join(streams, "\n"))
 	return strings.Contains(s, "no beads database found") || strings.Contains(s, "use 'br --no-db'")
 }
 
-func isTransientBeadsDBError(stderr string) bool {
-	s := strings.ToLower(stderr)
+func isTransientBeadsDBError(streams ...string) bool {
+	s := strings.ToLower(strings.Join(streams, "\n"))
 	return strings.Contains(s, "database is busy") || strings.Contains(s, "database is locked")
+}
+
+func transientBeadsDBBackoff(attempt int) time.Duration {
+	if attempt < 1 {
+		attempt = 1
+	}
+	backoff := 50 * time.Millisecond
+	for i := 1; i < attempt; i++ {
+		backoff *= 2
+		if backoff >= 800*time.Millisecond {
+			return 800 * time.Millisecond
+		}
+	}
+	return backoff
 }
 
 func containsString(list []string, value string) bool {
@@ -709,6 +761,23 @@ func containsString(list []string, value string) bool {
 		}
 	}
 	return false
+}
+
+func stripFlagWithValue(args []string, flag string) []string {
+	if len(args) == 0 {
+		return nil
+	}
+	filtered := make([]string, 0, len(args))
+	for i := 0; i < len(args); i++ {
+		if args[i] != flag {
+			filtered = append(filtered, args[i])
+			continue
+		}
+		if i+1 < len(args) && !strings.HasPrefix(args[i+1], "-") {
+			i++
+		}
+	}
+	return filtered
 }
 
 // GetBeadStatus returns the current status for a bead ID using br show --json.

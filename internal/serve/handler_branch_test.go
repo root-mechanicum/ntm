@@ -9,6 +9,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io"
 	"math/big"
 	"net/http"
 	"net/http/httptest"
@@ -35,6 +36,75 @@ import (
 	"github.com/Dicklesworthstone/ntm/internal/scanner"
 	"github.com/Dicklesworthstone/ntm/internal/tools"
 )
+
+func reserveSharedBeadsProjectDir(t *testing.T) string {
+	t.Helper()
+	projectDir := t.TempDir()
+	srcRoot := filepath.Join("/data/projects/ntm", ".beads")
+	dstRoot := filepath.Join(projectDir, ".beads")
+	if err := copyBeadsFixtureTree(srcRoot, dstRoot); err != nil {
+		t.Fatalf("copy beads fixture: %v", err)
+	}
+	return projectDir
+}
+
+func copyBeadsFixtureTree(srcRoot, dstRoot string) error {
+	return filepath.Walk(srcRoot, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if shouldSkipBeadsFixturePath(path, info) {
+			if info.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+
+		relPath, err := filepath.Rel(srcRoot, path)
+		if err != nil {
+			return err
+		}
+		targetPath := filepath.Join(dstRoot, relPath)
+
+		if info.IsDir() {
+			return os.MkdirAll(targetPath, info.Mode())
+		}
+
+		return copyBeadsFixtureFile(path, targetPath, info.Mode())
+	})
+}
+
+func shouldSkipBeadsFixturePath(path string, info os.FileInfo) bool {
+	if info.IsDir() {
+		return false
+	}
+	switch filepath.Base(path) {
+	case ".sync.lock", ".bv.lock":
+		return true
+	default:
+		return false
+	}
+}
+
+func copyBeadsFixtureFile(srcPath, dstPath string, mode os.FileMode) error {
+	src, err := os.Open(srcPath)
+	if err != nil {
+		return err
+	}
+	defer src.Close()
+
+	dst, err := os.OpenFile(dstPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, mode)
+	if err != nil {
+		return err
+	}
+
+	if _, err := io.Copy(dst, src); err != nil {
+		dst.Close()
+		return err
+	}
+
+	return dst.Close()
+}
 
 // =============================================================================
 // RequirePermission / RequireRole — nil role-context branch
@@ -6813,7 +6883,7 @@ func TestHandleListBeads_WithProjectDir_Filters(t *testing.T) {
 		t.Skip("br not installed")
 	}
 	srv, _ := setupTestServer(t)
-	srv.projectDir = "/data/projects/ntm"
+	srv.projectDir = reserveSharedBeadsProjectDir(t)
 
 	// Exercise query param branches: status, label, assignee
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/beads?status=open&label=test&assignee=nobody", nil)
@@ -6831,7 +6901,7 @@ func TestHandleBeadsStats_WithProjectDir(t *testing.T) {
 		t.Skip("br not installed")
 	}
 	srv, _ := setupTestServer(t)
-	srv.projectDir = "/data/projects/ntm"
+	srv.projectDir = reserveSharedBeadsProjectDir(t)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/beads/stats", nil)
 	rec := httptest.NewRecorder()
@@ -6855,7 +6925,7 @@ func TestHandleBeadsReady_WithProjectDir(t *testing.T) {
 		t.Skip("br not installed")
 	}
 	srv, _ := setupTestServer(t)
-	srv.projectDir = "/data/projects/ntm"
+	srv.projectDir = reserveSharedBeadsProjectDir(t)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/beads/ready", nil)
 	rec := httptest.NewRecorder()
@@ -6872,7 +6942,7 @@ func TestHandleBeadsBlocked_WithProjectDir(t *testing.T) {
 		t.Skip("br not installed")
 	}
 	srv, _ := setupTestServer(t)
-	srv.projectDir = "/data/projects/ntm"
+	srv.projectDir = reserveSharedBeadsProjectDir(t)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/beads/blocked", nil)
 	rec := httptest.NewRecorder()
@@ -6889,7 +6959,7 @@ func TestHandleBeadsInProgress_WithProjectDir(t *testing.T) {
 		t.Skip("br not installed")
 	}
 	srv, _ := setupTestServer(t)
-	srv.projectDir = "/data/projects/ntm"
+	srv.projectDir = reserveSharedBeadsProjectDir(t)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/beads/in-progress", nil)
 	rec := httptest.NewRecorder()
@@ -6906,7 +6976,7 @@ func TestHandleListBeadDeps_WithProjectDir(t *testing.T) {
 		t.Skip("br not installed")
 	}
 	srv, _ := setupTestServer(t)
-	srv.projectDir = "/data/projects/ntm"
+	srv.projectDir = reserveSharedBeadsProjectDir(t)
 
 	// Use a bead ID that exists in the project
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/beads/bd-bdseb/deps", nil)
@@ -6927,7 +6997,7 @@ func TestHandleBeadsDaemonStatus_WithProjectDir(t *testing.T) {
 		t.Skip("br not installed")
 	}
 	srv, _ := setupTestServer(t)
-	srv.projectDir = "/data/projects/ntm"
+	srv.projectDir = reserveSharedBeadsProjectDir(t)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/beads/daemon/status", nil)
 	rec := httptest.NewRecorder()
@@ -6945,7 +7015,7 @@ func TestHandleClaimBead_WithProjectDir(t *testing.T) {
 		t.Skip("br not installed")
 	}
 	srv, _ := setupTestServer(t)
-	srv.projectDir = "/data/projects/ntm"
+	srv.projectDir = reserveSharedBeadsProjectDir(t)
 
 	body := `{"assignee":"test-agent"}`
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/beads/bd-nonexistent/claim", strings.NewReader(body))
@@ -6967,7 +7037,7 @@ func TestHandleBeadsInsights_WithProjectDir(t *testing.T) {
 		t.Skip("bv not installed")
 	}
 	srv, _ := setupTestServer(t)
-	srv.projectDir = "/data/projects/ntm"
+	srv.projectDir = reserveSharedBeadsProjectDir(t)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/beads/insights", nil)
 	rec := httptest.NewRecorder()
@@ -6984,7 +7054,7 @@ func TestHandleBeadsPlan_WithProjectDir(t *testing.T) {
 		t.Skip("bv not installed")
 	}
 	srv, _ := setupTestServer(t)
-	srv.projectDir = "/data/projects/ntm"
+	srv.projectDir = reserveSharedBeadsProjectDir(t)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/beads/plan", nil)
 	rec := httptest.NewRecorder()
@@ -7001,7 +7071,7 @@ func TestHandleBeadsPriority_WithProjectDir(t *testing.T) {
 		t.Skip("bv not installed")
 	}
 	srv, _ := setupTestServer(t)
-	srv.projectDir = "/data/projects/ntm"
+	srv.projectDir = reserveSharedBeadsProjectDir(t)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/beads/priority", nil)
 	rec := httptest.NewRecorder()
@@ -7018,7 +7088,7 @@ func TestHandleBeadsRecipes_WithProjectDir(t *testing.T) {
 		t.Skip("bv not installed")
 	}
 	srv, _ := setupTestServer(t)
-	srv.projectDir = "/data/projects/ntm"
+	srv.projectDir = reserveSharedBeadsProjectDir(t)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/beads/recipes", nil)
 	rec := httptest.NewRecorder()
@@ -7035,7 +7105,7 @@ func TestHandleRemoveBeadDep_WithProjectDir(t *testing.T) {
 		t.Skip("br not installed")
 	}
 	srv, _ := setupTestServer(t)
-	srv.projectDir = "/data/projects/ntm"
+	srv.projectDir = reserveSharedBeadsProjectDir(t)
 
 	req := httptest.NewRequest(http.MethodDelete, "/api/v1/beads/bd-nonexistent/deps/bd-also-nonexistent", nil)
 	rctx := chi.NewRouteContext()
@@ -7313,7 +7383,7 @@ func TestHandleMemoryPrivacyGet_WithProjectDir(t *testing.T) {
 		t.Skip("cm not installed")
 	}
 	srv, _ := setupTestServer(t)
-	srv.projectDir = "/data/projects/ntm"
+	srv.projectDir = reserveSharedBeadsProjectDir(t)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/memory/privacy", nil)
 	rec := httptest.NewRecorder()
@@ -7330,7 +7400,7 @@ func TestHandleMemoryPrivacyUpdate_EnabledWithAgents(t *testing.T) {
 		t.Skip("cm not installed")
 	}
 	srv, _ := setupTestServer(t)
-	srv.projectDir = "/data/projects/ntm"
+	srv.projectDir = reserveSharedBeadsProjectDir(t)
 
 	body := `{"enabled":true,"agents":["agent1","agent2"]}`
 	req := httptest.NewRequest(http.MethodPut, "/api/v1/memory/privacy", strings.NewReader(body))
@@ -7349,7 +7419,7 @@ func TestHandleMemoryPrivacyUpdate_Disabled(t *testing.T) {
 		t.Skip("cm not installed")
 	}
 	srv, _ := setupTestServer(t)
-	srv.projectDir = "/data/projects/ntm"
+	srv.projectDir = reserveSharedBeadsProjectDir(t)
 
 	body := `{"enabled":false}`
 	req := httptest.NewRequest(http.MethodPut, "/api/v1/memory/privacy", strings.NewReader(body))
@@ -7369,7 +7439,7 @@ func TestHandleCASSCapabilities_WithProjectDir(t *testing.T) {
 		t.Skip("cass not installed")
 	}
 	srv, _ := setupTestServer(t)
-	srv.projectDir = "/data/projects/ntm"
+	srv.projectDir = reserveSharedBeadsProjectDir(t)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/cass/capabilities", nil)
 	rec := httptest.NewRecorder()
@@ -7386,7 +7456,7 @@ func TestHandleCASSTimeline_WithProjectDir(t *testing.T) {
 		t.Skip("cass not installed")
 	}
 	srv, _ := setupTestServer(t)
-	srv.projectDir = "/data/projects/ntm"
+	srv.projectDir = reserveSharedBeadsProjectDir(t)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/cass/timeline?limit=5", nil)
 	rec := httptest.NewRecorder()
@@ -7769,7 +7839,7 @@ func TestHandleGetBead_WithProjectDir(t *testing.T) {
 		t.Skip("br not installed")
 	}
 	srv, _ := setupTestServer(t)
-	srv.projectDir = "/data/projects/ntm"
+	srv.projectDir = reserveSharedBeadsProjectDir(t)
 
 	// Use a known bead ID from the project
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/beads/bd-bdseb", nil)
@@ -7798,7 +7868,7 @@ func TestHandleUpdateBead_WithProjectDir(t *testing.T) {
 		t.Skip("br not installed")
 	}
 	srv, _ := setupTestServer(t)
-	srv.projectDir = "/data/projects/ntm"
+	srv.projectDir = reserveSharedBeadsProjectDir(t)
 
 	// Update with all optional fields to exercise param branches
 	body := `{"title":"test-title","description":"test-desc","priority":"P2","assignee":"test-agent","labels":["label1"]}`
@@ -7821,7 +7891,7 @@ func TestHandleCloseBead_WithProjectDir(t *testing.T) {
 		t.Skip("br not installed")
 	}
 	srv, _ := setupTestServer(t)
-	srv.projectDir = "/data/projects/ntm"
+	srv.projectDir = reserveSharedBeadsProjectDir(t)
 
 	// Use nonexistent bead to avoid actually closing a real one
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/beads/bd-nonexistent/close", nil)
@@ -8025,7 +8095,7 @@ func TestHandleListBeadDeps_JSONParse(t *testing.T) {
 		t.Skip("br not installed")
 	}
 	s, _ := setupTestServer(t)
-	s.projectDir = "/data/projects/ntm"
+	s.projectDir = reserveSharedBeadsProjectDir(t)
 
 	rctx := chi.NewRouteContext()
 	rctx.URLParams.Add("id", "bd-4b4zf")
@@ -8049,7 +8119,7 @@ func TestHandleRemoveBeadDep_UnlinkPath(t *testing.T) {
 		t.Skip("br not installed")
 	}
 	s, _ := setupTestServer(t)
-	s.projectDir = "/data/projects/ntm"
+	s.projectDir = reserveSharedBeadsProjectDir(t)
 
 	rctx := chi.NewRouteContext()
 	rctx.URLParams.Add("id", "bd-4b4zf")
@@ -8073,7 +8143,7 @@ func TestHandleListBeads_WithStatusFilter(t *testing.T) {
 		t.Skip("br not installed")
 	}
 	s, _ := setupTestServer(t)
-	s.projectDir = "/data/projects/ntm"
+	s.projectDir = reserveSharedBeadsProjectDir(t)
 
 	req := httptest.NewRequest("GET", "/api/v1/beads?status=open&limit=5", nil)
 	rec := httptest.NewRecorder()

@@ -46,10 +46,11 @@ func TestSpawnSessionLogic(t *testing.T) {
 	cfg = newTmuxIntegrationTestConfig(tmpDir)
 	jsonOutput = true
 
-	// Override templates to avoid dependency on actual agent binaries
-	cfg.Agents.Claude = "echo 'Claude started'; sleep 10"
-	cfg.Agents.Codex = "echo 'Codex started'; sleep 10"
-	cfg.Agents.Gemini = "echo 'Gemini started'; sleep 10"
+	// Override templates to avoid dependency on actual agent binaries while
+	// remaining compatible with explicit model overrides under test.
+	cfg.Agents.Claude = testAgentCatCommandTemplate
+	cfg.Agents.Codex = testAgentCatCommandTemplate
+	cfg.Agents.Gemini = testAgentCatCommandTemplate
 
 	// Unique session name
 	sessionName := fmt.Sprintf("ntm-test-spawn-%d", time.Now().UnixNano())
@@ -528,8 +529,9 @@ func TestSpawnSessionLogic_Ollama(t *testing.T) {
 	cfg = newTmuxIntegrationTestConfig(tmpDir)
 	jsonOutput = true
 
-	// Override templates to avoid dependency on actual agent binaries
-	cfg.Agents.Ollama = "echo 'Ollama started'; sleep 10"
+	// Override templates to avoid dependency on actual agent binaries while
+	// remaining compatible with explicit model overrides under test.
+	cfg.Agents.Ollama = testAgentCatCommandTemplate
 
 	// Unique session name
 	sessionName := fmt.Sprintf("ntm-test-spawn-ollama-%d", time.Now().UnixNano())
