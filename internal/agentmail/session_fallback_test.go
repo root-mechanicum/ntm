@@ -30,10 +30,12 @@ func TestLoadSessionAgent_Fallback(t *testing.T) {
 
 	sessionName := "test-session"
 	projectKey := "/path/to/project"
-	projectSlug := "project" // ProjectSlugFromPath("/path/to/project") -> "project"
+	projectSlug := ProjectSlugFromPath(projectKey)
+	legacyProjectSlug := legacyProjectSlugFromPath(projectKey)
 
 	// Expected paths based on implementation:
-	// New: $HOME/.config/ntm/sessions/test-session/project/agent.json
+	// New: $HOME/.config/ntm/sessions/test-session/path-to-project/agent.json
+	// Legacy slug fallback: $HOME/.config/ntm/sessions/test-session/project/agent.json
 	// Legacy: $HOME/.config/ntm/sessions/test-session/agent.json
 
 	configDir, err := os.UserConfigDir()
@@ -42,6 +44,7 @@ func TestLoadSessionAgent_Fallback(t *testing.T) {
 	}
 	baseDir := filepath.Join(configDir, "ntm", "sessions", sessionName)
 	newPath := filepath.Join(baseDir, projectSlug, "agent.json")
+	legacySlugPath := filepath.Join(baseDir, legacyProjectSlug, "agent.json")
 	legacyPath := filepath.Join(baseDir, "agent.json")
 
 	info := SessionAgentInfo{
@@ -79,8 +82,32 @@ func TestLoadSessionAgent_Fallback(t *testing.T) {
 		}
 	})
 
-	// 2. Test fallback to legacy path when project key is provided but new path missing
-	t.Run("Fallback to legacy path", func(t *testing.T) {
+	// 2. Test fallback to legacy basename slug when project key is provided but the
+	// modern full-path slug directory does not exist yet.
+	t.Run("Fallback to legacy slug path", func(t *testing.T) {
+		reset()
+		if err := os.MkdirAll(filepath.Dir(legacySlugPath), 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(legacySlugPath, data, 0644); err != nil {
+			t.Fatal(err)
+		}
+
+		loaded, err := LoadSessionAgent(sessionName, projectKey)
+		if err != nil {
+			t.Fatalf("Failed to load: %v", err)
+		}
+		if loaded == nil {
+			t.Fatal("Expected loaded agent, got nil")
+		}
+		if loaded.AgentName != info.AgentName {
+			t.Errorf("Expected agent %s, got %s", info.AgentName, loaded.AgentName)
+		}
+	})
+
+	// 3. Test fallback to legacy no-slug path when project key is provided but
+	// both modern and legacy-slug paths are missing.
+	t.Run("Fallback to legacy no-slug path", func(t *testing.T) {
 		reset()
 		if err := os.MkdirAll(filepath.Dir(legacyPath), 0755); err != nil {
 			t.Fatal(err)
@@ -101,7 +128,7 @@ func TestLoadSessionAgent_Fallback(t *testing.T) {
 		}
 	})
 
-	// 3. Test fallback to searching subdirectories when project key is unknown/empty
+	// 4. Test fallback to searching subdirectories when project key is unknown/empty
 	// (Note: LoadSessionAgent calls sessionAgentPath(name, "") which returns legacyPath.
 	// If legacyPath doesn't exist, it used to search subdirectories but that unsafe behavior was removed.)
 	t.Run("Fallback search subdirectories", func(t *testing.T) {
@@ -124,6 +151,38 @@ func TestLoadSessionAgent_Fallback(t *testing.T) {
 		}
 		if loaded != nil {
 			t.Fatal("Expected nil (strict loading), got agent")
+		}
+	})
+
+	t.Run("Continue past mismatched candidate", func(t *testing.T) {
+		reset()
+
+		wrongInfo := info
+		wrongInfo.ProjectKey = "/path/to/other-project"
+		wrongData, _ := json.Marshal(wrongInfo)
+
+		if err := os.MkdirAll(filepath.Dir(newPath), 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(newPath, wrongData, 0644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.MkdirAll(filepath.Dir(legacyPath), 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(legacyPath, data, 0644); err != nil {
+			t.Fatal(err)
+		}
+
+		loaded, err := LoadSessionAgent(sessionName, projectKey)
+		if err != nil {
+			t.Fatalf("Failed to load: %v", err)
+		}
+		if loaded == nil {
+			t.Fatal("Expected loaded agent, got nil")
+		}
+		if loaded.ProjectKey != projectKey {
+			t.Fatalf("Expected project %s, got %s", projectKey, loaded.ProjectKey)
 		}
 	})
 }

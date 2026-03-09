@@ -7,19 +7,19 @@ func TestProjectSlugFromPath(t *testing.T) {
 		input    string
 		expected string
 	}{
-		{"/Users/jemanuel/projects/ntm", "ntm"},
-		{"/home/user/code/my-project", "my-project"},
-		{"/var/www/html/site_v1", "site_v1"},
-		{"/tmp/test project", "test_project"},
-		{"/path/to/UPPERCASE", "uppercase"},
-		{"/path/to/mixed-CASE_project", "mixed-case_project"},
+		{"/Users/jemanuel/projects/ntm", "users-jemanuel-projects-ntm"},
+		{"/home/user/code/my-project", "home-user-code-my-project"},
+		{"/var/www/html/site_v1", "var-www-html-site_v1"},
+		{"/tmp/test project", "tmp-test-project"},
+		{"/path/to/UPPERCASE", "path-to-uppercase"},
+		{"/path/to/mixed-CASE_project", "path-to-mixed-case_project"},
 		{"/root", "root"},
 		{".", "root"},
 		{"/", "root"},
 		{"", ""},
-		{"/path/with/!@#$%^&*()", ""}, // All invalid chars
-		{"/path/to/valid-123_ok", "valid-123_ok"},
-		{"relative/path", "path"},
+		{"/path/with/!@#$%^&*()", "path-with"},
+		{"/path/to/valid-123_ok", "path-to-valid-123_ok"},
+		{"relative/path", "relative-path"},
 	}
 
 	for _, tt := range tests {

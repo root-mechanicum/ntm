@@ -190,16 +190,17 @@ func HasArchiveForProject(projectKey string) bool {
 		return false
 	}
 	homeDir, _ := os.UserHomeDir()
-	slug := ProjectSlugFromPath(projectKey)
-	if slug == "" {
-		return false
+	for _, slug := range []string{ProjectSlugFromPath(projectKey), legacyProjectSlugFromPath(projectKey)} {
+		if slug == "" {
+			continue
+		}
+		projectPath := filepath.Join(homeDir, DefaultArchivePath, "projects", slug)
+		info, err := os.Stat(projectPath)
+		if err == nil && info.IsDir() {
+			return true
+		}
 	}
-	projectPath := filepath.Join(homeDir, DefaultArchivePath, "projects", slug)
-	info, err := os.Stat(projectPath)
-	if err != nil {
-		return false
-	}
-	return info.IsDir()
+	return false
 }
 
 // HealthCheck performs a health check against the Agent Mail server.
@@ -475,19 +476,50 @@ func (c *Client) httpBaseURL() string {
 
 // ProjectSlugFromPath derives a project slug from an absolute path.
 // This matches the logic in the Agent Mail server.
-// Example: "/Users/jemanuel/projects/ntm" -> "ntm"
+// Example: "/Users/jemanuel/projects/ntm" -> "users-jemanuel-projects-ntm"
 func ProjectSlugFromPath(path string) string {
 	if path == "" {
 		return ""
 	}
-	// Get the last component using filepath.Base
-	slug := filepath.Base(path)
-	if slug == "." || slug == "/" {
-		// Fallback for root or dot
+
+	cleaned := filepath.Clean(path)
+	if cleaned == "." || cleaned == string(filepath.Separator) {
 		return "root"
 	}
 
-	// Lowercase and sanitize
+	var sb strings.Builder
+	lastWasDash := false
+	for _, r := range cleaned {
+		switch {
+		case r == filepath.Separator || r == '/' || r == '\\' || unicode.IsSpace(r):
+			if sb.Len() > 0 && !lastWasDash {
+				sb.WriteByte('-')
+				lastWasDash = true
+			}
+		case unicode.IsLetter(r) || unicode.IsNumber(r) || r == '-' || r == '_':
+			sb.WriteRune(unicode.ToLower(r))
+			lastWasDash = false
+		default:
+			if sb.Len() > 0 && !lastWasDash {
+				sb.WriteByte('-')
+				lastWasDash = true
+			}
+		}
+	}
+
+	return strings.Trim(sb.String(), "-")
+}
+
+func legacyProjectSlugFromPath(path string) string {
+	if path == "" {
+		return ""
+	}
+
+	slug := filepath.Base(filepath.Clean(path))
+	if slug == "." || slug == "/" {
+		return "root"
+	}
+
 	var sb strings.Builder
 	for _, r := range slug {
 		r = unicode.ToLower(r)
@@ -496,7 +528,6 @@ func ProjectSlugFromPath(path string) string {
 		} else if r == ' ' {
 			sb.WriteRune('_')
 		}
-		// Skip other characters
 	}
 	return sb.String()
 }

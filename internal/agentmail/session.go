@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Dicklesworthstone/ntm/internal/tmux"
 	"github.com/Dicklesworthstone/ntm/internal/util"
 )
 
@@ -53,6 +54,45 @@ func getSessionsBaseDir() string {
 	return filepath.Join(configDir, "ntm", "sessions")
 }
 
+func validateSessionStorageName(sessionName string) error {
+	if err := tmux.ValidateSessionName(sessionName); err != nil {
+		return fmt.Errorf("invalid session name: %w", err)
+	}
+	return nil
+}
+
+func primaryProjectSlug(projectKey string) string {
+	slug := ProjectSlugFromPath(projectKey)
+	if slug == "" {
+		slug = sanitizeSessionName(projectKey)
+	}
+	return slug
+}
+
+func projectSlugCandidates(projectKey string) []string {
+	if projectKey == "" {
+		return nil
+	}
+
+	candidates := []string{}
+	seen := make(map[string]struct{})
+	for _, slug := range []string{
+		primaryProjectSlug(projectKey),
+		legacyProjectSlugFromPath(projectKey),
+		sanitizeSessionName(projectKey),
+	} {
+		if slug == "" {
+			continue
+		}
+		if _, ok := seen[slug]; ok {
+			continue
+		}
+		seen[slug] = struct{}{}
+		candidates = append(candidates, slug)
+	}
+	return candidates
+}
+
 // sessionAgentPath returns the path to the session's agent.json file.
 // The path is namespaced by project slug to avoid collisions when
 // the same tmux session name is reused across different projects.
@@ -61,10 +101,7 @@ func getSessionsBaseDir() string {
 func sessionAgentPath(sessionName, projectKey string) string {
 	base := filepath.Join(getSessionsBaseDir(), sessionName)
 	if projectKey != "" {
-		slug := ProjectSlugFromPath(projectKey)
-		if slug == "" {
-			slug = sanitizeSessionName(projectKey)
-		}
+		slug := primaryProjectSlug(projectKey)
 		base = filepath.Join(base, slug)
 	}
 	return filepath.Join(base, "agent.json")
@@ -72,42 +109,43 @@ func sessionAgentPath(sessionName, projectKey string) string {
 
 // LoadSessionAgent loads the agent info for a session, if it exists.
 func LoadSessionAgent(sessionName, projectKey string) (*SessionAgentInfo, error) {
-	// Prefer project-scoped path to avoid cross-project collisions.
-	path := sessionAgentPath(sessionName, projectKey)
-	data, err := os.ReadFile(path)
-	if err != nil {
-		if os.IsNotExist(err) {
-			// Legacy fallback (pre-namespacing)
-			legacyPath := sessionAgentPath(sessionName, "")
-			if data, err = os.ReadFile(legacyPath); err != nil {
-				if !os.IsNotExist(err) {
-					return nil, fmt.Errorf("reading session agent: %w", err)
-				}
-				// Not found
-				return nil, nil
+	if err := validateSessionStorageName(sessionName); err != nil {
+		return nil, err
+	}
+
+	base := filepath.Join(getSessionsBaseDir(), sessionName)
+	paths := []string{}
+	if projectKey != "" {
+		for _, slug := range projectSlugCandidates(projectKey) {
+			paths = append(paths, filepath.Join(base, slug, "agent.json"))
+		}
+	}
+	paths = append(paths, filepath.Join(base, "agent.json"))
+
+	for _, path := range paths {
+		data, err := os.ReadFile(path)
+		if err == nil {
+			var info SessionAgentInfo
+			if err := json.Unmarshal(data, &info); err != nil {
+				return nil, fmt.Errorf("parsing session agent: %w", err)
 			}
-		} else {
+			if projectKey != "" && filepath.Clean(info.ProjectKey) != filepath.Clean(projectKey) {
+				continue
+			}
+			return &info, nil
+		}
+		if !os.IsNotExist(err) {
 			return nil, fmt.Errorf("reading session agent: %w", err)
 		}
 	}
-
-	var info SessionAgentInfo
-	if err := json.Unmarshal(data, &info); err != nil {
-		return nil, fmt.Errorf("parsing session agent: %w", err)
-	}
-
-	// Strict validation: if we requested a specific project, ensure we got it.
-	// This protects against legacy fallback returning an agent for a different project.
-	// Normalize paths to handle trailing slashes and redundant separators.
-	if projectKey != "" && filepath.Clean(info.ProjectKey) != filepath.Clean(projectKey) {
-		return nil, nil
-	}
-
-	return &info, nil
+	return nil, nil
 }
 
 // SaveSessionAgent saves the agent info for a session.
 func SaveSessionAgent(sessionName, projectKey string, info *SessionAgentInfo) error {
+	if err := validateSessionStorageName(sessionName); err != nil {
+		return err
+	}
 	path := sessionAgentPath(sessionName, projectKey)
 	dir := filepath.Dir(path)
 
@@ -131,6 +169,9 @@ func SaveSessionAgent(sessionName, projectKey string, info *SessionAgentInfo) er
 
 // DeleteSessionAgent removes the agent info file for a session.
 func DeleteSessionAgent(sessionName, projectKey string) error {
+	if err := validateSessionStorageName(sessionName); err != nil {
+		return err
+	}
 	path := sessionAgentPath(sessionName, projectKey)
 	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("deleting session agent: %w", err)
@@ -287,10 +328,7 @@ func NewSessionAgentRegistry(sessionName, projectKey string) *SessionAgentRegist
 func registryPath(sessionName, projectKey string) string {
 	base := filepath.Join(getSessionsBaseDir(), sessionName)
 	if projectKey != "" {
-		slug := ProjectSlugFromPath(projectKey)
-		if slug == "" {
-			slug = sanitizeSessionName(projectKey)
-		}
+		slug := primaryProjectSlug(projectKey)
 		base = filepath.Join(base, slug)
 	}
 	return filepath.Join(base, "agent_registry.json")
@@ -299,32 +337,45 @@ func registryPath(sessionName, projectKey string) string {
 // LoadSessionAgentRegistry loads the agent registry for a session, if it exists.
 // Returns nil without error if no registry exists.
 func LoadSessionAgentRegistry(sessionName, projectKey string) (*SessionAgentRegistry, error) {
-	path := registryPath(sessionName, projectKey)
-	data, err := os.ReadFile(path)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, nil
+	if err := validateSessionStorageName(sessionName); err != nil {
+		return nil, err
+	}
+
+	base := filepath.Join(getSessionsBaseDir(), sessionName)
+	paths := []string{}
+	if projectKey != "" {
+		for _, slug := range projectSlugCandidates(projectKey) {
+			paths = append(paths, filepath.Join(base, slug, "agent_registry.json"))
 		}
-		return nil, fmt.Errorf("reading agent registry: %w", err)
 	}
+	paths = append(paths, filepath.Join(base, "agent_registry.json"))
 
-	var registry SessionAgentRegistry
-	if err := json.Unmarshal(data, &registry); err != nil {
-		return nil, fmt.Errorf("parsing agent registry: %w", err)
+	for _, path := range paths {
+		data, err := os.ReadFile(path)
+		if err == nil {
+			var registry SessionAgentRegistry
+			if err := json.Unmarshal(data, &registry); err != nil {
+				return nil, fmt.Errorf("parsing agent registry: %w", err)
+			}
+			if projectKey != "" && filepath.Clean(registry.ProjectKey) != filepath.Clean(projectKey) {
+				continue
+			}
+			return &registry, nil
+		}
+		if !os.IsNotExist(err) {
+			return nil, fmt.Errorf("reading agent registry: %w", err)
+		}
 	}
-
-	// Validate project key matches
-	if projectKey != "" && filepath.Clean(registry.ProjectKey) != filepath.Clean(projectKey) {
-		return nil, nil
-	}
-
-	return &registry, nil
+	return nil, nil
 }
 
 // SaveSessionAgentRegistry saves the agent registry for a session.
 func SaveSessionAgentRegistry(registry *SessionAgentRegistry) error {
 	if registry == nil {
 		return fmt.Errorf("cannot save nil registry")
+	}
+	if err := validateSessionStorageName(registry.SessionName); err != nil {
+		return err
 	}
 
 	path := registryPath(registry.SessionName, registry.ProjectKey)
@@ -350,6 +401,9 @@ func SaveSessionAgentRegistry(registry *SessionAgentRegistry) error {
 
 // DeleteSessionAgentRegistry removes the agent registry for a session.
 func DeleteSessionAgentRegistry(sessionName, projectKey string) error {
+	if err := validateSessionStorageName(sessionName); err != nil {
+		return err
+	}
 	path := registryPath(sessionName, projectKey)
 	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("deleting agent registry: %w", err)

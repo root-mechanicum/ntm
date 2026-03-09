@@ -500,3 +500,83 @@ func TestRegistryPath(t *testing.T) {
 		t.Errorf("expected absolute path for no-project case, got %q", legacyPath)
 	}
 }
+
+func TestSessionAgentStorageRejectsInvalidSessionNames(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+
+	info := &SessionAgentInfo{
+		AgentName:  "BlueLake",
+		ProjectKey: "/tmp/project",
+	}
+
+	if err := SaveSessionAgent("../escape", info.ProjectKey, info); err == nil {
+		t.Fatal("expected invalid session name error from SaveSessionAgent")
+	}
+	if _, err := LoadSessionAgent("../escape", info.ProjectKey); err == nil {
+		t.Fatal("expected invalid session name error from LoadSessionAgent")
+	}
+	if err := DeleteSessionAgent("../escape", info.ProjectKey); err == nil {
+		t.Fatal("expected invalid session name error from DeleteSessionAgent")
+	}
+}
+
+func TestSessionAgentRegistryRejectsInvalidSessionNames(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+
+	registry := NewSessionAgentRegistry("../escape", "/tmp/project")
+	if err := SaveSessionAgentRegistry(registry); err == nil {
+		t.Fatal("expected invalid session name error from SaveSessionAgentRegistry")
+	}
+	if _, err := LoadSessionAgentRegistry("../escape", "/tmp/project"); err == nil {
+		t.Fatal("expected invalid session name error from LoadSessionAgentRegistry")
+	}
+	if err := DeleteSessionAgentRegistry("../escape", "/tmp/project"); err == nil {
+		t.Fatal("expected invalid session name error from DeleteSessionAgentRegistry")
+	}
+}
+
+func TestLoadSessionAgentRegistryContinuesPastMismatchedCandidate(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+
+	sessionName := "test-registry-continue"
+	projectKey := "/tmp/project-a"
+	wrongRegistry := NewSessionAgentRegistry(sessionName, "/tmp/project-b")
+	wrongRegistry.AddAgent("pane-wrong", "%1", "WrongAgent")
+	correctRegistry := NewSessionAgentRegistry(sessionName, projectKey)
+	correctRegistry.AddAgent("pane-right", "%2", "RightAgent")
+
+	newPath := registryPath(sessionName, projectKey)
+	if err := os.MkdirAll(filepath.Dir(newPath), 0755); err != nil {
+		t.Fatalf("mkdir new path: %v", err)
+	}
+	wrongData, err := json.Marshal(wrongRegistry)
+	if err != nil {
+		t.Fatalf("marshal wrong registry: %v", err)
+	}
+	if err := os.WriteFile(newPath, wrongData, 0644); err != nil {
+		t.Fatalf("write wrong registry: %v", err)
+	}
+
+	legacyPath := registryPath(sessionName, "")
+	if err := os.MkdirAll(filepath.Dir(legacyPath), 0755); err != nil {
+		t.Fatalf("mkdir legacy path: %v", err)
+	}
+	correctData, err := json.Marshal(correctRegistry)
+	if err != nil {
+		t.Fatalf("marshal correct registry: %v", err)
+	}
+	if err := os.WriteFile(legacyPath, correctData, 0644); err != nil {
+		t.Fatalf("write correct registry: %v", err)
+	}
+
+	loaded, err := LoadSessionAgentRegistry(sessionName, projectKey)
+	if err != nil {
+		t.Fatalf("LoadSessionAgentRegistry error: %v", err)
+	}
+	if loaded == nil {
+		t.Fatal("expected registry, got nil")
+	}
+	if loaded.ProjectKey != projectKey {
+		t.Fatalf("expected project key %s, got %s", projectKey, loaded.ProjectKey)
+	}
+}

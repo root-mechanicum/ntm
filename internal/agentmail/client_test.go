@@ -771,4 +771,18 @@ func TestFetchInbox_UnmarshalFormats(t *testing.T) {
 			t.Fatalf("unexpected messages: %+v", msgs)
 		}
 	})
+
+	t.Run("schema_drift_is_error", func(t *testing.T) {
+		server := makeServer(t, json.RawMessage(`{"messages":[]}`))
+		defer server.Close()
+
+		c := NewClient(WithBaseURL(server.URL + "/"))
+		if _, err := c.FetchInbox(context.Background(), FetchInboxOptions{
+			ProjectKey:    "/test/project",
+			AgentName:     "BlueLake",
+			IncludeBodies: true,
+		}); err == nil {
+			t.Fatal("expected schema drift to return an error")
+		}
+	})
 }

@@ -204,20 +204,32 @@ func (c *Client) FetchInbox(ctx context.Context, opts FetchInboxOptions) ([]Inbo
 		return nil, err
 	}
 
-	// The result is wrapped in a "result" field
-	var wrapper struct {
-		Result []InboxMessage `json:"result"`
+	trimmed := bytes.TrimSpace(result)
+	if bytes.Equal(trimmed, []byte("null")) {
+		return nil, NewAPIError("fetch_inbox", 0, fmt.Errorf("unexpected null response"))
 	}
-	if err := json.Unmarshal(result, &wrapper); err != nil {
-		// Try direct unmarshal
+
+	var wrapper struct {
+		Result json.RawMessage `json:"result"`
+	}
+	if err := json.Unmarshal(result, &wrapper); err == nil && len(bytes.TrimSpace(wrapper.Result)) > 0 {
+		rawMessages := bytes.TrimSpace(wrapper.Result)
+		if bytes.Equal(rawMessages, []byte("null")) {
+			return nil, NewAPIError("fetch_inbox", 0, fmt.Errorf("unexpected null result field"))
+		}
+
 		var messages []InboxMessage
-		if err := json.Unmarshal(result, &messages); err != nil {
-			return nil, NewAPIError("fetch_inbox", 0, err)
+		if err := json.Unmarshal(rawMessages, &messages); err != nil {
+			return nil, NewAPIError("fetch_inbox", 0, fmt.Errorf("parsing result field: %w", err))
 		}
 		return messages, nil
 	}
 
-	return wrapper.Result, nil
+	var messages []InboxMessage
+	if err := json.Unmarshal(result, &messages); err != nil {
+		return nil, NewAPIError("fetch_inbox", 0, fmt.Errorf("unexpected response shape: %w", err))
+	}
+	return messages, nil
 }
 
 // MarkMessageRead marks a message as read for an agent.
