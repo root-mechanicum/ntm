@@ -252,7 +252,7 @@ func TestSanitizeFilename_UTF8Boundary(t *testing.T) {
 			// 48 ASCII 'a' chars + one 4-byte emoji = 52 bytes total after replacement
 			// The emoji gets replaced by SanitizeFilename (not a special char, stays as-is)
 			strings.Repeat("a", 48) + "\xf0\x9f\x8c\x8d", // 🌍 = 4 bytes
-			strings.Repeat("a", 48), // truncated before the multibyte char
+			strings.Repeat("a", 48),                      // truncated before the multibyte char
 		},
 	}
 
@@ -313,8 +313,8 @@ func TestSafeSlice(t *testing.T) {
 		{"rune boundary safe", "日本語", 4, "日"},
 		{"rune boundary exact", "日本語", 6, "日本"},
 		{"all multibyte fits", "日本語", 9, "日本語"},
-		{"mixed cuts mid-rune", "a日b", 3, "a"},      // "日" needs bytes 1-3, s[:1]="a"
-		{"mixed fits rune", "a日b", 4, "a日"},         // "日" ends at byte 4, s[:4]="a日"
+		{"mixed cuts mid-rune", "a日b", 3, "a"}, // "日" needs bytes 1-3, s[:1]="a"
+		{"mixed fits rune", "a日b", 4, "a日"},    // "日" ends at byte 4, s[:4]="a日"
 	}
 
 	for _, tc := range tests {

@@ -288,15 +288,23 @@ func (g *Generator) Generate() (*GeneratorResult, error) {
 }
 
 // generateZip creates a zip archive.
-func (g *Generator) generateZip(manifest *Manifest) error {
+func (g *Generator) generateZip(manifest *Manifest) (err error) {
 	f, err := os.Create(g.config.OutputPath)
 	if err != nil {
 		return fmt.Errorf("create zip: %w", err)
 	}
-	defer f.Close()
+	defer func() {
+		if closeErr := f.Close(); err == nil && closeErr != nil {
+			err = fmt.Errorf("close zip file: %w", closeErr)
+		}
+	}()
 
 	w := zip.NewWriter(f)
-	defer w.Close()
+	defer func() {
+		if closeErr := w.Close(); err == nil && closeErr != nil {
+			err = fmt.Errorf("close zip writer: %w", closeErr)
+		}
+	}()
 
 	// Write manifest first
 	manifestData, err := json.MarshalIndent(manifest, "", "  ")
@@ -327,18 +335,30 @@ func (g *Generator) generateZip(manifest *Manifest) error {
 }
 
 // generateTarGz creates a tar.gz archive.
-func (g *Generator) generateTarGz(manifest *Manifest) error {
+func (g *Generator) generateTarGz(manifest *Manifest) (err error) {
 	f, err := os.Create(g.config.OutputPath)
 	if err != nil {
 		return fmt.Errorf("create tar.gz: %w", err)
 	}
-	defer f.Close()
+	defer func() {
+		if closeErr := f.Close(); err == nil && closeErr != nil {
+			err = fmt.Errorf("close tar.gz file: %w", closeErr)
+		}
+	}()
 
 	gw := gzip.NewWriter(f)
-	defer gw.Close()
+	defer func() {
+		if closeErr := gw.Close(); err == nil && closeErr != nil {
+			err = fmt.Errorf("close gzip writer: %w", closeErr)
+		}
+	}()
 
 	tw := tar.NewWriter(gw)
-	defer tw.Close()
+	defer func() {
+		if closeErr := tw.Close(); err == nil && closeErr != nil {
+			err = fmt.Errorf("close tar writer: %w", closeErr)
+		}
+	}()
 
 	// Write manifest first
 	manifestData, err := json.MarshalIndent(manifest, "", "  ")

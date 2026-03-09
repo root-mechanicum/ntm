@@ -7,8 +7,9 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/Dicklesworthstone/ntm/internal/tmux"
 	"github.com/go-chi/chi/v5"
+
+	"github.com/Dicklesworthstone/ntm/internal/tmux"
 )
 
 // withTestRequestID adds a test request ID to the context.

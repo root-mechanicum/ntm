@@ -7,8 +7,6 @@ package serve
 import (
 	"encoding/json"
 	"fmt"
-	"net/http"
-	"net/http/httptest"
 	"sort"
 	"strings"
 	"sync"

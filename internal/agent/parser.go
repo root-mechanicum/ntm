@@ -132,7 +132,7 @@ func (p *parserImpl) detectByPatternFrequency(output string) AgentType {
 		AgentTypeAider,
 	}
 
-	var maxType AgentType = AgentTypeUnknown
+	maxType := AgentTypeUnknown
 	var maxScore int
 
 	for _, t := range priority {
@@ -178,7 +178,7 @@ func (p *parserImpl) extractMetrics(output string, state *AgentState) {
 		if matchAny(output, ccContextWarnings) {
 			state.IsContextLow = true
 		}
-	
+
 	case AgentTypeCursor, AgentTypeWindsurf, AgentTypeAider:
 		// No specific metrics yet for these agents
 	}
@@ -457,5 +457,3 @@ func (p *parserImpl) calculateConfidence(state *AgentState) float64 {
 
 	return confidence
 }
-
-

@@ -537,9 +537,9 @@ func (r *IntegrationRunner) phaseCostTracking() error {
 	}
 
 	costData := map[string]interface{}{
-		"session":           r.projectName,
-		"total_cost_usd":    12.50,
-		"total_input_tokens": 250000,
+		"session":             r.projectName,
+		"total_cost_usd":      12.50,
+		"total_input_tokens":  250000,
 		"total_output_tokens": 75000,
 		"per_agent": map[string]interface{}{
 			"cc_1": map[string]interface{}{
@@ -725,9 +725,9 @@ func (r *IntegrationRunner) phaseSessionSummary() error {
 	}
 
 	summary := map[string]interface{}{
-		"session":   r.projectName,
-		"duration":  "2h 15m",
-		"agents":    []string{"cc_1", "cc_2"},
+		"session":         r.projectName,
+		"duration":        "2h 15m",
+		"agents":          []string{"cc_1", "cc_2"},
 		"tasks_completed": 5,
 		"files_modified":  12,
 		"commits":         3,
@@ -835,10 +835,10 @@ func (r *IntegrationRunner) phaseEffectivenessScoring() error {
 			"agent_type": "claude",
 			"timestamp":  time.Now().Format(time.RFC3339),
 			"metrics": map[string]interface{}{
-				"completion":  0.85,
-				"quality":     0.90,
-				"efficiency":  0.80,
-				"overall":     0.85,
+				"completion": 0.85,
+				"quality":    0.90,
+				"efficiency": 0.80,
+				"overall":    0.85,
 			},
 		},
 		{
@@ -846,10 +846,10 @@ func (r *IntegrationRunner) phaseEffectivenessScoring() error {
 			"agent_type": "codex",
 			"timestamp":  time.Now().Format(time.RFC3339),
 			"metrics": map[string]interface{}{
-				"completion":  0.75,
-				"quality":     0.80,
-				"efficiency":  0.85,
-				"overall":     0.80,
+				"completion": 0.75,
+				"quality":    0.80,
+				"efficiency": 0.85,
+				"overall":    0.80,
 			},
 		},
 	}

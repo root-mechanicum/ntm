@@ -508,8 +508,8 @@ func TestUpdateErrorTrend_Improving(t *testing.T) {
 	// 1 error in last hour, 3 errors in previous hour -> improving
 	qm.agentMetrics["a1"] = &AgentQualityMetrics{
 		ErrorHistory: []time.Time{
-			now.Add(-30 * time.Minute),  // recent hour: 1
-			now.Add(-90 * time.Minute),  // older hour: 3
+			now.Add(-30 * time.Minute), // recent hour: 1
+			now.Add(-90 * time.Minute), // older hour: 3
 			now.Add(-100 * time.Minute),
 			now.Add(-110 * time.Minute),
 		},
@@ -656,8 +656,8 @@ func TestUpdateErrorTrend_Stable(t *testing.T) {
 	// Same errors in both hours -> stable
 	qm.agentMetrics["a1"] = &AgentQualityMetrics{
 		ErrorHistory: []time.Time{
-			now.Add(-30 * time.Minute),  // recent hour: 1
-			now.Add(-90 * time.Minute),  // older hour: 1
+			now.Add(-30 * time.Minute), // recent hour: 1
+			now.Add(-90 * time.Minute), // older hour: 1
 		},
 	}
 

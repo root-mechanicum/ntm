@@ -1621,9 +1621,9 @@ func TestAutoRespawnerRetryLimitEnforcement(t *testing.T) {
 // are sent for each agent type.
 func TestAutoRespawnerSpawnAgentCommands(t *testing.T) {
 	tests := []struct {
-		name        string
-		agentType   string
-		expectCmd   string
+		name      string
+		agentType string
+		expectCmd string
 	}{
 		{"claude_code", "cc", "cc"},
 		{"claude_alias", "claude", "cc"},

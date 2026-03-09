@@ -146,7 +146,7 @@ func GetSpawn(opts SpawnOptions, cfg *config.Config) (*SpawnOutput, error) {
 		if output != nil {
 			agentsLaunched = len(output.Agents)
 		}
-		success := output != nil && output.RobotResponse.Success
+		success := output != nil && output.Success
 		payload := map[string]interface{}{
 			"phase":           "finish",
 			"session":         opts.Session,

@@ -115,7 +115,7 @@ func GetQuotaStatus() (*QuotaStatusOutput, error) {
 	}
 
 	// Check for cache errors
-	if err, errTime := cache.GetLastError(); err != nil && !errTime.IsZero() {
+	if errTime, err := cache.GetLastError(); err != nil && !errTime.IsZero() {
 		output := &QuotaStatusOutput{
 			RobotResponse: NewErrorResponse(err, ErrCodeInternalError, "caut polling error - data may be stale"),
 			Quota:         quotaInfo,

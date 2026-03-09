@@ -140,11 +140,11 @@ func newSessionProfileCmd() *cobra.Command {
 
 func newSessionProfileSaveCmd() *cobra.Command {
 	var (
-		cc, cod, gmi             int
-		cursorCount, wsCount     int
-		aiderCount               int
-		userPane, safety, wt     bool
-		prompt, initFile         string
+		cc, cod, gmi         int
+		cursorCount, wsCount int
+		aiderCount           int
+		userPane, safety, wt bool
+		prompt, initFile     string
 	)
 
 	cmd := &cobra.Command{

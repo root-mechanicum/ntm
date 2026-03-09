@@ -636,8 +636,8 @@ func TestGetWarningMessage(t *testing.T) {
 		{LevelWarning, 25.0, "Context below 25% threshold"},
 		{LevelInfo, 40.0, "Context below 40% threshold"},
 		{LevelCritical, 10.0, "Context below threshold"}, // Non-standard threshold
-		{"", 25.0, ""},                                   // Empty level
-		{LevelAlert, 80.0, ""},                           // Alert not in switch
+		{"", 25.0, ""},         // Empty level
+		{LevelAlert, 80.0, ""}, // Alert not in switch
 	}
 
 	for _, tt := range tests {

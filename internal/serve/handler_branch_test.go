@@ -21,8 +21,12 @@ import (
 
 	"database/sql"
 
+	"github.com/go-chi/chi/v5"
+	_ "github.com/mattn/go-sqlite3"
+
 	"github.com/Dicklesworthstone/ntm/internal/bv"
 	"github.com/Dicklesworthstone/ntm/internal/cass"
+	"github.com/Dicklesworthstone/ntm/internal/checkpoint"
 	"github.com/Dicklesworthstone/ntm/internal/events"
 	"github.com/Dicklesworthstone/ntm/internal/kernel"
 	"github.com/Dicklesworthstone/ntm/internal/pipeline"
@@ -30,8 +34,6 @@ import (
 	"github.com/Dicklesworthstone/ntm/internal/robot"
 	"github.com/Dicklesworthstone/ntm/internal/scanner"
 	"github.com/Dicklesworthstone/ntm/internal/tools"
-	"github.com/go-chi/chi/v5"
-	_ "github.com/mattn/go-sqlite3"
 )
 
 // =============================================================================
@@ -4912,16 +4914,16 @@ func TestAuditStore_QueryFilterBranches(t *testing.T) {
 
 	// Insert a record with all fields populated
 	rec := &AuditRecord{
-		Timestamp: now,
-		RequestID: "req-filter-001",
-		UserID:    "user-alice",
-		Role:      "admin",
-		Action:    AuditActionCreate,
-		Resource:  "session",
-		Method:    "POST",
-		Path:      "/api/v1/sessions",
+		Timestamp:  now,
+		RequestID:  "req-filter-001",
+		UserID:     "user-alice",
+		Role:       "admin",
+		Action:     AuditActionCreate,
+		Resource:   "session",
+		Method:     "POST",
+		Path:       "/api/v1/sessions",
 		StatusCode: 201,
-		SessionID: "sess-abc",
+		SessionID:  "sess-abc",
 		ApprovalID: "approval-xyz",
 	}
 	if err := store.Record(rec); err != nil {
@@ -4930,16 +4932,16 @@ func TestAuditStore_QueryFilterBranches(t *testing.T) {
 
 	// Insert a second record with different fields
 	rec2 := &AuditRecord{
-		Timestamp: now.Add(-time.Minute),
-		RequestID: "req-filter-002",
-		UserID:    "user-bob",
-		Role:      "viewer",
-		Action:    AuditActionExecute,
-		Resource:  "pane",
-		Method:    "GET",
-		Path:      "/api/v1/panes",
+		Timestamp:  now.Add(-time.Minute),
+		RequestID:  "req-filter-002",
+		UserID:     "user-bob",
+		Role:       "viewer",
+		Action:     AuditActionExecute,
+		Resource:   "pane",
+		Method:     "GET",
+		Path:       "/api/v1/panes",
 		StatusCode: 200,
-		SessionID: "sess-def",
+		SessionID:  "sess-def",
 	}
 	if err := store.Record(rec2); err != nil {
 		t.Fatalf("Record: %v", err)
@@ -5131,12 +5133,12 @@ func TestScannerStore_GetFindings_FilterAndPaginate(t *testing.T) {
 	// Add findings with different attributes
 	store.AddFinding(&FindingRecord{
 		ID: "f1", ScanID: "scan-a",
-		Finding: scanner.Finding{Severity: scanner.SeverityWarning, File: "a.go", Category: "sec"},
+		Finding:   scanner.Finding{Severity: scanner.SeverityWarning, File: "a.go", Category: "sec"},
 		CreatedAt: now.Add(-2 * time.Second),
 	})
 	store.AddFinding(&FindingRecord{
 		ID: "f2", ScanID: "scan-a",
-		Finding: scanner.Finding{Severity: scanner.SeverityCritical, File: "b.go", Category: "perf"},
+		Finding:   scanner.Finding{Severity: scanner.SeverityCritical, File: "b.go", Category: "perf"},
 		CreatedAt: now.Add(-time.Second),
 	})
 	store.AddFinding(&FindingRecord{
@@ -8553,7 +8555,6 @@ func TestHandleListPipelines_Empty(t *testing.T) {
 	}
 }
 
-
 // --- publishApprovalEvent with nil wsHub (exercises nil guard) ---
 
 func TestPublishApprovalEvent_NilHub(t *testing.T) {
@@ -8566,7 +8567,6 @@ func TestPublishApprovalEvent_NilHub(t *testing.T) {
 		"test": true,
 	})
 }
-
 
 // =============================================================================
 // BATCH 22 — OIDC validation branches, deeper approval, CASS with real tools
@@ -8959,7 +8959,6 @@ func TestCheckWSOrigin_InvalidOrigin(t *testing.T) {
 		t.Error("expected origin to be rejected")
 	}
 }
-
 
 // --- checkWSOrigin: origin missing host ---
 
@@ -10584,6 +10583,55 @@ func TestHandleRestoreCheckpoint_WithDryRunOptions(t *testing.T) {
 	}
 }
 
+func TestHandleRestoreCheckpoint_DirectoryNotFoundMappedToBadRequest(t *testing.T) {
+	s, _ := setupTestServer(t)
+
+	tmpHome := t.TempDir()
+	t.Setenv("HOME", tmpHome)
+
+	cpDir := filepath.Join(tmpHome, ".local", "share", "ntm", "checkpoints", "rs-missing-dir", "cp-missing-dir")
+	if err := os.MkdirAll(cpDir, 0755); err != nil {
+		t.Fatalf("MkdirAll failed: %v", err)
+	}
+
+	cp := checkpoint.Checkpoint{
+		Version:     1,
+		ID:          "cp-missing-dir",
+		Name:        "missing-dir",
+		SessionName: "rs-missing-dir",
+		WorkingDir:  filepath.Join(tmpHome, "does-not-exist"),
+		CreatedAt:   time.Now().UTC(),
+		Session: checkpoint.SessionState{
+			Panes: []checkpoint.PaneState{
+				{Index: 0, ID: "%0", Title: "pane0"},
+			},
+		},
+		PaneCount: 1,
+	}
+	metadata, err := json.Marshal(cp)
+	if err != nil {
+		t.Fatalf("Marshal checkpoint: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(cpDir, "metadata.json"), metadata, 0644); err != nil {
+		t.Fatalf("WriteFile metadata.json: %v", err)
+	}
+
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("sessionName", "rs-missing-dir")
+	rctx.URLParams.Add("checkpointId", "cp-missing-dir")
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/sessions/rs-missing-dir/checkpoints/cp-missing-dir/restore", strings.NewReader(`{}`))
+	req.Header.Set("Content-Type", "application/json")
+	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
+	rec := httptest.NewRecorder()
+
+	s.handleRestoreCheckpoint(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400; body: %s", rec.Code, rec.Body.String())
+	}
+}
+
 // --- handleEventStream: sends event through broadcast ---
 
 func TestHandleEventStream_WithBroadcast(t *testing.T) {
@@ -10637,7 +10685,7 @@ type testSSEEvent struct {
 	timestamp time.Time
 }
 
-func (e testSSEEvent) EventType() string        { return e.eventType }
+func (e testSSEEvent) EventType() string         { return e.eventType }
 func (e testSSEEvent) EventSession() string      { return e.session }
 func (e testSSEEvent) EventTimestamp() time.Time { return e.timestamp }
 

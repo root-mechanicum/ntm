@@ -258,9 +258,10 @@ func (c *CostPanel) View() string {
 		parts = append(parts, lipgloss.NewStyle().Foreground(t.Text).Render(padLeft(cost.FormatCost(row.CostUSD), costW)))
 
 		trendColor := t.Subtext
-		if row.Trend == CostTrendUp {
+		switch row.Trend {
+		case CostTrendUp:
 			trendColor = t.Green
-		} else if row.Trend == CostTrendDown {
+		case CostTrendDown:
 			trendColor = t.Red
 		}
 		parts = append(parts, lipgloss.NewStyle().Foreground(trendColor).Render(padLeft(row.Trend.Arrow(), trendW)))

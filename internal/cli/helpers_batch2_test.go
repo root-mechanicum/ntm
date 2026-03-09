@@ -249,4 +249,3 @@ func TestParseAssetInfoExtension(t *testing.T) {
 		t.Errorf("Extension = %q, want .zip", info2.Extension)
 	}
 }
-

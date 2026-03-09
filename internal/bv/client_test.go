@@ -555,7 +555,7 @@ func TestBuildInsightsFromTriage(t *testing.T) {
 				Recommendations: []TriageRecommendation{
 					{ID: "rec-1", Breakdown: &ScoreBreakdown{Betweenness: 0.1}},
 					{ID: "rec-2", Breakdown: &ScoreBreakdown{Betweenness: 0.01}}, // below threshold
-					{ID: "rec-3", Breakdown: nil},                                 // no breakdown
+					{ID: "rec-3", Breakdown: nil},                                // no breakdown
 				},
 				ProjectHealth: &ProjectHealth{
 					StatusDistribution: map[string]int{"total": 42},

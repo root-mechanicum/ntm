@@ -16,9 +16,10 @@ import (
 	"sync"
 	"time"
 
+	"github.com/go-chi/chi/v5"
+
 	"github.com/Dicklesworthstone/ntm/internal/bv"
 	"github.com/Dicklesworthstone/ntm/internal/scanner"
-	"github.com/go-chi/chi/v5"
 )
 
 // Scanner-specific error codes
@@ -42,27 +43,27 @@ const (
 
 // ScanRecord represents a historical scan record
 type ScanRecord struct {
-	ID          string               `json:"id"`
-	State       ScanState            `json:"state"`
-	Path        string               `json:"path"`
-	Options     *ScanOptionsRequest  `json:"options,omitempty"`
-	StartedAt   time.Time            `json:"started_at"`
-	CompletedAt *time.Time           `json:"completed_at,omitempty"`
-	Result      *scanner.ScanResult  `json:"result,omitempty"`
-	Error       string               `json:"error,omitempty"`
-	FindingIDs  []string             `json:"finding_ids,omitempty"`
+	ID          string              `json:"id"`
+	State       ScanState           `json:"state"`
+	Path        string              `json:"path"`
+	Options     *ScanOptionsRequest `json:"options,omitempty"`
+	StartedAt   time.Time           `json:"started_at"`
+	CompletedAt *time.Time          `json:"completed_at,omitempty"`
+	Result      *scanner.ScanResult `json:"result,omitempty"`
+	Error       string              `json:"error,omitempty"`
+	FindingIDs  []string            `json:"finding_ids,omitempty"`
 }
 
 // FindingRecord represents a finding with additional metadata
 type FindingRecord struct {
-	ID          string            `json:"id"`
-	ScanID      string            `json:"scan_id"`
-	Finding     scanner.Finding   `json:"finding"`
-	Dismissed   bool              `json:"dismissed"`
-	DismissedAt *time.Time        `json:"dismissed_at,omitempty"`
-	DismissedBy string            `json:"dismissed_by,omitempty"`
-	BeadID      string            `json:"bead_id,omitempty"`
-	CreatedAt   time.Time         `json:"created_at"`
+	ID          string          `json:"id"`
+	ScanID      string          `json:"scan_id"`
+	Finding     scanner.Finding `json:"finding"`
+	Dismissed   bool            `json:"dismissed"`
+	DismissedAt *time.Time      `json:"dismissed_at,omitempty"`
+	DismissedBy string          `json:"dismissed_by,omitempty"`
+	BeadID      string          `json:"bead_id,omitempty"`
+	CreatedAt   time.Time       `json:"created_at"`
 }
 
 // ScannerStore provides in-memory storage for scan history and findings
@@ -221,24 +222,24 @@ var scannerStore = NewScannerStore()
 
 // ScanOptionsRequest is the request body for POST /api/v1/scanner/run
 type ScanOptionsRequest struct {
-	Path             string   `json:"path,omitempty"`       // Path to scan (defaults to project dir)
-	Languages        []string `json:"languages,omitempty"`  // Languages to include
-	Exclude          []string `json:"exclude,omitempty"`    // Languages to exclude
-	StagedOnly       bool     `json:"staged_only,omitempty"` // Only scan staged files
-	DiffOnly         bool     `json:"diff_only,omitempty"`   // Only scan modified files
-	CI               bool     `json:"ci,omitempty"`          // CI mode
-	FailOnWarning    bool     `json:"fail_on_warning,omitempty"`
-	TimeoutSeconds   int      `json:"timeout_seconds,omitempty"`
+	Path           string   `json:"path,omitempty"`        // Path to scan (defaults to project dir)
+	Languages      []string `json:"languages,omitempty"`   // Languages to include
+	Exclude        []string `json:"exclude,omitempty"`     // Languages to exclude
+	StagedOnly     bool     `json:"staged_only,omitempty"` // Only scan staged files
+	DiffOnly       bool     `json:"diff_only,omitempty"`   // Only scan modified files
+	CI             bool     `json:"ci,omitempty"`          // CI mode
+	FailOnWarning  bool     `json:"fail_on_warning,omitempty"`
+	TimeoutSeconds int      `json:"timeout_seconds,omitempty"`
 }
 
 // ScanStatusResponse is the response for GET /api/v1/scanner/status
 type ScanStatusResponse struct {
-	Available     bool         `json:"available"`
-	Version       string       `json:"version,omitempty"`
-	CurrentScan   *ScanRecord  `json:"current_scan,omitempty"`
-	LastScan      *ScanRecord  `json:"last_scan,omitempty"`
-	TotalScans    int          `json:"total_scans"`
-	TotalFindings int          `json:"total_findings"`
+	Available     bool        `json:"available"`
+	Version       string      `json:"version,omitempty"`
+	CurrentScan   *ScanRecord `json:"current_scan,omitempty"`
+	LastScan      *ScanRecord `json:"last_scan,omitempty"`
+	TotalScans    int         `json:"total_scans"`
+	TotalFindings int         `json:"total_findings"`
 }
 
 // DismissFindingRequest is the request body for POST /api/v1/scanner/findings/{id}/dismiss
@@ -255,21 +256,21 @@ type CreateBeadFromFindingRequest struct {
 
 // BugSummaryResponse is the response for GET /api/v1/bugs/summary
 type BugSummaryResponse struct {
-	TotalFindings int            `json:"total_findings"`
-	Critical      int            `json:"critical"`
-	Warning       int            `json:"warning"`
-	Info          int            `json:"info"`
-	BySeverity    map[string]int `json:"by_severity"`
-	ByCategory    map[string]int `json:"by_category"`
-	ByFile        map[string]int `json:"by_file"`
-	DismissedCount int           `json:"dismissed_count"`
-	LinkedBeads   int            `json:"linked_beads"`
+	TotalFindings  int            `json:"total_findings"`
+	Critical       int            `json:"critical"`
+	Warning        int            `json:"warning"`
+	Info           int            `json:"info"`
+	BySeverity     map[string]int `json:"by_severity"`
+	ByCategory     map[string]int `json:"by_category"`
+	ByFile         map[string]int `json:"by_file"`
+	DismissedCount int            `json:"dismissed_count"`
+	LinkedBeads    int            `json:"linked_beads"`
 }
 
 // BugNotifyRequest is the request body for POST /api/v1/bugs/notify
 type BugNotifyRequest struct {
-	Channel  string `json:"channel"`           // slack, email, webhook
-	Endpoint string `json:"endpoint"`          // URL or address
+	Channel     string `json:"channel"`                // slack, email, webhook
+	Endpoint    string `json:"endpoint"`               // URL or address
 	MinSeverity string `json:"min_severity,omitempty"` // Minimum severity to notify
 }
 
@@ -494,11 +495,11 @@ func (s *Server) runScanAsync(scan *ScanRecord, opts ScanOptionsRequest) {
 		"critical", result.Totals.Critical, "warning", result.Totals.Warning)
 
 	s.publishScannerEvent("scanner.completed", map[string]interface{}{
-		"scan_id":       scan.ID,
-		"total_files":   result.Totals.Files,
-		"critical":      result.Totals.Critical,
-		"warning":       result.Totals.Warning,
-		"info":          result.Totals.Info,
+		"scan_id":        scan.ID,
+		"total_files":    result.Totals.Files,
+		"critical":       result.Totals.Critical,
+		"warning":        result.Totals.Warning,
+		"info":           result.Totals.Info,
 		"total_findings": len(result.Findings),
 	})
 }

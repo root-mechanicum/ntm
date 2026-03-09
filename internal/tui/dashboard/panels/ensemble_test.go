@@ -151,10 +151,10 @@ func TestSummarizeAssignmentStatus(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name                    string
-		assignments             []ensemble.ModeAssignment
-		wantActive, wantDone    int
-		wantPending             int
+		name                 string
+		assignments          []ensemble.ModeAssignment
+		wantActive, wantDone int
+		wantPending          int
 	}{
 		{
 			name:        "empty",
@@ -951,4 +951,3 @@ func TestEnsembleActionConstants(t *testing.T) {
 		t.Errorf("EnsembleActionRefresh = %q", EnsembleActionRefresh)
 	}
 }
-

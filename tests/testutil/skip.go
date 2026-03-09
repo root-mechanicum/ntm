@@ -9,8 +9,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Dicklesworthstone/ntm/internal/tmux"
 	"github.com/shirou/gopsutil/v4/cpu"
+
+	"github.com/Dicklesworthstone/ntm/internal/tmux"
 )
 
 // CPUOverloadThreshold is the percentage above which a core is considered overloaded.

@@ -25,26 +25,26 @@ const (
 // EnsembleSynthesizeOutput is the structured response for --robot-ensemble-synthesize.
 type EnsembleSynthesizeOutput struct {
 	RobotResponse
-	Action  string         `json:"action"`
-	Session string         `json:"session"`
-	Status  string         `json:"status"`
-	Report  *SynthesisReport `json:"report,omitempty"`
-	Audit   *SynthesisAudit  `json:"audit,omitempty"`
-	AgentHints *AgentHints  `json:"_agent_hints,omitempty"`
+	Action     string           `json:"action"`
+	Session    string           `json:"session"`
+	Status     string           `json:"status"`
+	Report     *SynthesisReport `json:"report,omitempty"`
+	Audit      *SynthesisAudit  `json:"audit,omitempty"`
+	AgentHints *AgentHints      `json:"_agent_hints,omitempty"`
 }
 
 // SynthesisReport contains the synthesis output details.
 type SynthesisReport struct {
-	Summary              string `json:"summary"`
-	Strategy             string `json:"strategy"`
-	OutputPath           string `json:"output_path,omitempty"`
-	Format               string `json:"format"`
-	FindingsCount        int    `json:"findings_count"`
-	RecommendationsCount int    `json:"recommendations_count"`
-	RisksCount           int    `json:"risks_count"`
-	QuestionsCount       int    `json:"questions_count"`
+	Summary              string  `json:"summary"`
+	Strategy             string  `json:"strategy"`
+	OutputPath           string  `json:"output_path,omitempty"`
+	Format               string  `json:"format"`
+	FindingsCount        int     `json:"findings_count"`
+	RecommendationsCount int     `json:"recommendations_count"`
+	RisksCount           int     `json:"risks_count"`
+	QuestionsCount       int     `json:"questions_count"`
 	Confidence           float64 `json:"confidence"`
-	GeneratedAt          string `json:"generated_at"`
+	GeneratedAt          string  `json:"generated_at"`
 }
 
 // SynthesisAudit summarizes the disagreement analysis.

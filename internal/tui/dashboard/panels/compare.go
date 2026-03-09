@@ -171,8 +171,8 @@ func (p *ComparePanel) View() string {
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(borderColor).
 		Background(bgColor).
-		Width(w - 2).
-		Height(h - 2).
+		Width(w-2).
+		Height(h-2).
 		Padding(0, 1)
 
 	var content strings.Builder

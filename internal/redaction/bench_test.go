@@ -203,14 +203,14 @@ func BenchmarkScanAndRedact_Adversarial_NearMisses(b *testing.B) {
 	// Near-misses: patterns that almost match but don't quite.
 	// ghp_ followed by too few characters.
 	nearMisses := []string{
-		"ghp_short",        // too short
-		"ghp_" + "x",       // way too short
-		"AKIA" + "SHORT",   // too short
-		"sk-" + "short",    // too short
-		"password=",        // empty value
-		"api_key=short",    // too short
-		"Bearer x",         // too short
-		"eyJhbGci",         // incomplete JWT
+		"ghp_short",      // too short
+		"ghp_" + "x",     // way too short
+		"AKIA" + "SHORT", // too short
+		"sk-" + "short",  // too short
+		"password=",      // empty value
+		"api_key=short",  // too short
+		"Bearer x",       // too short
+		"eyJhbGci",       // incomplete JWT
 	}
 	input := strings.Join(nearMisses, " ")
 	input = strings.Repeat(input+" ", 100)

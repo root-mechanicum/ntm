@@ -1051,7 +1051,7 @@ func runEnsembleSynthesize(w io.Writer, session string, opts synthesizeOptions) 
 	formatter.IncludeExplanation = opts.Explain
 
 	// Determine output destination
-	var out io.Writer = w
+	out := io.Writer(w)
 	if opts.Output != "" {
 		f, err := os.Create(opts.Output)
 		if err != nil {
@@ -1114,7 +1114,7 @@ func streamEnsembleSynthesis(
 		}
 	}
 
-	var out io.Writer = w
+	out := io.Writer(w)
 	if opts.Output != "" {
 		f, err := os.Create(opts.Output)
 		if err != nil {

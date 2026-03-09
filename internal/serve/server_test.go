@@ -21,9 +21,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-chi/chi/v5"
+
 	"github.com/Dicklesworthstone/ntm/internal/events"
 	"github.com/Dicklesworthstone/ntm/internal/state"
-	"github.com/go-chi/chi/v5"
 )
 
 func setupTestServer(t *testing.T) (*Server, *state.Store) {

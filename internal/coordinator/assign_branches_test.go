@@ -206,8 +206,8 @@ func TestEstimateTaskComplexity_ClampsToOne(t *testing.T) {
 	t.Parallel()
 	// epic (0.3) + priority>=3 (0.1) + 5 unblocks (0.15) = 0.5+0.3+0.1+0.15 = 1.05 → clamped to 1.0
 	rec := &bv.TriageRecommendation{
-		Type:       "epic",
-		Priority:   4,
+		Type:        "epic",
+		Priority:    4,
 		UnblocksIDs: []string{"a", "b", "c", "d", "e"},
 	}
 	got := estimateTaskComplexity(rec)

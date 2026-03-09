@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -21,38 +22,38 @@ import (
 type AuditAction string
 
 const (
-	AuditActionCreate   AuditAction = "create"
-	AuditActionUpdate   AuditAction = "update"
-	AuditActionDelete   AuditAction = "delete"
-	AuditActionApprove  AuditAction = "approve"
-	AuditActionDeny     AuditAction = "deny"
-	AuditActionExecute  AuditAction = "execute"
-	AuditActionLogin    AuditAction = "login"
-	AuditActionLogout   AuditAction = "logout"
+	AuditActionCreate    AuditAction = "create"
+	AuditActionUpdate    AuditAction = "update"
+	AuditActionDelete    AuditAction = "delete"
+	AuditActionApprove   AuditAction = "approve"
+	AuditActionDeny      AuditAction = "deny"
+	AuditActionExecute   AuditAction = "execute"
+	AuditActionLogin     AuditAction = "login"
+	AuditActionLogout    AuditAction = "logout"
 	AuditActionSubscribe AuditAction = "subscribe"
 )
 
 // AuditRecord represents a single audit trail entry.
 type AuditRecord struct {
-	ID          int64       `json:"id"`
-	Timestamp   time.Time   `json:"timestamp"`
-	RequestID   string      `json:"request_id"`
-	UserID      string      `json:"user_id"`
-	Role        Role        `json:"role"`
-	Action      AuditAction `json:"action"`
-	Resource    string      `json:"resource"`
-	ResourceID  string      `json:"resource_id,omitempty"`
-	Method      string      `json:"method"`
-	Path        string      `json:"path"`
-	StatusCode  int         `json:"status_code"`
-	Duration    int64       `json:"duration_ms"`
-	SessionID   string      `json:"session_id,omitempty"`
-	PaneID      string      `json:"pane_id,omitempty"`
-	AgentID     string      `json:"agent_id,omitempty"`
-	Details     string      `json:"details,omitempty"`
-	RemoteAddr  string      `json:"remote_addr"`
-	UserAgent   string      `json:"user_agent,omitempty"`
-	ApprovalID  string      `json:"approval_id,omitempty"`
+	ID         int64       `json:"id"`
+	Timestamp  time.Time   `json:"timestamp"`
+	RequestID  string      `json:"request_id"`
+	UserID     string      `json:"user_id"`
+	Role       Role        `json:"role"`
+	Action     AuditAction `json:"action"`
+	Resource   string      `json:"resource"`
+	ResourceID string      `json:"resource_id,omitempty"`
+	Method     string      `json:"method"`
+	Path       string      `json:"path"`
+	StatusCode int         `json:"status_code"`
+	Duration   int64       `json:"duration_ms"`
+	SessionID  string      `json:"session_id,omitempty"`
+	PaneID     string      `json:"pane_id,omitempty"`
+	AgentID    string      `json:"agent_id,omitempty"`
+	Details    string      `json:"details,omitempty"`
+	RemoteAddr string      `json:"remote_addr"`
+	UserAgent  string      `json:"user_agent,omitempty"`
+	ApprovalID string      `json:"approval_id,omitempty"`
 }
 
 // AuditStore persists audit records to durable storage.
@@ -120,7 +121,9 @@ func NewAuditStore(cfg AuditStoreConfig) (*AuditStore, error) {
 		store.db = db
 
 		if err := store.initSchema(); err != nil {
-			db.Close()
+			if closeErr := db.Close(); closeErr != nil {
+				log.Printf("audit: close db after init failure: %v", closeErr)
+			}
 			return nil, fmt.Errorf("init audit schema: %w", err)
 		}
 	}
@@ -129,14 +132,18 @@ func NewAuditStore(cfg AuditStoreConfig) (*AuditStore, error) {
 	if cfg.JSONLPath != "" {
 		if err := os.MkdirAll(filepath.Dir(cfg.JSONLPath), 0755); err != nil {
 			if store.db != nil {
-				store.db.Close()
+				if closeErr := store.db.Close(); closeErr != nil {
+					log.Printf("audit: close db after mkdir failure: %v", closeErr)
+				}
 			}
 			return nil, fmt.Errorf("create audit log dir: %w", err)
 		}
 		f, err := os.OpenFile(cfg.JSONLPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
 		if err != nil {
 			if store.db != nil {
-				store.db.Close()
+				if closeErr := store.db.Close(); closeErr != nil {
+					log.Printf("audit: close db after jsonl open failure: %v", closeErr)
+				}
 			}
 			return nil, fmt.Errorf("open audit log: %w", err)
 		}
@@ -202,7 +209,9 @@ func (s *AuditStore) Record(rec *AuditRecord) error {
 		if err != nil {
 			log.Printf("audit: json marshal error: %v", err)
 		} else {
-			s.jsonlFile.Write(append(data, '\n'))
+			if _, err := s.jsonlFile.Write(append(data, '\n')); err != nil {
+				log.Printf("audit: jsonl write error: %v", err)
+			}
 		}
 	}
 
@@ -290,7 +299,11 @@ func (s *AuditStore) Query(filter AuditFilter) ([]AuditRecord, error) {
 	if err != nil {
 		return nil, fmt.Errorf("query audit records: %w", err)
 	}
-	defer rows.Close()
+	defer func() {
+		if closeErr := rows.Close(); closeErr != nil {
+			log.Printf("audit: rows close error: %v", closeErr)
+		}
+	}()
 
 	var records []AuditRecord
 	for rows.Next() {
@@ -504,27 +517,12 @@ func inferResource(path string) string {
 
 // splitPath splits a URL path into segments.
 func splitPath(path string) []string {
-	var parts []string
-	for _, p := range filepath.SplitList(path) {
-		if p != "" && p != "/" {
+	rawParts := strings.Split(path, "/")
+	parts := make([]string, 0, len(rawParts))
+	for _, p := range rawParts {
+		if p != "" {
 			parts = append(parts, p)
 		}
-	}
-	// Manual split on /
-	parts = nil
-	current := ""
-	for _, c := range path {
-		if c == '/' {
-			if current != "" {
-				parts = append(parts, current)
-				current = ""
-			}
-		} else {
-			current += string(c)
-		}
-	}
-	if current != "" {
-		parts = append(parts, current)
 	}
 	return parts
 }

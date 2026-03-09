@@ -178,7 +178,7 @@ func TestDetectState(t *testing.T) {
 		{"gemini idle", []string{"Gemini>"}, "myproject__gmi_1", "idle"},               // With proper title format
 		{"bash prompt", []string{"$ "}, "", "idle"},
 		{"zsh prompt", []string{"% "}, "", "idle"},
-		{"python prompt", []string{">>> "}, "", "active"}, // Python prompt not recognized by status package
+		{"python prompt", []string{">>> "}, "", "idle"}, // Python REPL prompt is ready for input
 		{"rate limit error", []string{"Error: rate limit exceeded"}, "", "error"},
 		{"429 error", []string{"HTTP 429 too many requests"}, "", "error"},
 		{"panic error", []string{"panic: runtime error"}, "", "error"},

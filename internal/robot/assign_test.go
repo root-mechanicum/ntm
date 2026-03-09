@@ -197,13 +197,13 @@ func TestParsePriority_Assign(t *testing.T) {
 		{"P2", 2},
 		{"P3", 3},
 		{"P4", 4},
-		{"P5", 2}, // Out of range, defaults to 2
-		{"P9", 2}, // Out of range
-		{"", 2},   // Empty
-		{"Q1", 2}, // Wrong prefix
-		{"p1", 2}, // Wrong case (lowercase p)
-		{"PP", 2}, // Malformed
-		{"P", 2},  // Too short
+		{"P5", 2},  // Out of range, defaults to 2
+		{"P9", 2},  // Out of range
+		{"", 2},    // Empty
+		{"Q1", 2},  // Wrong prefix
+		{"p1", 2},  // Wrong case (lowercase p)
+		{"PP", 2},  // Malformed
+		{"P", 2},   // Too short
 		{"P12", 2}, // Too long
 	}
 
@@ -616,10 +616,10 @@ func TestAssignOutput_JSONStructure(t *testing.T) {
 		},
 		IdleAgents: []string{"2", "3"},
 		Summary: AssignSummary{
-			TotalAgents:   4,
-			IdleAgents:    2,
-			WorkingAgents: 2,
-			ReadyBeads:    5,
+			TotalAgents:     4,
+			IdleAgents:      2,
+			WorkingAgents:   2,
+			ReadyBeads:      5,
 			Recommendations: 1,
 		},
 	}

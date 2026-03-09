@@ -76,7 +76,7 @@ func Verify(bundlePath string) (*VerifyResult, error) {
 }
 
 // verifyZip verifies a zip bundle.
-func verifyZip(path string, result *VerifyResult) (*VerifyResult, error) {
+func verifyZip(path string, result *VerifyResult) (_ *VerifyResult, err error) {
 	r, err := zip.OpenReader(path)
 	if err != nil {
 		result.Valid = false
@@ -84,7 +84,11 @@ func verifyZip(path string, result *VerifyResult) (*VerifyResult, error) {
 		result.Errors = append(result.Errors, fmt.Sprintf("failed to open zip: %v", err))
 		return result, nil
 	}
-	defer r.Close()
+	defer func() {
+		if closeErr := r.Close(); err == nil && closeErr != nil {
+			err = fmt.Errorf("close zip reader: %w", closeErr)
+		}
+	}()
 
 	// Build file map and find manifest
 	files := make(map[string]*zip.File)
@@ -133,8 +137,16 @@ func verifyZip(path string, result *VerifyResult) (*VerifyResult, error) {
 		if err != nil {
 			return nil, err
 		}
-		defer rc.Close()
-		return io.ReadAll(rc)
+		defer func() {
+			if closeErr := rc.Close(); err == nil && closeErr != nil {
+				err = fmt.Errorf("close zip entry %s: %w", path, closeErr)
+			}
+		}()
+		data, err := io.ReadAll(rc)
+		if err != nil {
+			return nil, err
+		}
+		return data, err
 	})
 
 	result.Valid = result.ManifestValid && result.SchemaValid && result.FilesPresent && result.ChecksumsValid
@@ -143,7 +155,7 @@ func verifyZip(path string, result *VerifyResult) (*VerifyResult, error) {
 }
 
 // verifyTarGz verifies a tar.gz bundle.
-func verifyTarGz(path string, result *VerifyResult) (*VerifyResult, error) {
+func verifyTarGz(path string, result *VerifyResult) (_ *VerifyResult, err error) {
 	f, err := os.Open(path)
 	if err != nil {
 		result.Valid = false
@@ -160,7 +172,11 @@ func verifyTarGz(path string, result *VerifyResult) (*VerifyResult, error) {
 		result.Errors = append(result.Errors, fmt.Sprintf("failed to decompress gzip: %v", err))
 		return result, nil
 	}
-	defer gz.Close()
+	defer func() {
+		if closeErr := gz.Close(); err == nil && closeErr != nil {
+			err = fmt.Errorf("close gzip reader: %w", closeErr)
+		}
+	}()
 
 	// Read all files into memory for verification
 	files := make(map[string][]byte)

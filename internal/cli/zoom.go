@@ -91,7 +91,7 @@ Examples:
 		Args: cobra.MaximumNArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			var session string
-			var paneIdx int = -1
+			paneIdx := -1
 			paneSelector := ""
 
 			if len(args) >= 1 {

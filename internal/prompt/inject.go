@@ -52,7 +52,7 @@ func isLineRangeSuffix(s string) bool {
 	// If a hyphen is present, at least one side must be non-empty.
 	if hyphens == 1 {
 		parts := strings.SplitN(s, "-", 2)
-		return !(parts[0] == "" && parts[1] == "")
+		return parts[0] != "" || parts[1] != ""
 	}
 
 	return true

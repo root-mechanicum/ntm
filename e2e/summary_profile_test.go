@@ -38,23 +38,23 @@ type AgentSummary struct {
 
 // SummaryListOutput represents the JSON output from ntm summary --all
 type SummaryListOutput struct {
-	Success   bool            `json:"success"`
-	Summaries []SummaryInfo   `json:"summaries,omitempty"`
-	Error     string          `json:"error,omitempty"`
+	Success   bool          `json:"success"`
+	Summaries []SummaryInfo `json:"summaries,omitempty"`
+	Error     string        `json:"error,omitempty"`
 }
 
 // SummaryInfo represents summary metadata
 type SummaryInfo struct {
-	Session   string    `json:"session"`
-	Timestamp time.Time `json:"timestamp"`
-	AgentCount int      `json:"agent_count,omitempty"`
+	Session    string    `json:"session"`
+	Timestamp  time.Time `json:"timestamp"`
+	AgentCount int       `json:"agent_count,omitempty"`
 }
 
 // ProfilesListOutput represents the JSON output from ntm profiles list
 type ProfilesListOutput struct {
-	Success  bool           `json:"success"`
-	Profiles []ProfileInfo  `json:"profiles,omitempty"`
-	Error    string         `json:"error,omitempty"`
+	Success  bool          `json:"success"`
+	Profiles []ProfileInfo `json:"profiles,omitempty"`
+	Error    string        `json:"error,omitempty"`
 }
 
 // ProfileInfo represents profile metadata

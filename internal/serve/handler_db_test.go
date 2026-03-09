@@ -10,9 +10,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-chi/chi/v5"
+
 	"github.com/Dicklesworthstone/ntm/internal/metrics"
 	"github.com/Dicklesworthstone/ntm/internal/state"
-	"github.com/go-chi/chi/v5"
 )
 
 // createTestSessionForServe inserts a session row into the state store.

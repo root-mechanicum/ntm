@@ -368,9 +368,7 @@ func formatIssues(ps *paneStatus) string {
 	if ps.RateLimit {
 		issues = append(issues, "RATE_LIMIT")
 	}
-	for _, e := range ps.Errors {
-		issues = append(issues, e)
-	}
+	issues = append(issues, ps.Errors...)
 	if len(issues) == 0 {
 		return "-"
 	}

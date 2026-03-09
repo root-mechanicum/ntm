@@ -337,7 +337,11 @@ func formatBytesShort(b int64) string {
 		exp++
 	}
 	value := float64(b) / float64(div)
-	suffix := []string{"KB", "MB", "GB", "TB", "PB"}[exp]
+	suffixes := [...]string{"KB", "MB", "GB", "TB", "PB"}
+	if exp >= len(suffixes) {
+		exp = len(suffixes) - 1
+	}
+	suffix := suffixes[exp]
 	if value >= 10 {
 		return fmt.Sprintf("%.0f%s", value, suffix)
 	}

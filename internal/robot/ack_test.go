@@ -184,7 +184,7 @@ func TestIsIdlePrompt(t *testing.T) {
 		{"claude>", false}, // Requires "cc" agentType
 		{"Claude>", false}, // Requires "cc" agentType
 		{"codex>", false},  // Requires "cod" agentType
-		{">>> ", false},    // Python prompt not in status patterns
+		{">>> ", true},     // Python REPL prompt is ready for input
 		{"some text", false},
 		{"", false},
 		{"working...", false},
@@ -211,7 +211,7 @@ func TestIsPromptLine(t *testing.T) {
 		{"user@host:~$ ", "", true},           // User prompt
 		{"claude> ", "myproject__cc_1", true}, // Claude with proper title
 		{"> ", "", true},                      // Generic > prompt
-		{">>> ", "", false},                   // Python prompt not in status patterns
+		{">>> ", "", true},                    // Python REPL prompt is ready for input
 		{"some output text", "", false},
 		{"error: something failed", "", false},
 	}

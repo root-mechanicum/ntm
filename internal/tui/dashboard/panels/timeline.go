@@ -708,7 +708,7 @@ func (m *TimelinePanel) getEventsForAgent(agentID string) []state.AgentEvent {
 func (m *TimelinePanel) getStateInRange(events []state.AgentEvent, start, end time.Time) state.TimelineState {
 	// Find the state that was active during this time range
 	// We look for the most recent event before or during this range
-	var activeState state.TimelineState = state.TimelineIdle
+	activeState := state.TimelineIdle
 	for _, e := range events {
 		if e.Timestamp.Before(end) || e.Timestamp.Equal(end) {
 			activeState = e.State
@@ -721,7 +721,7 @@ func (m *TimelinePanel) getStateInRange(events []state.AgentEvent, start, end ti
 
 func (m *TimelinePanel) getStateAtTime(agentID string, t time.Time) state.TimelineState {
 	events := m.getEventsForAgent(agentID)
-	var activeState state.TimelineState = state.TimelineIdle
+	activeState := state.TimelineIdle
 	for _, e := range events {
 		if e.Timestamp.Before(t) || e.Timestamp.Equal(t) {
 			activeState = e.State

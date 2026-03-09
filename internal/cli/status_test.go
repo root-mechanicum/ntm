@@ -9,7 +9,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Dicklesworthstone/ntm/internal/config"
 	"github.com/Dicklesworthstone/ntm/internal/tmux"
 	"github.com/Dicklesworthstone/ntm/tests/testutil"
 )
@@ -33,8 +32,7 @@ func TestStatusRealSession(t *testing.T) {
 		jsonOutput = oldJsonOutput
 	}()
 
-	cfg = config.Default()
-	cfg.ProjectsBase = tmpDir
+	cfg = newTmuxIntegrationTestConfig(tmpDir)
 	jsonOutput = false // Test text output
 
 	// Use simple command

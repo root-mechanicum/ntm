@@ -13,12 +13,12 @@ import (
 
 // OpenAPISpec represents an OpenAPI 3.1 specification.
 type OpenAPISpec struct {
-	OpenAPI    string                `json:"openapi"`
-	Info       OpenAPIInfo           `json:"info"`
-	Servers    []OpenAPIServer       `json:"servers,omitempty"`
-	Paths      map[string]PathItem   `json:"paths"`
-	Components *OpenAPIComponents    `json:"components,omitempty"`
-	Tags       []OpenAPITag          `json:"tags,omitempty"`
+	OpenAPI    string              `json:"openapi"`
+	Info       OpenAPIInfo         `json:"info"`
+	Servers    []OpenAPIServer     `json:"servers,omitempty"`
+	Paths      map[string]PathItem `json:"paths"`
+	Components *OpenAPIComponents  `json:"components,omitempty"`
+	Tags       []OpenAPITag        `json:"tags,omitempty"`
 }
 
 // OpenAPIInfo contains API metadata.
@@ -86,8 +86,8 @@ type Response struct {
 
 // MediaType describes media type content.
 type MediaType struct {
-	Schema   *Schema                `json:"schema,omitempty"`
-	Examples map[string]ExampleRef  `json:"examples,omitempty"`
+	Schema   *Schema               `json:"schema,omitempty"`
+	Examples map[string]ExampleRef `json:"examples,omitempty"`
 }
 
 // ExampleRef holds an example value.

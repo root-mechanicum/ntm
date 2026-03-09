@@ -465,9 +465,10 @@ func renderAlerts(alerts []Alert) error {
 		fmt.Println(style.Render(fmt.Sprintf("%s (%d):", label, len(items))))
 		for _, a := range items {
 			icon := "•"
-			if a.Severity == "critical" {
+			switch a.Severity {
+			case "critical":
 				icon = "✗"
-			} else if a.Severity == "warning" {
+			case "warning":
 				icon = "⚠"
 			}
 			fmt.Printf("  %s %s", icon, a.Message)

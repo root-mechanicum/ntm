@@ -4621,9 +4621,7 @@ func (m Model) renderHeaderContextWarningLine(width int) string {
 func formatPaneLabel(session string, pane tmux.Pane) string {
 	label := strings.TrimSpace(pane.Title)
 	prefix := session + "__"
-	if strings.HasPrefix(label, prefix) {
-		label = strings.TrimPrefix(label, prefix)
-	}
+	label = strings.TrimPrefix(label, prefix)
 	if label == "" {
 		label = fmt.Sprintf("pane %d", pane.Index)
 	}
@@ -4656,11 +4654,150 @@ func (m Model) renderPaneGrid() string {
 	}
 	contextRanks := m.computeContextRanks()
 
+	// Compact grids often render many panes that share identical visual fragments
+	// (status badges, model badges, context bars, token labels). Cache those pure
+	// sub-render results for this pass so we only pay the lipgloss/style cost once
+	// per unique input tuple.
+	type badgeCacheKey struct {
+		text       string
+		bg         string
+		fg         string
+		style      styles.BadgeStyle
+		bold       bool
+		showIcon   bool
+		fixedWidth int
+	}
+	badgeCache := make(map[badgeCacheKey]string, 16)
+	cachedTextBadge := func(text string, bgColor, fgColor lipgloss.Color, opt styles.BadgeOptions) string {
+		key := badgeCacheKey{
+			text:       text,
+			bg:         string(bgColor),
+			fg:         string(fgColor),
+			style:      opt.Style,
+			bold:       opt.Bold,
+			showIcon:   opt.ShowIcon,
+			fixedWidth: opt.FixedWidth,
+		}
+		if rendered, ok := badgeCache[key]; ok {
+			return rendered
+		}
+		rendered := styles.TextBadge(text, bgColor, fgColor, opt)
+		badgeCache[key] = rendered
+		return rendered
+	}
+
+	type styledTextCacheKey struct {
+		text   string
+		fg     string
+		bold   bool
+		italic bool
+	}
+	type styledTextStyleKey struct {
+		fg     string
+		bold   bool
+		italic bool
+	}
+	styledTextCache := make(map[styledTextCacheKey]string, 24)
+	styledTextStyleCache := make(map[styledTextStyleKey]lipgloss.Style, 8)
+	styledTextStyle := func(fg lipgloss.Color, bold, italic bool) lipgloss.Style {
+		key := styledTextStyleKey{
+			fg:     string(fg),
+			bold:   bold,
+			italic: italic,
+		}
+		if style, ok := styledTextStyleCache[key]; ok {
+			return style
+		}
+		style := lipgloss.NewStyle().Foreground(fg)
+		if bold {
+			style = style.Bold(true)
+		}
+		if italic {
+			style = style.Italic(true)
+		}
+		styledTextStyleCache[key] = style
+		return style
+	}
+	cachedStyledText := func(text string, fg lipgloss.Color, bold, italic bool) string {
+		key := styledTextCacheKey{
+			text:   text,
+			fg:     string(fg),
+			bold:   bold,
+			italic: italic,
+		}
+		if rendered, ok := styledTextCache[key]; ok {
+			return rendered
+		}
+		rendered := styledTextStyle(fg, bold, italic).Render(text)
+		styledTextCache[key] = rendered
+		return rendered
+	}
+
+	type contextBarCacheKey struct {
+		percent float64
+		width   int
+	}
+	contextBarCache := make(map[contextBarCacheKey]string, 8)
+	cachedContextBar := func(percent float64, width int) string {
+		key := contextBarCacheKey{percent: percent, width: width}
+		if rendered, ok := contextBarCache[key]; ok {
+			return rendered
+		}
+		rendered := m.renderContextBar(percent, width)
+		contextBarCache[key] = rendered
+		return rendered
+	}
+
+	type cardStyleKey struct {
+		borderColor string
+		selected    bool
+	}
+	cardBaseStyle := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		Width(cardWidth).
+		Padding(0, 1)
+	cardStyleCache := make(map[cardStyleKey]lipgloss.Style, 8)
+	cachedCardStyle := func(borderColor lipgloss.Color, selected bool) lipgloss.Style {
+		key := cardStyleKey{
+			borderColor: string(borderColor),
+			selected:    selected,
+		}
+		if style, ok := cardStyleCache[key]; ok {
+			return style
+		}
+		style := cardBaseStyle.BorderForeground(borderColor)
+		if selected {
+			style = style.Background(t.Surface0)
+		}
+		cardStyleCache[key] = style
+		return style
+	}
+
+	activityBadgeCache := make(map[string]string, 8)
+	cachedActivityBadge := func(state string) string {
+		if badge, ok := activityBadgeCache[state]; ok {
+			return badge
+		}
+		label, color := activityLabelAndColor(state, t)
+		if label == "" {
+			activityBadgeCache[state] = ""
+			return ""
+		}
+		badge := cachedTextBadge(label, color, t.Base, styles.BadgeOptions{
+			Style:    styles.BadgeStyleCompact,
+			Bold:     true,
+			ShowIcon: false,
+		})
+		activityBadgeCache[state] = badge
+		return badge
+	}
+
 	var cards []string
 
 	for i, p := range m.panes {
 		row := rows[i]
 		isSelected := i == m.cursor
+		ps, hasPaneStatus := m.paneStatus[p.Index]
 
 		// Determine card colors based on agent type
 		var borderColor, iconColor lipgloss.Color
@@ -4718,41 +4855,39 @@ func (m Model) renderPaneGrid() string {
 			statusIcon = "⏳"
 			statusColor = t.Maroon
 		}
-		statusStyled := lipgloss.NewStyle().Foreground(statusColor).Bold(true).Render(statusIcon)
+		statusStyled := cachedStyledText(statusIcon, statusColor, true, false)
 
-		iconStyled := lipgloss.NewStyle().Foreground(iconColor).Bold(true).Render(agentIcon)
+		iconStyled := cachedStyledText(agentIcon, iconColor, true, false)
 		// Show profile name as primary identifier
 		profileName := p.Type.ProfileName()
-		profileStyled := lipgloss.NewStyle().Foreground(t.Text).Bold(true).Render(profileName)
+		profileStyled := cachedStyledText(profileName, t.Text, true, false)
 		cardContent.WriteString(statusStyled + " " + iconStyled + " " + profileStyled + "\n")
 
 		// Index badge + compact badges
-		numBadge := lipgloss.NewStyle().
-			Foreground(t.Overlay).
-			Render(fmt.Sprintf("#%d", p.Index))
-
-		var line2Parts []string
-		line2Parts = append(line2Parts, numBadge)
+		numBadge := cachedStyledText(fmt.Sprintf("#%d", p.Index), t.Overlay, false, false)
+		cardContent.WriteString(numBadge)
 		if p.Variant != "" {
 			label := layout.TruncateWidthDefault(p.Variant, 12)
-			modelBadge := styles.TextBadge(label, iconColor, t.Base, styles.BadgeOptions{
+			modelBadge := cachedTextBadge(label, iconColor, t.Base, styles.BadgeOptions{
 				Style:    styles.BadgeStyleCompact,
 				Bold:     false,
 				ShowIcon: false,
 			})
-			line2Parts = append(line2Parts, modelBadge)
+			cardContent.WriteByte(' ')
+			cardContent.WriteString(modelBadge)
 		}
 		if showExtendedInfo {
 			if rank, ok := contextRanks[p.Index]; ok && rank > 0 {
-				rankBadge := styles.TextBadge(fmt.Sprintf("rank%d", rank), t.Mauve, t.Base, styles.BadgeOptions{
+				rankBadge := cachedTextBadge(fmt.Sprintf("rank%d", rank), t.Mauve, t.Base, styles.BadgeOptions{
 					Style:    styles.BadgeStyleCompact,
 					Bold:     false,
 					ShowIcon: false,
 				})
-				line2Parts = append(line2Parts, rankBadge)
+				cardContent.WriteByte(' ')
+				cardContent.WriteString(rankBadge)
 			}
 		}
-		cardContent.WriteString(strings.Join(line2Parts, " ") + "\n")
+		cardContent.WriteByte('\n')
 
 		// Bead + activity badges (best-effort)
 		if row.CurrentBead != "" {
@@ -4760,7 +4895,7 @@ func (m Model) renderPaneGrid() string {
 			if parts := strings.SplitN(row.CurrentBead, ": ", 2); len(parts) > 0 {
 				beadID = parts[0]
 			}
-			beadBadge := styles.TextBadge(beadID, t.Mauve, t.Base, styles.BadgeOptions{
+			beadBadge := cachedTextBadge(beadID, t.Mauve, t.Base, styles.BadgeOptions{
 				Style:    styles.BadgeStyleCompact,
 				Bold:     false,
 				ShowIcon: false,
@@ -4768,30 +4903,39 @@ func (m Model) renderPaneGrid() string {
 			cardContent.WriteString(beadBadge + "\n")
 		}
 
-		var activityBadges []string
-		if badge := activityBadge(row.Status, t); badge != "" {
-			activityBadges = append(activityBadges, badge)
+		wroteActivityBadge := false
+		if badge := cachedActivityBadge(row.Status); badge != "" {
+			cardContent.WriteString(badge)
+			wroteActivityBadge = true
 		}
 		if row.FileChanges > 0 {
-			activityBadges = append(activityBadges, styles.TextBadge(fmt.Sprintf("Δ%d", row.FileChanges), t.Blue, t.Base, styles.BadgeOptions{
+			if wroteActivityBadge {
+				cardContent.WriteByte(' ')
+			}
+			cardContent.WriteString(cachedTextBadge(fmt.Sprintf("Δ%d", row.FileChanges), t.Blue, t.Base, styles.BadgeOptions{
 				Style:    styles.BadgeStyleCompact,
 				Bold:     false,
 				ShowIcon: false,
 			}))
+			wroteActivityBadge = true
 		}
 		if row.TokenVelocity > 0 && showExtendedInfo {
-			activityBadges = append(activityBadges, styles.TokenVelocityBadge(row.TokenVelocity, styles.BadgeOptions{
+			if wroteActivityBadge {
+				cardContent.WriteByte(' ')
+			}
+			cardContent.WriteString(styles.TokenVelocityBadge(row.TokenVelocity, styles.BadgeOptions{
 				Style:    styles.BadgeStyleCompact,
 				Bold:     false,
 				ShowIcon: true,
 			}))
+			wroteActivityBadge = true
 		}
-		if len(activityBadges) > 0 {
-			cardContent.WriteString(strings.Join(activityBadges, " ") + "\n")
+		if wroteActivityBadge {
+			cardContent.WriteByte('\n')
 		}
 
 		// Mail badges
-		if ps, ok := m.paneStatus[p.Index]; ok && ps.MailUnread > 0 {
+		if hasPaneStatus && ps.MailUnread > 0 {
 			label := fmt.Sprintf("✉ %d new", ps.MailUnread)
 			if ps.MailUrgent > 0 {
 				label = fmt.Sprintf("✉ %d new (%d urgent)", ps.MailUnread, ps.MailUrgent)
@@ -4802,7 +4946,7 @@ func (m Model) renderPaneGrid() string {
 				style = t.Red
 			}
 
-			mailBadge := styles.TextBadge(label, style, t.Base, styles.BadgeOptions{
+			mailBadge := cachedTextBadge(label, style, t.Base, styles.BadgeOptions{
 				Style:    styles.BadgeStyleCompact,
 				Bold:     ps.MailUrgent > 0,
 				ShowIcon: false,
@@ -4811,17 +4955,18 @@ func (m Model) renderPaneGrid() string {
 		}
 
 		// Health badges - show warning/error status and restart count
-		if ps, ok := m.paneStatus[p.Index]; ok {
+		if hasPaneStatus {
 			// Health status badge
-			if ps.HealthStatus == "warning" {
-				healthBadge := styles.TextBadge("⚠ WARN", t.Yellow, t.Base, styles.BadgeOptions{
+			switch ps.HealthStatus {
+			case "warning":
+				healthBadge := cachedTextBadge("⚠ WARN", t.Yellow, t.Base, styles.BadgeOptions{
 					Style:    styles.BadgeStyleCompact,
 					Bold:     true,
 					ShowIcon: false,
 				})
 				cardContent.WriteString(healthBadge + "\n")
-			} else if ps.HealthStatus == "error" {
-				healthBadge := styles.TextBadge("✗ ERR", t.Red, t.Base, styles.BadgeOptions{
+			case "error":
+				healthBadge := cachedTextBadge("✗ ERR", t.Red, t.Base, styles.BadgeOptions{
 					Style:    styles.BadgeStyleCompact,
 					Bold:     true,
 					ShowIcon: false,
@@ -4831,7 +4976,7 @@ func (m Model) renderPaneGrid() string {
 
 			// Restart count badge
 			if ps.RestartCount > 0 {
-				restartBadge := styles.TextBadge(fmt.Sprintf("↻%d", ps.RestartCount), t.Peach, t.Base, styles.BadgeOptions{
+				restartBadge := cachedTextBadge(fmt.Sprintf("↻%d", ps.RestartCount), t.Peach, t.Base, styles.BadgeOptions{
 					Style:    styles.BadgeStyleCompact,
 					Bold:     false,
 					ShowIcon: false,
@@ -4841,82 +4986,63 @@ func (m Model) renderPaneGrid() string {
 
 			// Show first health issue as tooltip
 			if len(ps.HealthIssues) > 0 && showExtendedInfo {
-				issueStyle := lipgloss.NewStyle().Foreground(t.Overlay).Italic(true)
 				issue := layout.TruncateWidthDefault(ps.HealthIssues[0], maxInt(cardWidth-4, 10))
-				healthBadge := issueStyle.Render(issue)
+				healthBadge := cachedStyledText(issue, t.Overlay, false, true)
 				cardContent.WriteString(healthBadge + "\n")
 			}
 		}
 
 		// Size info - on wide displays show more detail
-		sizeStyle := lipgloss.NewStyle().Foreground(t.Subtext)
 		if showExtendedInfo {
-			cardContent.WriteString(sizeStyle.Render(fmt.Sprintf("%dx%d cols×rows", p.Width, p.Height)) + "\n")
+			cardContent.WriteString(cachedStyledText(fmt.Sprintf("%dx%d cols×rows", p.Width, p.Height), t.Subtext, false, false) + "\n")
 		} else {
-			cardContent.WriteString(sizeStyle.Render(fmt.Sprintf("%dx%d", p.Width, p.Height)) + "\n")
+			cardContent.WriteString(cachedStyledText(fmt.Sprintf("%dx%d", p.Width, p.Height), t.Subtext, false, false) + "\n")
 		}
 
 		// Command running (if any) - only when there is room
 		if p.Command != "" && showExtendedInfo {
-			cmdStyle := lipgloss.NewStyle().Foreground(t.Overlay).Italic(true)
 			cmd := layout.TruncateWidthDefault(p.Command, maxInt(cardWidth-4, 8))
-			cardContent.WriteString(cmdStyle.Render(cmd))
+			cardContent.WriteString(cachedStyledText(cmd, t.Overlay, false, true))
 		}
 
 		// Context usage bar (best-effort; show in grid when available)
-		if ps, ok := m.paneStatus[p.Index]; ok && ps.ContextLimit > 0 {
+		if hasPaneStatus && ps.ContextLimit > 0 {
 			cardContent.WriteString("\n")
 			// Show token counts in extended view (e.g., "142.5K / 200K")
 			if showExtendedInfo && ps.ContextTokens > 0 {
 				tokenInfo := formatTokenDisplay(ps.ContextTokens, ps.ContextLimit)
-				tokenStyle := lipgloss.NewStyle().Foreground(t.Subtext)
-				cardContent.WriteString(tokenStyle.Render(tokenInfo) + "\n")
+				cardContent.WriteString(cachedStyledText(tokenInfo, t.Subtext, false, false) + "\n")
 			}
-			contextBar := m.renderContextBar(ps.ContextPercent, cardWidth-4)
+			contextBar := cachedContextBar(ps.ContextPercent, cardWidth-4)
 			cardContent.WriteString(contextBar)
 		}
 
 		// Rotation in-progress indicator
-		if ps, ok := m.paneStatus[p.Index]; ok && ps.IsRotating {
+		if hasPaneStatus && ps.IsRotating {
 			cardContent.WriteString("\n")
 			rotateIcon := styles.Shimmer("🔄", m.animTick, string(t.Blue), string(t.Sapphire), string(t.Blue))
-			rotateStyle := lipgloss.NewStyle().Foreground(t.Blue).Bold(true)
-			cardContent.WriteString(rotateIcon + rotateStyle.Render(" Rotating..."))
-		} else if ps, ok := m.paneStatus[p.Index]; ok && ps.RotatedAt != nil {
+			cardContent.WriteString(rotateIcon + cachedStyledText(" Rotating...", t.Blue, true, false))
+		} else if hasPaneStatus && ps.RotatedAt != nil {
 			// Show "rotated Xm ago" indicator for recently rotated agents
 			elapsed := time.Since(*ps.RotatedAt)
 			if elapsed < 5*time.Minute {
 				cardContent.WriteString("\n")
-				rotatedStyle := lipgloss.NewStyle().Foreground(t.Overlay).Italic(true)
-				cardContent.WriteString(rotatedStyle.Render(fmt.Sprintf("↻ rotated %s ago", formatRelativeTime(elapsed))))
+				cardContent.WriteString(cachedStyledText(fmt.Sprintf("↻ rotated %s ago", formatRelativeTime(elapsed)), t.Overlay, false, true))
 			}
 		}
 
 		// Compaction indicator
-		if ps, ok := m.paneStatus[p.Index]; ok && ps.LastCompaction != nil {
+		if hasPaneStatus && ps.LastCompaction != nil {
 			cardContent.WriteString("\n")
-			compactStyle := lipgloss.NewStyle().Foreground(t.Warning).Bold(true)
 			indicator := "⚠ compacted"
 			if ps.RecoverySent {
 				indicator = "↻ recovering"
 			}
-			cardContent.WriteString(compactStyle.Render(indicator))
+			cardContent.WriteString(cachedStyledText(indicator, t.Warning, true, false))
 		}
 
 		// Create card box
-		cardStyle := lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(borderColor).
-			Width(cardWidth).
-			Padding(0, 1)
-
-		if isSelected {
-			// Add glow effect for selected card
-			cardStyle = cardStyle.
-				Background(t.Surface0)
-		}
-
-		cards = append(cards, cardStyle.Render(cardContent.String()))
+		cards = append(cards, cachedCardStyle(borderColor, isSelected).Render(cardContent.String()))
 	}
 
 	// Arrange cards in rows

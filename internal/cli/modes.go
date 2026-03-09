@@ -16,10 +16,10 @@ import (
 )
 
 type modesListOutput struct {
-	GeneratedAt time.Time                 `json:"generated_at" yaml:"generated_at"`
-	Modes       []modesListRow            `json:"modes" yaml:"modes"`
-	Count       int                       `json:"count" yaml:"count"`
-	Filter      string                    `json:"filter,omitempty" yaml:"filter,omitempty"`
+	GeneratedAt time.Time      `json:"generated_at" yaml:"generated_at"`
+	Modes       []modesListRow `json:"modes" yaml:"modes"`
+	Count       int            `json:"count" yaml:"count"`
+	Filter      string         `json:"filter,omitempty" yaml:"filter,omitempty"`
 }
 
 type modesListRow struct {

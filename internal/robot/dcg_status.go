@@ -122,17 +122,17 @@ func PrintDCGStatus() error {
 // DCGCheckOutput represents the response from --robot-dcg-check / --robot-guard.
 type DCGCheckOutput struct {
 	RobotResponse
-	Command     string          `json:"command"`
-	Context     string          `json:"context,omitempty"`
-	CWD         string          `json:"cwd,omitempty"`
-	Allowed     bool            `json:"allowed"`
-	Severity    string          `json:"severity,omitempty"`
-	Rationale   string          `json:"rationale,omitempty"`
-	Suggestion  string          `json:"suggestion,omitempty"`
-	RuleMatched string          `json:"rule_matched,omitempty"`
-	DCGVersion  string          `json:"dcg_version,omitempty"`
-	BinaryPath  string          `json:"binary_path,omitempty"`
-	AgentHints  *DCGAgentHints  `json:"_agent_hints,omitempty"`
+	Command     string         `json:"command"`
+	Context     string         `json:"context,omitempty"`
+	CWD         string         `json:"cwd,omitempty"`
+	Allowed     bool           `json:"allowed"`
+	Severity    string         `json:"severity,omitempty"`
+	Rationale   string         `json:"rationale,omitempty"`
+	Suggestion  string         `json:"suggestion,omitempty"`
+	RuleMatched string         `json:"rule_matched,omitempty"`
+	DCGVersion  string         `json:"dcg_version,omitempty"`
+	BinaryPath  string         `json:"binary_path,omitempty"`
+	AgentHints  *DCGAgentHints `json:"_agent_hints,omitempty"`
 
 	// Deprecated: use Rationale instead (kept for backwards compatibility)
 	Reason string `json:"reason,omitempty"`
@@ -176,7 +176,7 @@ func GetDCGCheckWithOptions(opts DCGCheckOptions) (*DCGCheckOutput, error) {
 			Context: opts.Context,
 			Allowed: false,
 		}
-		output.RobotResponse.Meta = meta.WithExitCode(1)
+		output.Meta = meta.WithExitCode(1)
 		return output, nil
 	}
 
@@ -201,7 +201,7 @@ func GetDCGCheckWithOptions(opts DCGCheckOptions) (*DCGCheckOutput, error) {
 			CWD:           cwd,
 			Allowed:       false,
 		}
-		output.RobotResponse.Meta = meta.WithExitCode(1)
+		output.Meta = meta.WithExitCode(1)
 		return output, nil
 	}
 
@@ -220,7 +220,7 @@ func GetDCGCheckWithOptions(opts DCGCheckOptions) (*DCGCheckOutput, error) {
 			Allowed:       false,
 			BinaryPath:    "",
 		}
-		output.RobotResponse.Meta = meta.WithExitCode(2)
+		output.Meta = meta.WithExitCode(2)
 		if availability != nil {
 			output.BinaryPath = availability.Path
 			if availability.Version.Major > 0 || availability.Version.Minor > 0 || availability.Version.Patch > 0 {
@@ -252,7 +252,7 @@ func GetDCGCheckWithOptions(opts DCGCheckOptions) (*DCGCheckOutput, error) {
 			hint = "Try again later or reduce dcg timeout"
 		}
 		output.RobotResponse = NewErrorResponse(err, errCode, hint)
-		output.RobotResponse.Meta = meta.WithExitCode(1)
+		output.Meta = meta.WithExitCode(1)
 		return output, nil
 	}
 

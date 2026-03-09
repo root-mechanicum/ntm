@@ -243,8 +243,6 @@ func (t *Tracker) RecordSessionEnd(session string, agentScores []Score) error {
 
 // Close closes the tracker file.
 func (t *Tracker) Close() error {
-	t.mu.Lock()
-	t.mu.Unlock()
 	return nil
 }
 

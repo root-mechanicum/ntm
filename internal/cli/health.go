@@ -646,9 +646,10 @@ func renderHealthTUI(result *health.SessionHealth) error {
 
 	// Don't exit in watch mode - only set exit code on final display
 	if !healthWatch {
-		if result.OverallStatus == health.StatusError {
+		switch result.OverallStatus {
+		case health.StatusError:
 			os.Exit(2)
-		} else if result.OverallStatus == health.StatusWarning {
+		case health.StatusWarning:
 			os.Exit(1)
 		}
 	}

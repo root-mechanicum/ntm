@@ -3,6 +3,7 @@
 package caut
 
 import (
+	"sort"
 	"sync"
 	"time"
 
@@ -76,7 +77,8 @@ func (c *UsageCache) UpdateAllUsage(usages []tools.CautUsage) {
 	// Clear existing and repopulate
 	c.usage = make(map[string]*tools.CautUsage)
 	for i := range usages {
-		c.usage[usages[i].Provider] = &usages[i]
+		usageCopy := usages[i]
+		c.usage[usageCopy.Provider] = &usageCopy
 	}
 	c.lastUpdated = time.Now()
 	c.updateCount++
@@ -135,8 +137,13 @@ func (c *UsageCache) GetAllUsage() []tools.CautUsage {
 	defer c.mu.RUnlock()
 
 	usages := make([]tools.CautUsage, 0, len(c.usage))
-	for _, usage := range c.usage {
-		usages = append(usages, *usage)
+	providers := make([]string, 0, len(c.usage))
+	for provider := range c.usage {
+		providers = append(providers, provider)
+	}
+	sort.Strings(providers)
+	for _, provider := range providers {
+		usages = append(usages, *c.usage[provider])
 	}
 	return usages
 }
@@ -155,11 +162,11 @@ func (c *UsageCache) GetUpdateCount() int64 {
 	return c.updateCount
 }
 
-// GetLastError returns the most recent error and when it occurred.
-func (c *UsageCache) GetLastError() (error, time.Time) {
+// GetLastError returns when the most recent error occurred and the error itself.
+func (c *UsageCache) GetLastError() (time.Time, error) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	return c.lastError, c.lastErrorTime
+	return c.lastErrorTime, c.lastError
 }
 
 // IsStale returns true if the cache is older than the given duration.
@@ -200,8 +207,13 @@ func (c *UsageCache) Snapshot() CacheSnapshot {
 		snapshot.Status = &statusCopy
 	}
 
-	for _, usage := range c.usage {
-		snapshot.Usage = append(snapshot.Usage, *usage)
+	providers := make([]string, 0, len(c.usage))
+	for provider := range c.usage {
+		providers = append(providers, provider)
+	}
+	sort.Strings(providers)
+	for _, provider := range providers {
+		snapshot.Usage = append(snapshot.Usage, *c.usage[provider])
 	}
 
 	if c.lastError != nil {

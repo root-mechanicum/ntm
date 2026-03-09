@@ -590,10 +590,10 @@ func (n *Notifier) sendFileBox(event Event) error {
 		event.Timestamp.Format("2006-01-02_15-04-05"),
 		util.SanitizeFilename(string(event.Type)),
 	)
-	filePath := filepath.Join(path, baseName+".md")
+	basePath := filepath.Join(path, baseName+".md")
 	var file *os.File
 	for i := 0; i < 1000; i++ {
-		target := filePath
+		target := basePath
 		if i > 0 {
 			target = filepath.Join(path, fmt.Sprintf("%s_%d.md", baseName, i))
 		}
@@ -605,7 +605,6 @@ func (n *Notifier) sendFileBox(event Event) error {
 			return fmt.Errorf("failed to create inbox file: %w", err)
 		}
 		file = f
-		filePath = target
 		break
 	}
 	if file == nil {

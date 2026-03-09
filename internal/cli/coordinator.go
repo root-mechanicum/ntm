@@ -682,7 +682,7 @@ func runCoordinatorToggle(cmd *cobra.Command, args []string, enable bool, interv
 		return json.NewEncoder(os.Stdout).Encode(map[string]interface{}{
 			"feature":     feature,
 			"enabled":     enable,
-			"config_hint": fmt.Sprintf("Add to ~/.config/ntm/config.toml under [coordinator] section"),
+			"config_hint": "Add to ~/.config/ntm/config.toml under [coordinator] section",
 		})
 	}
 

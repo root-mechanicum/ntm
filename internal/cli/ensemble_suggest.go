@@ -14,10 +14,10 @@ import (
 )
 
 type ensembleSuggestOutput struct {
-	Question    string                    `json:"question" yaml:"question"`
-	TopPick     *ensembleSuggestionRow    `json:"top_pick,omitempty" yaml:"top_pick,omitempty"`
-	Suggestions []ensembleSuggestionRow   `json:"suggestions" yaml:"suggestions"`
-	SpawnCmd    string                    `json:"spawn_cmd,omitempty" yaml:"spawn_cmd,omitempty"`
+	Question    string                  `json:"question" yaml:"question"`
+	TopPick     *ensembleSuggestionRow  `json:"top_pick,omitempty" yaml:"top_pick,omitempty"`
+	Suggestions []ensembleSuggestionRow `json:"suggestions" yaml:"suggestions"`
+	SpawnCmd    string                  `json:"spawn_cmd,omitempty" yaml:"spawn_cmd,omitempty"`
 }
 
 type ensembleSuggestionRow struct {

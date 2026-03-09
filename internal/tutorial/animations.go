@@ -38,6 +38,42 @@ type Particle struct {
 	Friction float64
 }
 
+func randomChoice(items []string, fallback string) string {
+	if len(items) == 0 {
+		return fallback
+	}
+	idx := rand.Intn(len(items))
+	if idx < 0 || idx >= len(items) {
+		return fallback
+	}
+	return items[idx]
+}
+
+func randomRuneChoice(items []rune, fallback rune) rune {
+	if len(items) == 0 {
+		return fallback
+	}
+	idx := rand.Intn(len(items))
+	if idx < 0 || idx >= len(items) {
+		return fallback
+	}
+	return items[idx]
+}
+
+func cyclicChoice(items []string, idx int) (string, bool) {
+	if len(items) == 0 {
+		return "", false
+	}
+	pos := idx % len(items)
+	if pos < 0 {
+		pos += len(items)
+	}
+	if pos < 0 || pos >= len(items) {
+		return "", false
+	}
+	return items[pos], true
+}
+
 // NewParticle creates a new particle at the given position
 func NewParticle(x, y int, ptype ParticleType) Particle {
 	p := Particle{
@@ -63,18 +99,18 @@ func NewParticle(x, y int, ptype ParticleType) Particle {
 
 	case ParticleStar:
 		chars := []string{"★", "✦", "✧", "⋆", "✶"}
-		p.Char = chars[rand.Intn(len(chars))]
+		p.Char = randomChoice(chars, "★")
 		colors := []string{"#f9e2af", "#f5c2e7", "#89b4fa", "#a6e3a1"}
-		p.Color = colors[rand.Intn(len(colors))]
+		p.Color = randomChoice(colors, "#f9e2af")
 		p.VX = (rand.Float64() - 0.5) * 3
 		p.VY = -rand.Float64() * 2
 		p.Gravity = 0.08
 
 	case ParticleConfetti:
 		chars := []string{"■", "●", "▲", "◆", "★"}
-		p.Char = chars[rand.Intn(len(chars))]
+		p.Char = randomChoice(chars, "■")
 		colors := []string{"#f38ba8", "#fab387", "#f9e2af", "#a6e3a1", "#89b4fa", "#cba6f7", "#f5c2e7"}
-		p.Color = colors[rand.Intn(len(colors))]
+		p.Color = randomChoice(colors, "#f38ba8")
 		p.VX = (rand.Float64() - 0.5) * 4
 		p.VY = -rand.Float64()*3 - 1
 		p.Gravity = 0.15
@@ -84,7 +120,7 @@ func NewParticle(x, y int, ptype ParticleType) Particle {
 	case ParticleFirework:
 		p.Char = "●"
 		colors := []string{"#f38ba8", "#fab387", "#f9e2af", "#a6e3a1", "#89dceb", "#cba6f7"}
-		p.Color = colors[rand.Intn(len(colors))]
+		p.Color = randomChoice(colors, "#f38ba8")
 		angle := rand.Float64() * math.Pi * 2
 		speed := rand.Float64()*2 + 1
 		p.VX = math.Cos(angle) * speed
@@ -102,7 +138,10 @@ func NewParticle(x, y int, ptype ParticleType) Particle {
 
 	case ParticleSnow:
 		chars := []string{"❄", "❅", "❆", "✻", "•"}
-		p.Char = chars[rand.Intn(len(chars))]
+		if len(chars) == 0 {
+			return p
+		}
+		p.Char = randomChoice(chars, "•")
 		p.Color = "#cdd6f4"
 		p.VX = (rand.Float64() - 0.5) * 0.5
 		p.VY = rand.Float64()*0.5 + 0.3
@@ -271,8 +310,14 @@ func WaveText(text string, tick int, amplitude float64, colors []string) string 
 		offset := math.Sin(phase) * amplitude
 
 		// Calculate color based on position
-		colorIdx := (i + tick/3) % len(colors)
-		color := styles.ParseHex(colors[colorIdx])
+		if len(colors) == 0 {
+			continue
+		}
+		colorHex, ok := cyclicChoice(colors, i+tick/3)
+		if !ok {
+			continue
+		}
+		color := styles.ParseHex(colorHex)
 
 		// Apply brightness based on wave
 		brightness := 0.7 + 0.3*((offset+amplitude)/(amplitude*2))
@@ -311,13 +356,13 @@ func GlitchText(text string, tick int, intensity float64) string {
 	// Randomly glitch some characters
 	for i := range runes {
 		if rand.Float64() < intensity*0.3 {
-			runes[i] = glitchChars[rand.Intn(len(glitchChars))]
+			runes[i] = randomRuneChoice(glitchChars, runes[i])
 		}
 	}
 
 	// Random color shift
 	colors := []string{"#f38ba8", "#a6e3a1", "#89b4fa", "#f9e2af", "#cba6f7"}
-	color := colors[rand.Intn(len(colors))]
+	color := randomChoice(colors, "#cdd6f4")
 
 	return styles.GradientText(string(runes), color, "#cdd6f4")
 }
@@ -563,7 +608,7 @@ func SparkleText(text string, tick int, density float64) string {
 	for _, r := range text {
 		result.WriteRune(r)
 		if r != ' ' && r != '\n' && rand.Float64() < density && (tick/5)%3 == 0 {
-			sparkle := sparkles[rand.Intn(len(sparkles))]
+			sparkle := randomChoice(sparkles, "✨")
 			result.WriteString(styles.GradientText(sparkle, "#f9e2af", "#f5c2e7"))
 		}
 	}

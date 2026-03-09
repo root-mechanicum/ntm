@@ -2,7 +2,6 @@ package cli
 
 import (
 	"context"
-	"crypto/md5"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -2411,13 +2410,13 @@ func preflightOllamaSpawn(opts SpawnOptions) (string, error) {
 			for name := range available {
 				names = append(names, name)
 			}
-			return "", fmt.Errorf("Ollama model %q not found at %s (available: %s)", model, normalizedHost, strings.Join(names, ", "))
+			return "", fmt.Errorf("ollama model %q not found at %s (available: %s)", model, normalizedHost, strings.Join(names, ", "))
 		}
 
 		// Offer to pull missing model.
 		prompt := fmt.Sprintf("Ollama model %q not found at %s. Pull it now?", model, normalizedHost)
 		if !output.ConfirmWithOptions(prompt, output.ConfirmOptions{Style: output.StyleInfo, Default: false}) {
-			return "", fmt.Errorf("Ollama model %q not found (try: ollama pull %s)", model, model)
+			return "", fmt.Errorf("ollama model %q not found (try: ollama pull %s)", model, model)
 		}
 
 		pullCtx, pullCancel := context.WithTimeout(context.Background(), 30*time.Minute)
@@ -2551,12 +2550,7 @@ func registerSpawnedAgents(workingDir, sessionName string, agents []spawnedAgent
 			}
 			// Backward compat: also write to legacy /tmp/ location
 			{
-				h := md5.Sum([]byte(workingDir))
-				projHash := hex.EncodeToString(h[:])[:12]
-				legacyPath := "/tmp/agent-mail-name." + projHash
-				if agent.paneID != "" {
-					legacyPath += "." + agent.paneID
-				}
+				legacyPath := legacyIdentityFilePath(workingDir, agent.paneID)
 				_ = os.WriteFile(legacyPath, []byte(existingName+"\n"), 0o600)
 			}
 			continue
@@ -2588,7 +2582,7 @@ func registerSpawnedAgents(workingDir, sessionName string, agents []spawnedAgent
 		// Write per-pane identity file so notify hooks can resolve AGENT_MAIL_AGENT.
 		// Path contract (must match notify_wrapper.sh and register_agent.sh):
 		//   Canonical: <XDG_STATE_HOME or ~/.local/state>/agent-mail/identity/<sha256(project_key)[0:12]>/<pane_id>
-		//   Legacy:    /tmp/agent-mail-name.<md5(project_key)[0:12]>[.<pane_id>]
+		//   Legacy:    /tmp/agent-mail-name.<sha256(project_key)[0:12]>[.<pane_id>]
 		{
 			identityContent := registered.Name + "\n" + fmt.Sprintf("%d", time.Now().Unix()) + "\n"
 			if canonPath, err := getIdentityFilePath(workingDir, agent.paneID); err == nil {
@@ -2601,12 +2595,7 @@ func registerSpawnedAgents(workingDir, sessionName string, agents []spawnedAgent
 				output.PrintWarningf("Failed to resolve identity path for pane %d: %v", agent.paneIndex, err)
 			}
 			// Backward compat: also write to legacy /tmp/ location
-			h := md5.Sum([]byte(workingDir))
-			projHash := hex.EncodeToString(h[:])[:12]
-			legacyPath := "/tmp/agent-mail-name." + projHash
-			if agent.paneID != "" {
-				legacyPath += "." + agent.paneID
-			}
+			legacyPath := legacyIdentityFilePath(workingDir, agent.paneID)
 			_ = os.WriteFile(legacyPath, []byte(registered.Name+"\n"), 0o600)
 		}
 
@@ -2673,6 +2662,16 @@ func getIdentityFilePath(projectKey, paneID string) (string, error) {
 		return "", fmt.Errorf("cannot create identity directory %s: %w", dir, err)
 	}
 	return filepath.Join(dir, paneID), nil
+}
+
+func legacyIdentityFilePath(projectKey, paneID string) string {
+	h := sha256.Sum256([]byte(projectKey))
+	projHash := hex.EncodeToString(h[:])[:12]
+	path := "/tmp/agent-mail-name." + projHash
+	if paneID != "" {
+		path += "." + paneID
+	}
+	return path
 }
 
 // getMemoryContext retrieves and formats CM (CASS Memory) memories for agent spawn.

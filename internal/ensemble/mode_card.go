@@ -11,18 +11,18 @@ import (
 // when and how to use the mode.
 type ModeCard struct {
 	// Core mode info (embedded from ReasoningMode)
-	ModeID        string       `json:"mode_id"`
-	Code          string       `json:"code"`
-	Name          string       `json:"name"`
-	Category      ModeCategory `json:"category"`
-	Tier          ModeTier     `json:"tier"`
-	Icon          string       `json:"icon,omitempty"`
-	Color         string       `json:"color,omitempty"`
+	ModeID   string       `json:"mode_id"`
+	Code     string       `json:"code"`
+	Name     string       `json:"name"`
+	Category ModeCategory `json:"category"`
+	Tier     ModeTier     `json:"tier"`
+	Icon     string       `json:"icon,omitempty"`
+	Color    string       `json:"color,omitempty"`
 
 	// Description fields
-	ShortDesc      string   `json:"short_desc"`
-	Description    string   `json:"description"`
-	Differentiator string   `json:"differentiator,omitempty"`
+	ShortDesc      string `json:"short_desc"`
+	Description    string `json:"description"`
+	Differentiator string `json:"differentiator,omitempty"`
 
 	// Usage guidance
 	BestFor      []string `json:"best_for,omitempty"`
@@ -32,7 +32,7 @@ type ModeCard struct {
 
 	// Cost and compatibility
 	TypicalCost int      `json:"typical_cost,omitempty"` // Estimated tokens
-	Complements []string `json:"complements,omitempty"` // Mode IDs that work well with this one
+	Complements []string `json:"complements,omitempty"`  // Mode IDs that work well with this one
 }
 
 // NewModeCard creates a ModeCard from a ReasoningMode.

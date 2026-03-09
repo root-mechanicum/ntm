@@ -11,7 +11,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Dicklesworthstone/ntm/internal/config"
 	"github.com/Dicklesworthstone/ntm/internal/tmux"
 	"github.com/Dicklesworthstone/ntm/tests/testutil"
 )
@@ -35,8 +34,7 @@ func TestSendRealSession(t *testing.T) {
 		jsonOutput = oldJsonOutput
 	}()
 
-	cfg = config.Default()
-	cfg.ProjectsBase = tmpDir
+	cfg = newTmuxIntegrationTestConfig(tmpDir)
 	jsonOutput = true // Use JSON output to avoid polluting test logs
 
 	// Use /bin/cat explicitly to avoid shell aliases (e.g., cat -> bat) which
@@ -739,8 +737,7 @@ func TestSendDryRunDoesNotSendToPane(t *testing.T) {
 		jsonOutput = oldJsonOutput
 	}()
 
-	cfg = config.Default()
-	cfg.ProjectsBase = tmpDir
+	cfg = newTmuxIntegrationTestConfig(tmpDir)
 	cfg.Checkpoints.Enabled = false
 	jsonOutput = true // avoid polluting test logs
 
@@ -831,8 +828,7 @@ func TestSendSmartRouteIsDisabledWhenPanesSpecified(t *testing.T) {
 		jsonOutput = oldJsonOutput
 	}()
 
-	cfg = config.Default()
-	cfg.ProjectsBase = tmpDir
+	cfg = newTmuxIntegrationTestConfig(tmpDir)
 	cfg.Checkpoints.Enabled = false
 	jsonOutput = true // avoid polluting test logs
 	cfg.Agents.Claude = testAgentCatCommandTemplate

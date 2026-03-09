@@ -821,10 +821,10 @@ func waitForSwarmAgentsReady(ctx context.Context, plan *swarm.SwarmPlan, client 
 
 	// Collect all pane targets: "session:0.index"
 	type paneInfo struct {
-		target        string
-		shortType     string // "cc", "cod", "gmi" (for status package)
-		longType      string // "claude", "codex", "gemini" (for robot patterns)
-		ready         bool
+		target    string
+		shortType string // "cc", "cod", "gmi" (for status package)
+		longType  string // "claude", "codex", "gemini" (for robot patterns)
+		ready     bool
 	}
 	var panes []paneInfo
 	for _, sess := range plan.Sessions {

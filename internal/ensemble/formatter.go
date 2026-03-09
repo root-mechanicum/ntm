@@ -21,12 +21,12 @@ const (
 
 // SynthesisFormatter formats synthesis results for output.
 type SynthesisFormatter struct {
-	Format              OutputFormat
-	IncludeRaw          bool
-	IncludeAudit        bool
-	IncludeExplanation  bool
+	Format               OutputFormat
+	IncludeRaw           bool
+	IncludeAudit         bool
+	IncludeExplanation   bool
 	IncludeContributions bool
-	Verbose             bool
+	Verbose              bool
 }
 
 // NewSynthesisFormatter creates a formatter with the given format.

@@ -28,4 +28,3 @@ func withGlobalTmuxTestLock(fn func()) {
 
 	fn()
 }
-

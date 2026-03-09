@@ -59,17 +59,17 @@ type MailCheckAgentHints struct {
 
 // MailCheckOptions configures the GetMailCheck operation
 type MailCheckOptions struct {
-	Project      string
-	Agent        string
-	Thread       string
-	Status       string // all, read, unread
+	Project       string
+	Agent         string
+	Thread        string
+	Status        string // all, read, unread
 	IncludeBodies bool
-	UrgentOnly   bool
-	Verbose      bool
-	Limit        int
-	Offset       int
-	Since        string // YYYY-MM-DD
-	Until        string // YYYY-MM-DD
+	UrgentOnly    bool
+	Verbose       bool
+	Limit         int
+	Offset        int
+	Since         string // YYYY-MM-DD
+	Until         string // YYYY-MM-DD
 }
 
 // Validate checks that options are valid
@@ -190,7 +190,8 @@ func GetMailCheck(opts MailCheckOptions) (*MailCheckOutput, error) {
 	}
 
 	// Filter by read status
-	if opts.Status == "read" {
+	switch opts.Status {
+	case "read":
 		var statusFiltered []agentmail.InboxMessage
 		for _, msg := range filtered {
 			if msg.ReadAt != nil {
@@ -198,7 +199,7 @@ func GetMailCheck(opts MailCheckOptions) (*MailCheckOutput, error) {
 			}
 		}
 		filtered = statusFiltered
-	} else if opts.Status == "unread" {
+	case "unread":
 		var statusFiltered []agentmail.InboxMessage
 		for _, msg := range filtered {
 			if msg.ReadAt == nil {

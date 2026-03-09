@@ -643,7 +643,7 @@ func TestSummarizeToolCalls(t *testing.T) {
 		{
 			name:     "mixed calls",
 			calls:    []string{"Read", "Edit", "Read", "Write", "Edit", "Edit"},
-			expected: "", // Order not guaranteed in map iteration
+			expected: "Edit:3,Read:2,Write:1",
 		},
 		{
 			name:     "single call",
@@ -660,14 +660,8 @@ func TestSummarizeToolCalls(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result := summarizeToolCalls(tt.calls)
-			if tt.name == "single call" && result != tt.expected {
+			if result != tt.expected {
 				t.Errorf("summarizeToolCalls = %q, want %q", result, tt.expected)
-			}
-			if tt.name == "mixed calls" {
-				// Just verify it contains the expected parts
-				if !strings.Contains(result, "Read:") || !strings.Contains(result, "Edit:") || !strings.Contains(result, "Write:") {
-					t.Errorf("summarizeToolCalls result missing expected tools: %s", result)
-				}
 			}
 		})
 	}

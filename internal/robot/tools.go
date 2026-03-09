@@ -62,8 +62,7 @@ func GetTools(ctx context.Context) (*ToolsOutput, error) {
 		}
 
 		// Convert health
-		var healthOutput *ToolHealthOutput
-		healthOutput = &ToolHealthOutput{
+		healthOutput := &ToolHealthOutput{
 			Healthy:     info.Health.Healthy,
 			Message:     info.Health.Message,
 			Error:       info.Health.Error,

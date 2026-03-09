@@ -91,14 +91,14 @@ type MergedRecommendation struct {
 
 // MergeStats captures merge operation statistics.
 type MergeStats struct {
-	InputCount           int           `json:"input_count"`
-	TotalFindings        int           `json:"total_findings"`
-	DedupedFindings      int           `json:"deduped_findings"`
-	TotalRisks           int           `json:"total_risks"`
-	DedupedRisks         int           `json:"deduped_risks"`
-	TotalRecommendations int           `json:"total_recommendations"`
-	DedupedRecommendations int         `json:"deduped_recommendations"`
-	MergeTime            time.Duration `json:"merge_time"`
+	InputCount             int           `json:"input_count"`
+	TotalFindings          int           `json:"total_findings"`
+	DedupedFindings        int           `json:"deduped_findings"`
+	TotalRisks             int           `json:"total_risks"`
+	DedupedRisks           int           `json:"deduped_risks"`
+	TotalRecommendations   int           `json:"total_recommendations"`
+	DedupedRecommendations int           `json:"deduped_recommendations"`
+	MergeTime              time.Duration `json:"merge_time"`
 }
 
 // MergeOutputs performs mechanical merging of multiple mode outputs.
@@ -146,10 +146,10 @@ func MergeOutputsWithProvenance(outputs []ModeOutput, cfg MergeConfig, tracker *
 // mergeFindings deduplicates and ranks findings from multiple outputs.
 func mergeFindings(outputs []ModeOutput, cfg MergeConfig, tracker *ProvenanceTracker) ([]MergedFinding, int, int) {
 	type findingEntry struct {
-		finding        Finding
-		sourceModes    []string
-		score          float64
-		provenanceIDs  []string
+		finding       Finding
+		sourceModes   []string
+		score         float64
+		provenanceIDs []string
 	}
 
 	// Collect all findings
@@ -245,10 +245,10 @@ func mergeFindings(outputs []ModeOutput, cfg MergeConfig, tracker *ProvenanceTra
 			primaryID = e.provenanceIDs[0]
 		}
 		result[i] = MergedFinding{
-			Finding:       e.finding,
-			SourceModes:   e.sourceModes,
-			MergeScore:    e.score,
-			ProvenanceID:  primaryID,
+			Finding:      e.finding,
+			SourceModes:  e.sourceModes,
+			MergeScore:   e.score,
+			ProvenanceID: primaryID,
 		}
 	}
 
@@ -442,7 +442,6 @@ func impactWeight(impact ImpactLevel) float64 {
 		return 0.4
 	}
 }
-
 
 // ConsolidateTheses selects or creates a representative thesis.
 func ConsolidateTheses(outputs []ModeOutput) string {

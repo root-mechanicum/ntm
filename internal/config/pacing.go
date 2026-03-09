@@ -48,18 +48,18 @@ type SpawnPacingConfig struct {
 // AgentPacingConfig holds per-agent-type concurrency and rate limiting settings.
 type AgentPacingConfig struct {
 	// Claude/cc agent settings
-	ClaudeMaxConcurrent int     `toml:"claude_max_concurrent"` // Max concurrent claude spawns
-	ClaudeRatePerSec    float64 `toml:"claude_rate_per_sec"`   // Claude spawn rate limit
+	ClaudeMaxConcurrent int     `toml:"claude_max_concurrent"`   // Max concurrent claude spawns
+	ClaudeRatePerSec    float64 `toml:"claude_rate_per_sec"`     // Claude spawn rate limit
 	ClaudeRampUpDelayMs int     `toml:"claude_ramp_up_delay_ms"` // Delay before full rate (warm-up)
 
 	// Codex/cod agent settings
-	CodexMaxConcurrent int     `toml:"codex_max_concurrent"` // Max concurrent codex spawns
-	CodexRatePerSec    float64 `toml:"codex_rate_per_sec"`   // Codex spawn rate limit
+	CodexMaxConcurrent int     `toml:"codex_max_concurrent"`   // Max concurrent codex spawns
+	CodexRatePerSec    float64 `toml:"codex_rate_per_sec"`     // Codex spawn rate limit
 	CodexRampUpDelayMs int     `toml:"codex_ramp_up_delay_ms"` // Delay before full rate
 
 	// Gemini/gmi agent settings
-	GeminiMaxConcurrent int     `toml:"gemini_max_concurrent"` // Max concurrent gemini spawns
-	GeminiRatePerSec    float64 `toml:"gemini_rate_per_sec"`   // Gemini spawn rate limit
+	GeminiMaxConcurrent int     `toml:"gemini_max_concurrent"`   // Max concurrent gemini spawns
+	GeminiRatePerSec    float64 `toml:"gemini_rate_per_sec"`     // Gemini spawn rate limit
 	GeminiRampUpDelayMs int     `toml:"gemini_ramp_up_delay_ms"` // Delay before full rate
 
 	// CooldownOnFailureMs is the per-agent cooldown when a spawn fails.

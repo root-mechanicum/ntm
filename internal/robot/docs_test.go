@@ -30,10 +30,10 @@ func TestGetDocs_Index(t *testing.T) {
 
 	// Verify all expected topics are present
 	expectedTopics := map[string]bool{
-		"quickstart":  false,
-		"commands":    false,
-		"examples":    false,
-		"exit-codes":  false,
+		"quickstart": false,
+		"commands":   false,
+		"examples":   false,
+		"exit-codes": false,
 	}
 
 	for _, topic := range output.Topics {

@@ -77,9 +77,14 @@ type match struct {
 func scan(input string, allowlist []*regexp.Regexp, disabled []Category) []match {
 	patterns := getPatterns()
 	var allMatches []match
+	var lowerInput string
+	lowerReady := false
 
 	for _, p := range patterns {
 		if isCategoryDisabled(p.category, disabled) {
+			continue
+		}
+		if !p.passesLiteralPrefilter(input, &lowerInput, &lowerReady) {
 			continue
 		}
 

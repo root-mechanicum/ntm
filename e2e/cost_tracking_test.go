@@ -44,13 +44,13 @@ func extractCostJSON(output string) string {
 
 // CostTestSuite manages E2E tests for cost tracking
 type CostTestSuite struct {
-	t        *testing.T
-	logger   *TestLogger
-	tempDir  string
-	cleanup  []func()
-	ntmPath  string
-	origDir  string
-	tracker  *cost.CostTracker
+	t       *testing.T
+	logger  *TestLogger
+	tempDir string
+	cleanup []func()
+	ntmPath string
+	origDir string
+	tracker *cost.CostTracker
 }
 
 // NewCostTestSuite creates a new test suite for cost E2E tests

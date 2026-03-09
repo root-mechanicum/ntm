@@ -35,23 +35,23 @@ type ActivityOutput struct {
 
 // MetricsOutput represents the JSON output from ntm metrics show
 type MetricsOutput struct {
-	Success     bool            `json:"success"`
-	Session     string          `json:"session,omitempty"`
-	Timestamp   time.Time       `json:"timestamp,omitempty"`
-	Duration    string          `json:"duration,omitempty"`
-	APICalls    map[string]int  `json:"api_calls,omitempty"`
-	Latencies   map[string]int  `json:"latencies,omitempty"`
-	TokenCounts map[string]int  `json:"token_counts,omitempty"`
-	Error       string          `json:"error,omitempty"`
+	Success     bool           `json:"success"`
+	Session     string         `json:"session,omitempty"`
+	Timestamp   time.Time      `json:"timestamp,omitempty"`
+	Duration    string         `json:"duration,omitempty"`
+	APICalls    map[string]int `json:"api_calls,omitempty"`
+	Latencies   map[string]int `json:"latencies,omitempty"`
+	TokenCounts map[string]int `json:"token_counts,omitempty"`
+	Error       string         `json:"error,omitempty"`
 }
 
 // MetricsCompareOutput represents the JSON output from ntm metrics compare
 type MetricsCompareOutput struct {
-	Success   bool                `json:"success"`
-	Current   map[string]int      `json:"current,omitempty"`
-	Baseline  map[string]int      `json:"baseline,omitempty"`
-	Changes   map[string]float64  `json:"changes,omitempty"`
-	Error     string              `json:"error,omitempty"`
+	Success  bool               `json:"success"`
+	Current  map[string]int     `json:"current,omitempty"`
+	Baseline map[string]int     `json:"baseline,omitempty"`
+	Changes  map[string]float64 `json:"changes,omitempty"`
+	Error    string             `json:"error,omitempty"`
 }
 
 // ActivityMetricsTestSuite manages E2E tests for activity and metrics commands

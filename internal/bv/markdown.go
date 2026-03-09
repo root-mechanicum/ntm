@@ -81,8 +81,8 @@ func renderCompactTriage(sb *strings.Builder, triage *TriageResponse, opts Markd
 	qr := &triage.Triage.QuickRef
 
 	// One-line summary
-	sb.WriteString(fmt.Sprintf("## Triage: %d ready, %d blocked, %d in_progress\n\n",
-		qr.ActionableCount, qr.BlockedCount, qr.InProgressCount))
+	fmt.Fprintf(sb, "## Triage: %d ready, %d blocked, %d in_progress\n\n",
+		qr.ActionableCount, qr.BlockedCount, qr.InProgressCount)
 
 	// Top picks as compact list - FULL titles and reasons, no truncation
 	if len(qr.TopPicks) > 0 {
@@ -92,9 +92,9 @@ func renderCompactTriage(sb *strings.Builder, triage *TriageResponse, opts Markd
 				break
 			}
 			// Format: ID(score) - title | reason (NO TRUNCATION)
-			sb.WriteString(fmt.Sprintf("- `%s` (%.2f) %s", pick.ID, pick.Score, pick.Title))
+			fmt.Fprintf(sb, "- `%s` (%.2f) %s", pick.ID, pick.Score, pick.Title)
 			if len(pick.Reasons) > 0 {
-				sb.WriteString(fmt.Sprintf(" | %s", pick.Reasons[0]))
+				fmt.Fprintf(sb, " | %s", pick.Reasons[0])
 			}
 			sb.WriteString("\n")
 		}
@@ -120,7 +120,7 @@ func renderCompactTriage(sb *strings.Builder, triage *TriageResponse, opts Markd
 	if len(triage.Triage.Commands) > 0 {
 		sb.WriteString("**Commands:**\n")
 		for name, cmd := range triage.Triage.Commands {
-			sb.WriteString(fmt.Sprintf("- %s: `%s`\n", name, cmd))
+			fmt.Fprintf(sb, "- %s: `%s`\n", name, cmd)
 		}
 	}
 }
@@ -133,10 +133,10 @@ func renderFullTriage(sb *strings.Builder, triage *TriageResponse, opts Markdown
 	sb.WriteString("## Beads Triage\n\n")
 	sb.WriteString("| Metric | Count |\n")
 	sb.WriteString("|--------|-------|\n")
-	sb.WriteString(fmt.Sprintf("| Open | %d |\n", qr.OpenCount))
-	sb.WriteString(fmt.Sprintf("| Actionable | %d |\n", qr.ActionableCount))
-	sb.WriteString(fmt.Sprintf("| Blocked | %d |\n", qr.BlockedCount))
-	sb.WriteString(fmt.Sprintf("| In Progress | %d |\n\n", qr.InProgressCount))
+	fmt.Fprintf(sb, "| Open | %d |\n", qr.OpenCount)
+	fmt.Fprintf(sb, "| Actionable | %d |\n", qr.ActionableCount)
+	fmt.Fprintf(sb, "| Blocked | %d |\n", qr.BlockedCount)
+	fmt.Fprintf(sb, "| In Progress | %d |\n\n", qr.InProgressCount)
 
 	// Top recommendations
 	sb.WriteString("### Recommendations\n\n")
@@ -147,7 +147,7 @@ func renderFullTriage(sb *strings.Builder, triage *TriageResponse, opts Markdown
 		for i, rec := range recs {
 			if i >= opts.MaxRecommendations {
 				if len(recs) > opts.MaxRecommendations {
-					sb.WriteString(fmt.Sprintf("_...and %d more_\n\n", len(recs)-opts.MaxRecommendations))
+					fmt.Fprintf(sb, "_...and %d more_\n\n", len(recs)-opts.MaxRecommendations)
 				}
 				break
 			}
@@ -163,9 +163,9 @@ func renderFullTriage(sb *strings.Builder, triage *TriageResponse, opts Markdown
 			if i >= opts.MaxQuickWins {
 				break
 			}
-			sb.WriteString(fmt.Sprintf("%d. **%s** (%s) - %s\n", i+1, w.ID, w.Type, w.Title))
+			fmt.Fprintf(sb, "%d. **%s** (%s) - %s\n", i+1, w.ID, w.Type, w.Title)
 			if w.Action != "" {
-				sb.WriteString(fmt.Sprintf("   Action: %s\n", w.Action))
+				fmt.Fprintf(sb, "   Action: %s\n", w.Action)
 			}
 		}
 		sb.WriteString("\n")
@@ -183,7 +183,7 @@ func renderFullTriage(sb *strings.Builder, triage *TriageResponse, opts Markdown
 			if len(b.UnblocksIDs) > 0 {
 				unblocks = fmt.Sprintf(" (unblocks %d)", len(b.UnblocksIDs))
 			}
-			sb.WriteString(fmt.Sprintf("- **%s**%s: %s\n", b.ID, unblocks, b.Title))
+			fmt.Fprintf(sb, "- **%s**%s: %s\n", b.ID, unblocks, b.Title)
 		}
 		sb.WriteString("\n")
 	}
@@ -197,26 +197,26 @@ func renderFullTriage(sb *strings.Builder, triage *TriageResponse, opts Markdown
 // renderRecommendation renders a single recommendation.
 func renderRecommendation(sb *strings.Builder, rec *TriageRecommendation, num int, opts MarkdownOptions) {
 	priority := fmt.Sprintf("P%d", rec.Priority)
-	sb.WriteString(fmt.Sprintf("#### %d. %s (%s, %s)\n", num, rec.ID, rec.Type, priority))
-	sb.WriteString(fmt.Sprintf("**%s**\n\n", rec.Title))
+	fmt.Fprintf(sb, "#### %d. %s (%s, %s)\n", num, rec.ID, rec.Type, priority)
+	fmt.Fprintf(sb, "**%s**\n\n", rec.Title)
 
 	// Reasons
 	if len(rec.Reasons) > 0 {
 		for _, r := range rec.Reasons {
-			sb.WriteString(fmt.Sprintf("- %s\n", r))
+			fmt.Fprintf(sb, "- %s\n", r)
 		}
 		sb.WriteString("\n")
 	}
 
 	// Action
 	if rec.Action != "" {
-		sb.WriteString(fmt.Sprintf("**Action:** %s\n\n", rec.Action))
+		fmt.Fprintf(sb, "**Action:** %s\n\n", rec.Action)
 	}
 
 	// Score breakdown (optional)
 	if opts.IncludeScores && rec.Breakdown != nil {
-		sb.WriteString(fmt.Sprintf("Score: %.3f (pagerank: %.3f, blocker_ratio: %.3f, priority: %.3f)\n\n",
-			rec.Score, rec.Breakdown.Pagerank, rec.Breakdown.BlockerRatio, rec.Breakdown.PriorityBoost))
+		fmt.Fprintf(sb, "Score: %.3f (pagerank: %.3f, blocker_ratio: %.3f, priority: %.3f)\n\n",
+			rec.Score, rec.Breakdown.Pagerank, rec.Breakdown.BlockerRatio, rec.Breakdown.PriorityBoost)
 	}
 }
 
@@ -226,10 +226,10 @@ func renderHealthSummary(sb *strings.Builder, health *ProjectHealth) {
 
 	if health.GraphMetrics != nil {
 		gm := health.GraphMetrics
-		sb.WriteString(fmt.Sprintf("- Nodes: %d, Edges: %d, Density: %.3f\n",
-			gm.TotalNodes, gm.TotalEdges, gm.Density))
+		fmt.Fprintf(sb, "- Nodes: %d, Edges: %d, Density: %.3f\n",
+			gm.TotalNodes, gm.TotalEdges, gm.Density)
 		if gm.CycleCount > 0 {
-			sb.WriteString(fmt.Sprintf("- **Cycles: %d** (needs attention)\n", gm.CycleCount))
+			fmt.Fprintf(sb, "- **Cycles: %d** (needs attention)\n", gm.CycleCount)
 		}
 	}
 	sb.WriteString("\n")

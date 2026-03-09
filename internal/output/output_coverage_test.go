@@ -671,4 +671,3 @@ func TestSuccessFooter_Stdout(t *testing.T) {
 	// Output may be empty (pipe detected as non-terminal) or contain text
 	_ = out
 }
-

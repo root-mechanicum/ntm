@@ -220,10 +220,10 @@ func TestCalculateConfidence_ClampHigh(t *testing.T) {
 	tokens := int64(1000)
 	state := &AgentState{
 		Type:             AgentTypeClaudeCode,
-		ContextRemaining: &ctx,     // +0.25
-		TokensUsed:       &tokens,  // +0.05
+		ContextRemaining: &ctx,                    // +0.25
+		TokensUsed:       &tokens,                 // +0.05
 		WorkIndicators:   []string{"a", "b", "c"}, // +0.3
-		LimitIndicators:  []string{"limit"},        // +0.2
+		LimitIndicators:  []string{"limit"},       // +0.2
 	}
 	// 0.5 + 0.25 + 0.05 + 0.3 + 0.2 = 1.3, clamped to 1.0
 	conf := p.calculateConfidence(state)

@@ -119,15 +119,17 @@ func getSuggestedAction(level WarningLevel) string {
 // formatWarningMessage formats a warning message with the threshold value.
 func formatWarningMessage(format string, threshold float64) string {
 	// Manual sprintf to avoid import cycle
-	if threshold == 15.0 {
+	switch threshold {
+	case 15.0:
 		return "Context below 15% threshold"
-	} else if threshold == 25.0 {
+	case 25.0:
 		return "Context below 25% threshold"
-	} else if threshold == 40.0 {
+	case 40.0:
 		return "Context below 40% threshold"
+	default:
+		// Default fallback
+		return "Context below threshold"
 	}
-	// Default fallback
-	return "Context below threshold"
 }
 
 // NewWarning creates a new Warning with the current timestamp.

@@ -17,9 +17,10 @@ import (
 	"sync"
 	"time"
 
+	"github.com/go-chi/chi/v5"
+
 	"github.com/Dicklesworthstone/ntm/internal/cass"
 	"github.com/Dicklesworthstone/ntm/internal/cm"
-	"github.com/go-chi/chi/v5"
 )
 
 // CASS/Memory-specific error codes
@@ -121,21 +122,21 @@ type CASSSearchRequest struct {
 
 // CASSStatusResponse is the response for GET /api/v1/cass/status
 type CASSStatusResponse struct {
-	Installed   bool   `json:"installed"`
-	Healthy     bool   `json:"healthy"`
-	Version     string `json:"version,omitempty"`
-	IndexSize   int64  `json:"index_size,omitempty"`
-	DocCount    int64  `json:"doc_count,omitempty"`
-	LastIndexed string `json:"last_indexed,omitempty"`
-	NeedsReindex bool  `json:"needs_reindex,omitempty"`
+	Installed     bool   `json:"installed"`
+	Healthy       bool   `json:"healthy"`
+	Version       string `json:"version,omitempty"`
+	IndexSize     int64  `json:"index_size,omitempty"`
+	DocCount      int64  `json:"doc_count,omitempty"`
+	LastIndexed   string `json:"last_indexed,omitempty"`
+	NeedsReindex  bool   `json:"needs_reindex,omitempty"`
 	ReindexReason string `json:"reindex_reason,omitempty"`
 }
 
 // MemoryContextRequest is the request body for POST /api/v1/memory/context
 type MemoryContextRequest struct {
-	Task      string `json:"task"`
-	MaxRules  int    `json:"max_rules,omitempty"`
-	MaxSnippets int  `json:"max_snippets,omitempty"`
+	Task        string `json:"task"`
+	MaxRules    int    `json:"max_rules,omitempty"`
+	MaxSnippets int    `json:"max_snippets,omitempty"`
 }
 
 // MemoryOutcomeRequest is the request body for POST /api/v1/memory/outcome
@@ -267,10 +268,10 @@ func (s *Server) handleCASSCapabilities(w http.ResponseWriter, r *http.Request) 
 		"features":         caps.Features,
 		"connectors":       caps.Connectors,
 		"limits": map[string]interface{}{
-			"max_query_length":        caps.Limits.MaxQueryLength,
-			"max_results":             caps.Limits.MaxResults,
-			"max_concurrent_queries":  caps.Limits.MaxConcurrentQueries,
-			"rate_limit_per_minute":   caps.Limits.RateLimitPerMinute,
+			"max_query_length":       caps.Limits.MaxQueryLength,
+			"max_results":            caps.Limits.MaxResults,
+			"max_concurrent_queries": caps.Limits.MaxConcurrentQueries,
+			"rate_limit_per_minute":  caps.Limits.RateLimitPerMinute,
 		},
 	}, reqID)
 }
@@ -411,12 +412,17 @@ func (s *Server) handleCASSInsights(w http.ResponseWriter, r *http.Request) {
 	result, err := client.Search(ctx, cass.SearchOptions{
 		Query:     "*",
 		Limit:     0,
-		Aggregate: "agents,workspaces",
+		Aggregate: "agent,workspace",
 	})
 	if err != nil {
 		slog.Warn("cass insights failed", "error", err, "request_id", reqID)
-		writeErrorResponse(w, http.StatusInternalServerError, ErrCodeCASSUnavailable,
-			"Failed to get insights", map[string]interface{}{"error": err.Error()}, reqID)
+		writeSuccessResponse(w, http.StatusOK, map[string]interface{}{
+			"total_documents": 0,
+			"agents":          map[string]int{},
+			"workspaces":      map[string]int{},
+			"tags":            map[string]int{},
+			"warnings":        []string{"cass insights unavailable; returning empty aggregates"},
+		}, reqID)
 		return
 	}
 

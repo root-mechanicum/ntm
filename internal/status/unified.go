@@ -300,7 +300,7 @@ func (d *UnifiedDetector) DetectAllContext(ctx context.Context, session string) 
 	}
 
 	resultsCh := make(chan captureResult, len(panes))
-	
+
 	// Create a worker pool or just spawn per pane (assuming pane count is reasonable < 50)
 	// For simplicity and typical tmux usage, one goroutine per pane is fine.
 	for _, pane := range panes {
@@ -308,7 +308,7 @@ func (d *UnifiedDetector) DetectAllContext(ctx context.Context, session string) 
 			// Use a short timeout for individual captures to avoid hanging the whole batch
 			capCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
 			defer cancel()
-			
+
 			output, err := tmux.CapturePaneOutputContext(capCtx, pID, d.config.ScanLines)
 			resultsCh <- captureResult{paneID: pID, output: output, err: err}
 		}(pane.Pane.ID)

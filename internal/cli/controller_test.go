@@ -279,7 +279,7 @@ func TestPaneSelectionLogic_EmptyPanes(t *testing.T) {
 		Index int
 	}
 
-	var panes []testPane
+	panes := []testPane{}
 
 	found := false
 	for _, p := range panes {

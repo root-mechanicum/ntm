@@ -11,24 +11,24 @@ import (
 // EnsemblePresetsOutput is the structured response for --robot-ensemble-presets.
 type EnsemblePresetsOutput struct {
 	RobotResponse
-	Action     string          `json:"action"`
-	Presets    []PresetInfo    `json:"presets"`
-	Count      int             `json:"count"`
-	AgentHints *AgentHints     `json:"_agent_hints,omitempty"`
+	Action     string       `json:"action"`
+	Presets    []PresetInfo `json:"presets"`
+	Count      int          `json:"count"`
+	AgentHints *AgentHints  `json:"_agent_hints,omitempty"`
 }
 
 // PresetInfo represents an ensemble preset in the API response.
 type PresetInfo struct {
-	Name          string         `json:"name"`
-	Display       string         `json:"display,omitempty"`
-	Description   string         `json:"description"`
-	Modes         []string       `json:"modes"`
-	ModeCount     int            `json:"mode_count"`
-	Synthesis     SynthesisInfo  `json:"synthesis"`
-	Budget        BudgetInfo     `json:"budget"`
-	AllowAdvanced bool           `json:"allow_advanced"`
-	Tags          []string       `json:"tags,omitempty"`
-	Source        string         `json:"source,omitempty"`
+	Name          string        `json:"name"`
+	Display       string        `json:"display,omitempty"`
+	Description   string        `json:"description"`
+	Modes         []string      `json:"modes"`
+	ModeCount     int           `json:"mode_count"`
+	Synthesis     SynthesisInfo `json:"synthesis"`
+	Budget        BudgetInfo    `json:"budget"`
+	AllowAdvanced bool          `json:"allow_advanced"`
+	Tags          []string      `json:"tags,omitempty"`
+	Source        string        `json:"source,omitempty"`
 }
 
 // SynthesisInfo represents synthesis configuration in preset output.

@@ -22,11 +22,11 @@ type EstimateOptions struct {
 
 // EstimateInput provides configuration for estimate calculations.
 type EstimateInput struct {
-	ModeIDs      []string
-	Question     string
-	ProjectDir   string
-	Budget       BudgetConfig
-	Cache        CacheConfig
+	ModeIDs       []string
+	Question      string
+	ProjectDir    string
+	Budget        BudgetConfig
+	Cache         CacheConfig
 	AllowAdvanced bool
 }
 
@@ -92,11 +92,7 @@ type ModeAlternative struct {
 }
 
 // Estimate computes token usage and budget fit for the provided input.
-func (e *Estimator) Estimate(ctx context.Context, input EstimateInput, opts EstimateOptions) (*EnsembleEstimate, error) {
-	if ctx == nil {
-		ctx = context.Background()
-	}
-
+func (e *Estimator) Estimate(_ context.Context, input EstimateInput, opts EstimateOptions) (*EnsembleEstimate, error) {
 	if e == nil || e.Catalog == nil {
 		return nil, fmt.Errorf("mode catalog is nil")
 	}

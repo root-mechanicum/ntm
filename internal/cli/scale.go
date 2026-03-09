@@ -22,13 +22,13 @@ type ScaleAction struct {
 // ScaleResponse is the JSON response for the scale command
 type ScaleResponse struct {
 	output.TimestampedResponse
-	Session string            `json:"session"`
-	Before  map[string]int    `json:"before"`
-	After   map[string]int    `json:"after"`
-	Actions []ScaleAction     `json:"actions"`
-	Success bool              `json:"success"`
-	DryRun  bool              `json:"dry_run,omitempty"`
-	Errors  []string          `json:"errors,omitempty"`
+	Session string         `json:"session"`
+	Before  map[string]int `json:"before"`
+	After   map[string]int `json:"after"`
+	Actions []ScaleAction  `json:"actions"`
+	Success bool           `json:"success"`
+	DryRun  bool           `json:"dry_run,omitempty"`
+	Errors  []string       `json:"errors,omitempty"`
 }
 
 // scaleTarget holds a parsed target count for one agent type
@@ -447,4 +447,3 @@ func printScalePlan(session string, before, after map[string]int, actions []Scal
 		}
 	}
 }
-

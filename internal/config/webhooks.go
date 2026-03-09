@@ -14,8 +14,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Dicklesworthstone/ntm/internal/watcher"
 	"gopkg.in/yaml.v3"
+
+	"github.com/Dicklesworthstone/ntm/internal/watcher"
 )
 
 type WebhookFilterConfig struct {

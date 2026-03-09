@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/Dicklesworthstone/ntm/internal/tmux"
@@ -15,6 +16,7 @@ var (
 	ErrSessionExists     = errors.New("session already exists (use Force option to override)")
 	ErrDirectoryNotFound = errors.New("checkpoint working directory not found")
 	ErrNoAgentsToRestore = errors.New("checkpoint contains no agents to restore")
+	ErrNilCheckpoint     = errors.New("checkpoint is nil")
 )
 
 // RestoreOptions configures how a checkpoint is restored.
@@ -86,6 +88,10 @@ func (r *Restorer) Restore(sessionName, checkpointID string, opts RestoreOptions
 
 // RestoreFromCheckpoint restores a session from a loaded checkpoint.
 func (r *Restorer) RestoreFromCheckpoint(cp *Checkpoint, opts RestoreOptions) (*RestoreResult, error) {
+	if cp == nil {
+		return nil, ErrNilCheckpoint
+	}
+
 	result := &RestoreResult{
 		SessionName: cp.SessionName,
 		DryRun:      opts.DryRun,
@@ -370,11 +376,7 @@ func joinLines(lines []string) string {
 	if len(lines) == 0 {
 		return ""
 	}
-	result := lines[0]
-	for i := 1; i < len(lines); i++ {
-		result += "\n" + lines[i]
-	}
-	return result
+	return strings.Join(lines, "\n")
 }
 
 // trimSpace removes leading/trailing whitespace.
@@ -430,6 +432,10 @@ func (r *Restorer) RestoreLatest(sessionName string, opts RestoreOptions) (*Rest
 
 // ValidateCheckpoint checks if a checkpoint can be restored.
 func (r *Restorer) ValidateCheckpoint(cp *Checkpoint, opts RestoreOptions) []string {
+	if cp == nil {
+		return []string{ErrNilCheckpoint.Error()}
+	}
+
 	var issues []string
 
 	// Check working directory

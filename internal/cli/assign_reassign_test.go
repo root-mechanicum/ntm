@@ -152,9 +152,7 @@ func TestRunReassignment_ToPane_Success(t *testing.T) {
 	t.Setenv("XDG_DATA_HOME", filepath.Join(tmpDir, "xdg"))
 	t.Setenv("AGENT_MAIL_URL", "http://127.0.0.1:1")
 
-	cfg = config.Default()
-	cfg.ProjectsBase = tmpDir
-	cfg.AgentMail.Enabled = false
+	cfg = newTmuxIntegrationTestConfig(tmpDir)
 	cfg.Agents.Claude = testAgentCatCommandTemplate
 	cfg.Agents.Codex = testAgentCatCommandTemplate
 	cfg.Agents.Gemini = testAgentCatCommandTemplate
@@ -234,9 +232,7 @@ func TestRunReassignment_AlreadyAssigned(t *testing.T) {
 	t.Setenv("XDG_DATA_HOME", filepath.Join(tmpDir, "xdg"))
 	t.Setenv("AGENT_MAIL_URL", "http://127.0.0.1:1")
 
-	cfg = config.Default()
-	cfg.ProjectsBase = tmpDir
-	cfg.AgentMail.Enabled = false
+	cfg = newTmuxIntegrationTestConfig(tmpDir)
 	cfg.Agents.Claude = testAgentCatCommandTemplate
 	cfg.Agents.Codex = testAgentCatCommandTemplate
 	jsonOutput = true
@@ -284,9 +280,7 @@ func TestRunReassignment_NoIdleAgentForType(t *testing.T) {
 	t.Setenv("XDG_DATA_HOME", filepath.Join(tmpDir, "xdg"))
 	t.Setenv("AGENT_MAIL_URL", "http://127.0.0.1:1")
 
-	cfg = config.Default()
-	cfg.ProjectsBase = tmpDir
-	cfg.AgentMail.Enabled = false
+	cfg = newTmuxIntegrationTestConfig(tmpDir)
 	cfg.Agents.Claude = testAgentCatCommandTemplate
 	cfg.Agents.Codex = testAgentCatCommandTemplate
 	jsonOutput = true
@@ -333,9 +327,7 @@ func TestRunReassignment_TargetBusyWithoutForce(t *testing.T) {
 	t.Setenv("XDG_DATA_HOME", filepath.Join(tmpDir, "xdg"))
 	t.Setenv("AGENT_MAIL_URL", "http://127.0.0.1:1")
 
-	cfg = config.Default()
-	cfg.ProjectsBase = tmpDir
-	cfg.AgentMail.Enabled = false
+	cfg = newTmuxIntegrationTestConfig(tmpDir)
 	cfg.Agents.Claude = testAgentCatCommandTemplate
 	cfg.Agents.Codex = testAgentCatCommandTemplate
 	jsonOutput = true
@@ -387,9 +379,7 @@ func TestRunReassignment_NotAssigned(t *testing.T) {
 	t.Setenv("XDG_DATA_HOME", filepath.Join(tmpDir, "xdg"))
 	t.Setenv("AGENT_MAIL_URL", "http://127.0.0.1:1")
 
-	cfg = config.Default()
-	cfg.ProjectsBase = tmpDir
-	cfg.AgentMail.Enabled = false
+	cfg = newTmuxIntegrationTestConfig(tmpDir)
 	cfg.Agents.Claude = testAgentCatCommandTemplate
 	cfg.Agents.Codex = testAgentCatCommandTemplate
 	jsonOutput = true
@@ -428,9 +418,7 @@ func TestRunReassignment_ToPaneNotFound(t *testing.T) {
 	t.Setenv("XDG_DATA_HOME", filepath.Join(tmpDir, "xdg"))
 	t.Setenv("AGENT_MAIL_URL", "http://127.0.0.1:1")
 
-	cfg = config.Default()
-	cfg.ProjectsBase = tmpDir
-	cfg.AgentMail.Enabled = false
+	cfg = newTmuxIntegrationTestConfig(tmpDir)
 	cfg.Agents.Claude = testAgentCatCommandTemplate
 	cfg.Agents.Codex = testAgentCatCommandTemplate
 	jsonOutput = true
@@ -483,9 +471,7 @@ func TestRunReassignment_CompletedBead(t *testing.T) {
 	t.Setenv("XDG_DATA_HOME", filepath.Join(tmpDir, "xdg"))
 	t.Setenv("AGENT_MAIL_URL", "http://127.0.0.1:1")
 
-	cfg = config.Default()
-	cfg.ProjectsBase = tmpDir
-	cfg.AgentMail.Enabled = false
+	cfg = newTmuxIntegrationTestConfig(tmpDir)
 	cfg.Agents.Claude = testAgentCatCommandTemplate
 	cfg.Agents.Codex = testAgentCatCommandTemplate
 	jsonOutput = true
@@ -549,9 +535,7 @@ func TestRunReassignment_FailedBead(t *testing.T) {
 	t.Setenv("XDG_DATA_HOME", filepath.Join(tmpDir, "xdg"))
 	t.Setenv("AGENT_MAIL_URL", "http://127.0.0.1:1")
 
-	cfg = config.Default()
-	cfg.ProjectsBase = tmpDir
-	cfg.AgentMail.Enabled = false
+	cfg = newTmuxIntegrationTestConfig(tmpDir)
 	cfg.Agents.Claude = testAgentCatCommandTemplate
 	cfg.Agents.Codex = testAgentCatCommandTemplate
 	jsonOutput = true
@@ -625,9 +609,7 @@ func TestRunReassignment_FileReservationsGracefulDegradation(t *testing.T) {
 	// Point to non-existent Agent Mail to test graceful degradation
 	t.Setenv("AGENT_MAIL_URL", "http://127.0.0.1:1")
 
-	cfg = config.Default()
-	cfg.ProjectsBase = tmpDir
-	cfg.AgentMail.Enabled = false // Agent Mail disabled
+	cfg = newTmuxIntegrationTestConfig(tmpDir)
 	cfg.Agents.Claude = testAgentCatCommandTemplate
 	cfg.Agents.Codex = testAgentCatCommandTemplate
 	jsonOutput = true

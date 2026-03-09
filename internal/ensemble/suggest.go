@@ -12,9 +12,23 @@ import (
 // SuggestionEngine provides deterministic question→preset matching.
 // It analyzes question text and recommends the best ensemble presets.
 type SuggestionEngine struct {
-	presets   []EnsemblePreset
-	keywords  map[string][]string // preset name → keywords
-	stopWords map[string]bool
+	presets     []EnsemblePreset
+	keywords    map[string][]string
+	compiled    []compiledPreset
+	presetIndex map[string]int
+	stopWords   map[string]bool
+}
+
+type compiledPreset struct {
+	keywords         []compiledKeyword
+	tagsLower        []string
+	descriptionLower string
+}
+
+type compiledKeyword struct {
+	original string
+	lower    string
+	tokens   []string
 }
 
 // SuggestionScore holds a preset with its match score.
@@ -35,11 +49,15 @@ type SuggestionResult struct {
 
 // NewSuggestionEngine creates a new suggestion engine with embedded ensembles.
 func NewSuggestionEngine() *SuggestionEngine {
+	stopWords := buildStopWords()
+	keywords := buildKeywordMap()
 	engine := &SuggestionEngine{
 		presets:   EmbeddedEnsembles,
-		keywords:  buildKeywordMap(),
-		stopWords: buildStopWords(),
+		keywords:  keywords,
+		stopWords: stopWords,
 	}
+	engine.compiled = buildCompiledPresets(engine.presets, keywords, stopWords)
+	engine.presetIndex = buildPresetIndex(engine.presets)
 	return engine
 }
 
@@ -128,6 +146,41 @@ func buildStopWords() map[string]bool {
 // wordRegex matches word boundaries for tokenization.
 var wordRegex = regexp.MustCompile(`[a-zA-Z]+`)
 
+func buildCompiledPresets(presets []EnsemblePreset, keywords map[string][]string, stopWords map[string]bool) []compiledPreset {
+	compiled := make([]compiledPreset, len(presets))
+	for i := range presets {
+		preset := &presets[i]
+		compiledKeywords := make([]compiledKeyword, 0, len(keywords[preset.Name]))
+		for _, keyword := range keywords[preset.Name] {
+			compiledKeywords = append(compiledKeywords, compiledKeyword{
+				original: keyword,
+				lower:    strings.ToLower(keyword),
+				tokens:   tokenizeWithStopWords(keyword, stopWords),
+			})
+		}
+
+		tagsLower := make([]string, len(preset.Tags))
+		for j, tag := range preset.Tags {
+			tagsLower[j] = strings.ToLower(tag)
+		}
+
+		compiled[i] = compiledPreset{
+			keywords:         compiledKeywords,
+			tagsLower:        tagsLower,
+			descriptionLower: strings.ToLower(preset.Description),
+		}
+	}
+	return compiled
+}
+
+func buildPresetIndex(presets []EnsemblePreset) map[string]int {
+	index := make(map[string]int, len(presets))
+	for i := range presets {
+		index[presets[i].Name] = i
+	}
+	return index
+}
+
 // Suggest analyzes a question and returns ranked preset suggestions.
 func (e *SuggestionEngine) Suggest(question string) SuggestionResult {
 	result := SuggestionResult{
@@ -147,11 +200,14 @@ func (e *SuggestionEngine) Suggest(question string) SuggestionResult {
 		return result
 	}
 
+	questionLower := strings.ToLower(question)
+	tokenSet := makeTokenSet(tokens)
+
 	// Score each preset
 	scores := make([]SuggestionScore, 0, len(e.presets))
 	for i := range e.presets {
 		preset := &e.presets[i]
-		score := e.scorePreset(preset, tokens, question)
+		score := e.scorePreset(preset, &e.compiled[i], tokens, tokenSet, questionLower)
 		if score.Score > 0 {
 			scores = append(scores, score)
 		}
@@ -177,12 +233,16 @@ func (e *SuggestionEngine) Suggest(question string) SuggestionResult {
 
 // tokenize extracts meaningful words from the question.
 func (e *SuggestionEngine) tokenize(text string) []string {
+	return tokenizeWithStopWords(text, e.stopWords)
+}
+
+func tokenizeWithStopWords(text string, stopWords map[string]bool) []string {
 	lower := strings.ToLower(text)
 	matches := wordRegex.FindAllString(lower, -1)
 
 	tokens := make([]string, 0, len(matches))
 	for _, word := range matches {
-		if !e.stopWords[word] && len(word) > 1 {
+		if !stopWords[word] && len(word) > 1 {
 			tokens = append(tokens, word)
 		}
 	}
@@ -190,8 +250,16 @@ func (e *SuggestionEngine) tokenize(text string) []string {
 	return tokens
 }
 
+func makeTokenSet(tokens []string) map[string]struct{} {
+	set := make(map[string]struct{}, len(tokens))
+	for _, token := range tokens {
+		set[token] = struct{}{}
+	}
+	return set
+}
+
 // scorePreset calculates match score between a preset and question tokens.
-func (e *SuggestionEngine) scorePreset(preset *EnsemblePreset, tokens []string, originalQuestion string) SuggestionScore {
+func (e *SuggestionEngine) scorePreset(preset *EnsemblePreset, compiled *compiledPreset, tokens []string, tokenSet map[string]struct{}, questionLower string) SuggestionScore {
 	score := SuggestionScore{
 		Preset:     preset,
 		PresetName: preset.Name,
@@ -199,56 +267,46 @@ func (e *SuggestionEngine) scorePreset(preset *EnsemblePreset, tokens []string, 
 		Reasons:    []string{},
 	}
 
-	keywords := e.keywords[preset.Name]
-	if len(keywords) == 0 {
+	if len(compiled.keywords) == 0 {
 		return score
 	}
-
-	questionLower := strings.ToLower(originalQuestion)
 
 	// Score based on keyword matches
 	matchedKeywords := 0
 	keywordScore := 0.0
 
-	for _, keyword := range keywords {
-		keywordLower := strings.ToLower(keyword)
-		keywordTokens := e.tokenize(keyword)
-
+	for _, keyword := range compiled.keywords {
 		// Check for exact phrase match in original question (higher weight)
-		if strings.Contains(questionLower, keywordLower) {
+		if strings.Contains(questionLower, keyword.lower) {
 			keywordScore += 2.0
 			matchedKeywords++
 			if len(score.Reasons) < 3 {
-				score.Reasons = append(score.Reasons, "matches \""+keyword+"\"")
+				score.Reasons = append(score.Reasons, "matches \""+keyword.original+"\"")
 			}
 			continue
 		}
 
 		// Check for token overlap
-		for _, kt := range keywordTokens {
-			for _, qt := range tokens {
-				if kt == qt {
-					keywordScore += 1.0
-					matchedKeywords++
-					break
-				}
+		for _, keywordToken := range keyword.tokens {
+			if _, ok := tokenSet[keywordToken]; ok {
+				keywordScore += 1.0
+				matchedKeywords++
 			}
 		}
 	}
 
 	// Normalize by number of keywords to prevent bias toward presets with more keywords
-	if len(keywords) > 0 {
-		score.Score = keywordScore / float64(len(keywords))
+	if len(compiled.keywords) > 0 {
+		score.Score = keywordScore / float64(len(compiled.keywords))
 	}
 
 	// Bonus for tag matches
-	for _, tag := range preset.Tags {
-		tagLower := strings.ToLower(tag)
+	for i, tagLower := range compiled.tagsLower {
 		for _, token := range tokens {
 			if strings.Contains(tagLower, token) || strings.Contains(token, tagLower) {
 				score.Score += 0.3
 				if len(score.Reasons) < 3 {
-					score.Reasons = append(score.Reasons, "tag match: "+tag)
+					score.Reasons = append(score.Reasons, "tag match: "+preset.Tags[i])
 				}
 				break
 			}
@@ -256,16 +314,15 @@ func (e *SuggestionEngine) scorePreset(preset *EnsemblePreset, tokens []string, 
 	}
 
 	// Bonus for description matches
-	descLower := strings.ToLower(preset.Description)
 	for _, token := range tokens {
-		if len(token) >= 4 && strings.Contains(descLower, token) {
+		if len(token) >= 4 && strings.Contains(compiled.descriptionLower, token) {
 			score.Score += 0.1
 		}
 	}
 
 	// Add match count to reasons
 	if matchedKeywords > 0 && len(score.Reasons) == 0 {
-		score.Reasons = append(score.Reasons, strings.ToLower(preset.Description))
+		score.Reasons = append(score.Reasons, compiled.descriptionLower)
 	}
 
 	return score
@@ -278,14 +335,13 @@ func (e *SuggestionEngine) Score(question string, presetName string) float64 {
 		return 0
 	}
 
-	for i := range e.presets {
-		if e.presets[i].Name == presetName {
-			score := e.scorePreset(&e.presets[i], tokens, question)
-			return score.Score
-		}
+	index, ok := e.presetIndex[presetName]
+	if !ok {
+		return 0
 	}
 
-	return 0
+	score := e.scorePreset(&e.presets[index], &e.compiled[index], tokens, makeTokenSet(tokens), strings.ToLower(question))
+	return score.Score
 }
 
 // ListPresets returns all available preset names.
@@ -299,12 +355,11 @@ func (e *SuggestionEngine) ListPresets() []string {
 
 // GetPreset returns a preset by name, or nil if not found.
 func (e *SuggestionEngine) GetPreset(name string) *EnsemblePreset {
-	for i := range e.presets {
-		if e.presets[i].Name == name {
-			return &e.presets[i]
-		}
+	index, ok := e.presetIndex[name]
+	if !ok {
+		return nil
 	}
-	return nil
+	return &e.presets[index]
 }
 
 // globalSuggestionEngine is a lazily-initialized global engine.

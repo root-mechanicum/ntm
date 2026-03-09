@@ -16,21 +16,21 @@ import (
 
 // MonitorEvent represents a single monitoring event from --robot-monitor
 type MonitorEvent struct {
-	Timestamp  time.Time `json:"timestamp"`
-	Session    string    `json:"session"`
-	Pane       int       `json:"pane,omitempty"`
-	Level      string    `json:"level"`
-	Type       string    `json:"type"`
-	Message    string    `json:"message"`
-	Metrics    *Metrics  `json:"metrics,omitempty"`
+	Timestamp time.Time `json:"timestamp"`
+	Session   string    `json:"session"`
+	Pane      int       `json:"pane,omitempty"`
+	Level     string    `json:"level"`
+	Type      string    `json:"type"`
+	Message   string    `json:"message"`
+	Metrics   *Metrics  `json:"metrics,omitempty"`
 }
 
 // Metrics contains usage metrics from monitoring
 type Metrics struct {
-	ContextPercent   float64 `json:"context_percent,omitempty"`
-	ProviderPercent  float64 `json:"provider_percent,omitempty"`
-	TokensUsed       int     `json:"tokens_used,omitempty"`
-	TokensRemaining  int     `json:"tokens_remaining,omitempty"`
+	ContextPercent  float64 `json:"context_percent,omitempty"`
+	ProviderPercent float64 `json:"provider_percent,omitempty"`
+	TokensUsed      int     `json:"tokens_used,omitempty"`
+	TokensRemaining int     `json:"tokens_remaining,omitempty"`
 }
 
 // MonitorTestSuite manages E2E tests for watch and monitor commands

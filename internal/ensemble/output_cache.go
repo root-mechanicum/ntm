@@ -292,10 +292,10 @@ func (c *ModeOutputCache) Clear() int {
 
 // Stats returns a summary of cache contents.
 func (c *ModeOutputCache) Stats() ModeOutputCacheStats {
-	stats := ModeOutputCacheStats{MaxEntries: c.maxEntries, TTL: c.ttl}
 	if c == nil {
-		return stats
+		return ModeOutputCacheStats{}
 	}
+	stats := ModeOutputCacheStats{MaxEntries: c.maxEntries, TTL: c.ttl}
 	entries, err := os.ReadDir(c.dir)
 	if err != nil {
 		return stats

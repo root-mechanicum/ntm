@@ -75,7 +75,7 @@ func GetCASSStatus() (*CASSStatusOutput, error) {
 		output.Healthy = status.Healthy
 		output.Index.Exists = true
 		output.Index.Fresh = status.Index.Healthy
-		output.Index.LastIndexedAt = status.LastIndexedAt.Time.UnixMilli()
+		output.Index.LastIndexedAt = status.LastIndexedAt.UnixMilli()
 		output.Index.Conversations = status.Conversations
 		output.Index.Messages = status.Messages
 	} else {
@@ -173,7 +173,7 @@ func GetCASSSearch(opts CASSSearchOptions) (*CASSSearchOutput, error) {
 	for i, hit := range resp.Hits {
 		createdAt := int64(0)
 		if hit.CreatedAt != nil {
-			createdAt = hit.CreatedAt.Time.UnixMilli() // Convert to ms
+			createdAt = hit.CreatedAt.UnixMilli() // Convert to ms
 		}
 		output.Hits[i] = CASSSearchHit{
 			SourcePath: hit.SourcePath,
@@ -2526,6 +2526,9 @@ func assignAgentsToPanes(panes []ntmPaneInfo, agents []agentmail.Agent) map[stri
 		if bestIdx == -1 {
 			continue
 		}
+		if bestIdx >= len(agents) {
+			continue
+		}
 
 		chosen := agents[bestIdx]
 		mapping[pane.Label] = chosen.Name
@@ -3247,6 +3250,9 @@ func determineState(output, agentType string) string {
 	if HasIdlePattern(output, agentType) {
 		return "idle"
 	}
+	if isPythonPrompt(status.GetLastNonEmptyLine(output)) {
+		return "idle"
+	}
 	// If output is empty and it's a user pane, treat as idle (prompt)
 	if strings.TrimSpace(output) == "" && (agentType == "" || agentType == "user") {
 		return "idle"
@@ -3296,7 +3302,7 @@ func translateAgentTypeForStatus(agentType string) string {
 // This is a compatibility wrapper for status.IsPromptLine that uses an empty
 // agent type for generic prompt detection.
 func isIdlePrompt(line string) bool {
-	return status.IsPromptLine(line, "")
+	return status.IsPromptLine(line, "") || isPythonPrompt(line)
 }
 
 // isPromptLine checks if a line looks like an idle prompt for a specific pane.
@@ -3304,7 +3310,11 @@ func isIdlePrompt(line string) bool {
 // agent type from the pane title.
 func isPromptLine(line, paneTitle string) bool {
 	agentType := translateAgentTypeForStatus(detectAgentType(paneTitle))
-	return status.IsPromptLine(line, agentType)
+	return status.IsPromptLine(line, agentType) || isPythonPrompt(line)
+}
+
+func isPythonPrompt(line string) bool {
+	return strings.TrimSpace(stripANSI(line)) == ">>>"
 }
 
 // splitLines splits text into lines, preserving empty lines
@@ -5781,7 +5791,8 @@ func generateContextHints(lowUsage, highUsage []string, highCount, total int) *C
 		Suggestions:     make([]string, 0),
 	}
 
-	if highCount == 0 {
+	switch highCount {
+	case 0:
 		// No high usage agents
 		if len(lowUsage) == total {
 			hints.Suggestions = append(hints.Suggestions, "All agents healthy - context usage is low across the board")
@@ -5790,9 +5801,9 @@ func generateContextHints(lowUsage, highUsage []string, highCount, total int) *C
 		} else {
 			hints.Suggestions = append(hints.Suggestions, "All agents at moderate context usage - no immediate concerns")
 		}
-	} else if highCount == total {
+	case total:
 		hints.Suggestions = append(hints.Suggestions, "All agents have high context usage - consider spawning new sessions")
-	} else {
+	default:
 		hints.Suggestions = append(hints.Suggestions, fmt.Sprintf("%d agent(s) have high context usage", highCount))
 		if len(lowUsage) > 0 {
 			hints.Suggestions = append(hints.Suggestions, fmt.Sprintf("%d agent(s) have room for additional work", len(lowUsage)))

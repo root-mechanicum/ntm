@@ -122,10 +122,59 @@ func TestUsageCache_UpdateAllUsage(t *testing.T) {
 	}
 }
 
+func TestUsageCache_UpdateAllUsage_CopiesCallerData(t *testing.T) {
+	cache := NewUsageCache()
+
+	usages := []tools.CautUsage{
+		{Provider: "anthropic", Cost: 50.0},
+		{Provider: "openai", Cost: 75.0},
+	}
+
+	cache.UpdateAllUsage(usages)
+
+	usages[0].Cost = 999.0
+	usages[1].Provider = "mutated"
+
+	gotAnthropic := cache.GetUsage("anthropic")
+	if gotAnthropic == nil {
+		t.Fatal("anthropic usage not found after UpdateAllUsage")
+	}
+	if gotAnthropic.Cost != 50.0 {
+		t.Errorf("Expected cached anthropic cost 50.0, got %f", gotAnthropic.Cost)
+	}
+
+	if cache.GetUsage("mutated") != nil {
+		t.Error("cache should not reflect caller-side provider mutation")
+	}
+}
+
+func TestUsageCache_GetAllUsage_SortedByProvider(t *testing.T) {
+	cache := NewUsageCache()
+
+	cache.UpdateAllUsage([]tools.CautUsage{
+		{Provider: "openai", Cost: 75.0},
+		{Provider: "anthropic", Cost: 50.0},
+		{Provider: "gemini", Cost: 25.0},
+	})
+
+	all := cache.GetAllUsage()
+	if len(all) != 3 {
+		t.Fatalf("Expected 3 usages, got %d", len(all))
+	}
+
+	gotProviders := []string{all[0].Provider, all[1].Provider, all[2].Provider}
+	wantProviders := []string{"anthropic", "gemini", "openai"}
+	for i := range wantProviders {
+		if gotProviders[i] != wantProviders[i] {
+			t.Fatalf("provider order = %v, want %v", gotProviders, wantProviders)
+		}
+	}
+}
+
 func TestUsageCache_Error(t *testing.T) {
 	cache := NewUsageCache()
 
-	err, errTime := cache.GetLastError()
+	errTime, err := cache.GetLastError()
 	if err != nil {
 		t.Error("Expected no error initially")
 	}
@@ -136,7 +185,7 @@ func TestUsageCache_Error(t *testing.T) {
 	testErr := &testError{msg: "test error"}
 	cache.SetError(testErr)
 
-	err, errTime = cache.GetLastError()
+	errTime, err = cache.GetLastError()
 	if err == nil {
 		t.Error("Expected error after SetError")
 	}
@@ -148,7 +197,7 @@ func TestUsageCache_Error(t *testing.T) {
 	}
 
 	cache.ClearError()
-	err, _ = cache.GetLastError()
+	_, err = cache.GetLastError()
 	if err != nil {
 		t.Error("Expected nil error after ClearError")
 	}
@@ -270,7 +319,7 @@ func TestUsageCache_Clear(t *testing.T) {
 		t.Error("UpdateCount should be 0 after Clear")
 	}
 
-	err, _ := cache.GetLastError()
+	_, err := cache.GetLastError()
 	if err != nil {
 		t.Error("Error should be nil after Clear")
 	}

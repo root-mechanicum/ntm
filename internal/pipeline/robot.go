@@ -310,11 +310,11 @@ func PrintPipelineRun(opts PipelineRunOptions) int {
 	output.RobotResponse = NewRobotResponse(state.Status == StatusCompleted)
 	if state.Status == StatusFailed {
 		if len(state.Errors) > 0 {
-			output.RobotResponse.Error = state.Errors[0].Message
+			output.Error = state.Errors[0].Message
 		} else if err != nil {
-			output.RobotResponse.Error = err.Error()
+			output.Error = err.Error()
 		}
-		output.RobotResponse.ErrorCode = ErrCodeInternalError
+		output.ErrorCode = ErrCodeInternalError
 	}
 
 	output.RunID = state.RunID

@@ -19,12 +19,12 @@ import (
 
 // HandoffTestSuite manages E2E tests for handoff workflows
 type HandoffTestSuite struct {
-	t        *testing.T
-	logger   *TestLogger
-	tempDir  string
-	cleanup  []func()
-	ntmPath  string
-	origDir  string
+	t       *testing.T
+	logger  *TestLogger
+	tempDir string
+	cleanup []func()
+	ntmPath string
+	origDir string
 }
 
 // extractJSON extracts JSON from output that may contain log lines

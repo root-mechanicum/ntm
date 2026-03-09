@@ -156,10 +156,11 @@ Examples:
 			for i, f := range findings {
 				icon := "\u26A0"
 				color := colorize(t.Warning)
-				if f.Severity == scanner.SeverityCritical {
+				switch f.Severity {
+				case scanner.SeverityCritical:
 					icon = "\u2717"
 					color = colorize(t.Error)
-				} else if f.Severity == scanner.SeverityInfo {
+				case scanner.SeverityInfo:
 					icon = "\u2139"
 					color = colorize(t.Info)
 				}

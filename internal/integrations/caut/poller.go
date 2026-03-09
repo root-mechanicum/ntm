@@ -211,7 +211,7 @@ func (p *UsagePoller) checkAlerts(status *tools.CautStatus) {
 	// Check overall quota
 	if status.QuotaPercent >= criticalThreshold {
 		alert := alerts.Alert{
-			ID:       fmt.Sprintf("caut-quota-critical-overall"),
+			ID:       "caut-quota-critical-overall",
 			Type:     alerts.AlertQuotaCritical,
 			Severity: alerts.SeverityCritical,
 			Source:   "caut-poller",
@@ -227,7 +227,7 @@ func (p *UsagePoller) checkAlerts(status *tools.CautStatus) {
 		pollerLogger.Warn("quota critical alert triggered", "quota_percent", status.QuotaPercent)
 	} else if status.QuotaPercent >= threshold {
 		alert := alerts.Alert{
-			ID:       fmt.Sprintf("caut-quota-warning-overall"),
+			ID:       "caut-quota-warning-overall",
 			Type:     alerts.AlertQuotaWarning,
 			Severity: alerts.SeverityWarning,
 			Source:   "caut-poller",

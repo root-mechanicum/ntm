@@ -208,11 +208,11 @@ func TestParseAgentSpec_InvalidFormats(t *testing.T) {
 	t.Parallel()
 
 	invalids := []string{
-		"",       // empty
-		"abc",    // non-numeric count
-		"0",      // zero count
-		"-1",     // negative count
-		"1:",     // empty model
+		"",    // empty
+		"abc", // non-numeric count
+		"0",   // zero count
+		"-1",  // negative count
+		"1:",  // empty model
 	}
 
 	for _, v := range invalids {

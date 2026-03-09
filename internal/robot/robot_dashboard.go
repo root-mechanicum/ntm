@@ -178,51 +178,51 @@ func printDashboardMarkdown(output DashboardOutput) error {
 	otherPanes := agentPanes - typeCounts["claude"] - typeCounts["codex"] - typeCounts["gemini"]
 
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("# NTM Fleet Dashboard: %s\n\n", escapeMarkdownCell(output.Fleet, 120)))
-	sb.WriteString(fmt.Sprintf("_Generated: %s_\n\n", output.GeneratedAt.Format(time.RFC3339)))
+	fmt.Fprintf(&sb, "# NTM Fleet Dashboard: %s\n\n", escapeMarkdownCell(output.Fleet, 120))
+	fmt.Fprintf(&sb, "_Generated: %s_\n\n", output.GeneratedAt.Format(time.RFC3339))
 
 	sb.WriteString("## System\n")
 	sb.WriteString("| Key | Value |\n")
 	sb.WriteString("|---|---|\n")
-	sb.WriteString(fmt.Sprintf("| NTM | %s |\n", escapeMarkdownCell(output.System.Version, 80)))
+	fmt.Fprintf(&sb, "| NTM | %s |\n", escapeMarkdownCell(output.System.Version, 80))
 	if output.System.Commit != "" {
-		sb.WriteString(fmt.Sprintf("| Commit | %s |\n", escapeMarkdownCell(output.System.Commit, 80)))
+		fmt.Fprintf(&sb, "| Commit | %s |\n", escapeMarkdownCell(output.System.Commit, 80))
 	}
 	if output.System.BuildDate != "" {
-		sb.WriteString(fmt.Sprintf("| Build Date | %s |\n", escapeMarkdownCell(output.System.BuildDate, 80)))
+		fmt.Fprintf(&sb, "| Build Date | %s |\n", escapeMarkdownCell(output.System.BuildDate, 80))
 	}
-	sb.WriteString(fmt.Sprintf("| Go | %s |\n", escapeMarkdownCell(output.System.GoVersion, 80)))
-	sb.WriteString(fmt.Sprintf("| OS/Arch | %s/%s |\n", escapeMarkdownCell(output.System.OS, 40), escapeMarkdownCell(output.System.Arch, 40)))
-	sb.WriteString(fmt.Sprintf("| tmux | %s |\n", yesNo(output.System.TmuxOK)))
+	fmt.Fprintf(&sb, "| Go | %s |\n", escapeMarkdownCell(output.System.GoVersion, 80))
+	fmt.Fprintf(&sb, "| OS/Arch | %s/%s |\n", escapeMarkdownCell(output.System.OS, 40), escapeMarkdownCell(output.System.Arch, 40))
+	fmt.Fprintf(&sb, "| tmux | %s |\n", yesNo(output.System.TmuxOK))
 	sb.WriteString("\n")
 
 	sb.WriteString("## Summary\n")
 	sb.WriteString("| Key | Value |\n")
 	sb.WriteString("|---|---|\n")
-	sb.WriteString(fmt.Sprintf("| Sessions | %d |\n", output.Summary.TotalSessions))
-	sb.WriteString(fmt.Sprintf("| Attached Sessions | %d |\n", output.Summary.AttachedCount))
-	sb.WriteString(fmt.Sprintf("| Panes (total) | %d |\n", totalPanes))
-	sb.WriteString(fmt.Sprintf("| Agent Panes | %d |\n", agentPanes))
-	sb.WriteString(fmt.Sprintf("| User Panes | %d |\n", userPanes))
-	sb.WriteString(fmt.Sprintf("| Claude | %d |\n", typeCounts["claude"]))
-	sb.WriteString(fmt.Sprintf("| Codex | %d |\n", typeCounts["codex"]))
-	sb.WriteString(fmt.Sprintf("| Gemini | %d |\n", typeCounts["gemini"]))
+	fmt.Fprintf(&sb, "| Sessions | %d |\n", output.Summary.TotalSessions)
+	fmt.Fprintf(&sb, "| Attached Sessions | %d |\n", output.Summary.AttachedCount)
+	fmt.Fprintf(&sb, "| Panes (total) | %d |\n", totalPanes)
+	fmt.Fprintf(&sb, "| Agent Panes | %d |\n", agentPanes)
+	fmt.Fprintf(&sb, "| User Panes | %d |\n", userPanes)
+	fmt.Fprintf(&sb, "| Claude | %d |\n", typeCounts["claude"])
+	fmt.Fprintf(&sb, "| Codex | %d |\n", typeCounts["codex"])
+	fmt.Fprintf(&sb, "| Gemini | %d |\n", typeCounts["gemini"])
 	if otherPanes > 0 {
-		sb.WriteString(fmt.Sprintf("| Other Agents | %d |\n", otherPanes))
+		fmt.Fprintf(&sb, "| Other Agents | %d |\n", otherPanes)
 	}
-	sb.WriteString(fmt.Sprintf("| Alerts (active) | %d |\n", len(output.Alerts)))
-	sb.WriteString(fmt.Sprintf("| Conflicts (30m) | %d |\n", len(output.Conflicts)))
-	sb.WriteString(fmt.Sprintf("| File Changes (30m) | %d |\n", len(output.FileChanges)))
+	fmt.Fprintf(&sb, "| Alerts (active) | %d |\n", len(output.Alerts))
+	fmt.Fprintf(&sb, "| Conflicts (30m) | %d |\n", len(output.Conflicts))
+	fmt.Fprintf(&sb, "| File Changes (30m) | %d |\n", len(output.FileChanges))
 	if output.Beads != nil && output.Beads.Available {
-		sb.WriteString(fmt.Sprintf("| Beads | Total %d (Ready %d, In Progress %d, Blocked %d) |\n", output.Beads.Total, output.Beads.Ready, output.Beads.InProgress, output.Beads.Blocked))
+		fmt.Fprintf(&sb, "| Beads | Total %d (Ready %d, In Progress %d, Blocked %d) |\n", output.Beads.Total, output.Beads.Ready, output.Beads.InProgress, output.Beads.Blocked)
 	} else if output.Beads != nil && !output.Beads.Available {
-		sb.WriteString(fmt.Sprintf("| Beads | unavailable (%s) |\n", escapeMarkdownCell(output.Beads.Reason, 120)))
+		fmt.Fprintf(&sb, "| Beads | unavailable (%s) |\n", escapeMarkdownCell(output.Beads.Reason, 120))
 	}
 	if output.AgentMail != nil {
 		if output.AgentMail.Available {
-			sb.WriteString(fmt.Sprintf("| Agent Mail | %d unread (%d threads) |\n", output.AgentMail.TotalUnread, output.AgentMail.ThreadsKnown))
+			fmt.Fprintf(&sb, "| Agent Mail | %d unread (%d threads) |\n", output.AgentMail.TotalUnread, output.AgentMail.ThreadsKnown)
 		} else {
-			sb.WriteString(fmt.Sprintf("| Agent Mail | unavailable (%s) |\n", escapeMarkdownCell(output.AgentMail.Reason, 120)))
+			fmt.Fprintf(&sb, "| Agent Mail | unavailable (%s) |\n", escapeMarkdownCell(output.AgentMail.Reason, 120))
 		}
 	}
 	sb.WriteString("\n")
@@ -237,7 +237,7 @@ func printDashboardMarkdown(output DashboardOutput) error {
 			sessTotal, sessUsers, sessCounts := dashboardCounts([]SnapshotSession{sess})
 			sessAgents := sessTotal - sessUsers
 			sessOther := sessAgents - sessCounts["claude"] - sessCounts["codex"] - sessCounts["gemini"]
-			sb.WriteString(fmt.Sprintf("| %s | %s | %d | %d | %d | %d | %d | %d |\n",
+			fmt.Fprintf(&sb, "| %s | %s | %d | %d | %d | %d | %d | %d |\n",
 				escapeMarkdownCell(sess.Name, 80),
 				yesNo(sess.Attached),
 				sessTotal,
@@ -246,7 +246,7 @@ func printDashboardMarkdown(output DashboardOutput) error {
 				sessCounts["codex"],
 				sessCounts["gemini"],
 				sessOther,
-			))
+			)
 		}
 		sb.WriteString("\n")
 	}
@@ -339,16 +339,15 @@ func writeAgentsTable(sb *strings.Builder, sessions []SnapshotSession, maxRows i
 	for _, sess := range sessions {
 		for _, agent := range sess.Agents {
 			if maxRows > 0 && written >= maxRows {
-				sb.WriteString(fmt.Sprintf("\n_Truncated: showing %d of %d panes._\n", written, totalRows))
+				fmt.Fprintf(sb, "\n_Truncated: showing %d of %d panes._\n", written, totalRows)
 				return
 			}
-			sb.WriteString(fmt.Sprintf("| %s | %s | %s | %s | %s |\n",
+			fmt.Fprintf(sb, "| %s | %s | %s | %s | %s |\n",
 				escapeMarkdownCell(sess.Name, 80),
 				escapeMarkdownCell(agent.Pane, 40),
 				escapeMarkdownCell(agent.Type, 40),
 				escapeMarkdownCell(agent.Variant, 40),
-				escapeMarkdownCell(agent.State, 40),
-			))
+				escapeMarkdownCell(agent.State, 40))
 			written++
 		}
 	}
@@ -365,17 +364,16 @@ func writeAlertsTable(sb *strings.Builder, alertsList []AlertInfo, maxRows int) 
 	written := 0
 	for _, a := range alertsList {
 		if maxRows > 0 && written >= maxRows {
-			sb.WriteString(fmt.Sprintf("\n_Truncated: showing %d of %d alerts._\n", written, len(alertsList)))
+			fmt.Fprintf(sb, "\n_Truncated: showing %d of %d alerts._\n", written, len(alertsList))
 			return
 		}
-		sb.WriteString(fmt.Sprintf("| %s | %s | %s | %s | %s | %s |\n",
+		fmt.Fprintf(sb, "| %s | %s | %s | %s | %s | %s |\n",
 			escapeMarkdownCell(a.Severity, 16),
 			escapeMarkdownCell(a.ID, 40),
 			escapeMarkdownCell(a.Type, 24),
 			escapeMarkdownCell(a.Session, 80),
 			escapeMarkdownCell(a.Pane, 40),
-			escapeMarkdownCell(a.Message, 160),
-		))
+			escapeMarkdownCell(a.Message, 160))
 		written++
 	}
 }
@@ -386,24 +384,23 @@ func writeBeadsTables(sb *strings.Builder, beads *bv.BeadsSummary) {
 		return
 	}
 	if !beads.Available {
-		sb.WriteString(fmt.Sprintf("_Beads summary unavailable: %s._\n", escapeMarkdownCell(beads.Reason, 160)))
+		fmt.Fprintf(sb, "_Beads summary unavailable: %s._\n", escapeMarkdownCell(beads.Reason, 160))
 		return
 	}
 
 	sb.WriteString("| Total | Open | In Progress | Blocked | Ready | Closed |\n")
 	sb.WriteString("|---:|---:|---:|---:|---:|---:|\n")
-	sb.WriteString(fmt.Sprintf("| %d | %d | %d | %d | %d | %d |\n\n", beads.Total, beads.Open, beads.InProgress, beads.Blocked, beads.Ready, beads.Closed))
+	fmt.Fprintf(sb, "| %d | %d | %d | %d | %d | %d |\n\n", beads.Total, beads.Open, beads.InProgress, beads.Blocked, beads.Ready, beads.Closed)
 
 	if len(beads.ReadyPreview) > 0 {
 		sb.WriteString("### Ready\n")
 		sb.WriteString("| ID | Priority | Title |\n")
 		sb.WriteString("|---|---|---|\n")
 		for _, b := range beads.ReadyPreview {
-			sb.WriteString(fmt.Sprintf("| %s | %s | %s |\n",
+			fmt.Fprintf(sb, "| %s | %s | %s |\n",
 				escapeMarkdownCell(b.ID, 32),
 				escapeMarkdownCell(b.Priority, 8),
-				escapeMarkdownCell(b.Title, 140),
-			))
+				escapeMarkdownCell(b.Title, 140))
 		}
 		sb.WriteString("\n")
 	} else {
@@ -419,11 +416,10 @@ func writeBeadsTables(sb *strings.Builder, beads *bv.BeadsSummary) {
 			if !b.UpdatedAt.IsZero() {
 				updated = b.UpdatedAt.UTC().Format(time.RFC3339)
 			}
-			sb.WriteString(fmt.Sprintf("| %s | %s | %s |\n",
+			fmt.Fprintf(sb, "| %s | %s | %s |\n",
 				escapeMarkdownCell(b.ID, 32),
 				escapeMarkdownCell(b.Assignee, 40),
-				escapeMarkdownCell(updated, 40),
-			))
+				escapeMarkdownCell(updated, 40))
 		}
 		sb.WriteString("\n")
 	} else {
@@ -453,7 +449,7 @@ func writeConflictsTable(sb *strings.Builder, conflicts []tracker.Conflict, maxR
 	written := 0
 	for _, c := range ordered {
 		if maxRows > 0 && written >= maxRows {
-			sb.WriteString(fmt.Sprintf("\n_Truncated: showing %d of %d conflicts._\n", written, len(ordered)))
+			fmt.Fprintf(sb, "\n_Truncated: showing %d of %d conflicts._\n", written, len(ordered))
 			return
 		}
 		agents := append([]string(nil), c.Agents...)
@@ -462,12 +458,11 @@ func writeConflictsTable(sb *strings.Builder, conflicts []tracker.Conflict, maxR
 		if !c.LastAt.IsZero() {
 			lastAt = c.LastAt.UTC().Format(time.RFC3339)
 		}
-		sb.WriteString(fmt.Sprintf("| %s | %s | %s | %s |\n",
+		fmt.Fprintf(sb, "| %s | %s | %s | %s |\n",
 			escapeMarkdownCell(c.Severity, 16),
 			escapeMarkdownCell(c.Path, 160),
 			escapeMarkdownCell(strings.Join(agents, ", "), 120),
-			escapeMarkdownCell(lastAt, 40),
-		))
+			escapeMarkdownCell(lastAt, 40))
 		written++
 	}
 }
@@ -497,7 +492,7 @@ func writeFileChangesTable(sb *strings.Builder, changes []FileChangeInfo, maxRow
 	written := 0
 	for _, c := range ordered {
 		if maxRows > 0 && written >= maxRows {
-			sb.WriteString(fmt.Sprintf("\n_Truncated: showing %d of %d file changes._\n", written, len(ordered)))
+			fmt.Fprintf(sb, "\n_Truncated: showing %d of %d file changes._\n", written, len(ordered))
 			return
 		}
 		at := ""
@@ -506,13 +501,12 @@ func writeFileChangesTable(sb *strings.Builder, changes []FileChangeInfo, maxRow
 		}
 		agents := append([]string(nil), c.Agents...)
 		sort.Strings(agents)
-		sb.WriteString(fmt.Sprintf("| %s | %s | %s | %s | %s |\n",
+		fmt.Fprintf(sb, "| %s | %s | %s | %s | %s |\n",
 			escapeMarkdownCell(at, 40),
 			escapeMarkdownCell(c.Type, 16),
 			escapeMarkdownCell(c.Path, 160),
 			escapeMarkdownCell(c.Session, 80),
-			escapeMarkdownCell(strings.Join(agents, ", "), 120),
-		))
+			escapeMarkdownCell(strings.Join(agents, ", "), 120))
 		written++
 	}
 }
@@ -523,7 +517,7 @@ func writeAgentMailTable(sb *strings.Builder, mail *SnapshotAgentMail, maxRows i
 		return
 	}
 	if !mail.Available {
-		sb.WriteString(fmt.Sprintf("_Agent Mail unavailable: %s._\n", escapeMarkdownCell(mail.Reason, 160)))
+		fmt.Fprintf(sb, "_Agent Mail unavailable: %s._\n", escapeMarkdownCell(mail.Reason, 160))
 		return
 	}
 	if len(mail.Agents) == 0 {
@@ -556,22 +550,21 @@ func writeAgentMailTable(sb *strings.Builder, mail *SnapshotAgentMail, maxRows i
 		return rows[i].name < rows[j].name
 	})
 
-	sb.WriteString(fmt.Sprintf("_Project: %s_\n\n", escapeMarkdownCell(mail.Project, 160)))
+	fmt.Fprintf(sb, "_Project: %s_\n\n", escapeMarkdownCell(mail.Project, 160))
 	sb.WriteString("| Agent | Pane | Unread | Pending Ack |\n")
 	sb.WriteString("|---|---|---:|---:|\n")
 
 	written := 0
 	for _, r := range rows {
 		if maxRows > 0 && written >= maxRows {
-			sb.WriteString(fmt.Sprintf("\n_Truncated: showing %d of %d agents with unread mail._\n", written, len(rows)))
+			fmt.Fprintf(sb, "\n_Truncated: showing %d of %d agents with unread mail._\n", written, len(rows))
 			return
 		}
-		sb.WriteString(fmt.Sprintf("| %s | %s | %d | %d |\n",
+		fmt.Fprintf(sb, "| %s | %s | %d | %d |\n",
 			escapeMarkdownCell(r.name, 60),
 			escapeMarkdownCell(r.s.Pane, 40),
 			r.s.Unread,
-			r.s.PendingAck,
-		))
+			r.s.PendingAck)
 		written++
 	}
 }

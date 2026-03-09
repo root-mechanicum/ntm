@@ -493,7 +493,7 @@ func TestMessageAndStyleHelpers(t *testing.T) {
 	helpers := map[string]func(string) string{
 		"SuccessMessage": SuccessMessage,
 		"ErrorMessage":   ErrorMessage,
-		"WarningMessage":  WarningMessage,
+		"WarningMessage": WarningMessage,
 		"InfoMessage":    InfoMessage,
 		"SubtleText":     SubtleText,
 		"BoldText":       BoldText,

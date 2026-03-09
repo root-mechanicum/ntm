@@ -67,7 +67,7 @@ func GetRUSync(opts RUSyncOptions) (*RUSyncOutput, error) {
 		)
 		output.DurationMs = time.Since(start).Milliseconds()
 		meta.DurationMs = output.DurationMs
-		output.RobotResponse.Meta = meta.WithExitCode(1)
+		output.Meta = meta.WithExitCode(1)
 		output.ExitCode = 1
 		return output, nil
 	}
@@ -90,7 +90,7 @@ func GetRUSync(opts RUSyncOptions) (*RUSyncOutput, error) {
 	output.DurationMs = time.Since(start).Milliseconds()
 	output.ExitCode = run.exitCode
 	meta.DurationMs = output.DurationMs
-	meta.WithExitCode(run.exitCode)
+	meta = meta.WithExitCode(run.exitCode)
 
 	stdoutBytes := []byte(run.stdout)
 	stderrStr := strings.TrimSpace(run.stderr)
@@ -111,7 +111,7 @@ func GetRUSync(opts RUSyncOptions) (*RUSyncOutput, error) {
 			errHint = "Try again later or reduce repo scope"
 		}
 		output.RobotResponse = NewErrorResponse(run.err, errCode, errHint)
-		output.RobotResponse.Meta = meta
+		output.Meta = meta
 		output.Stdout = strings.TrimSpace(string(stdoutBytes))
 		output.Stderr = stderrStr
 		return output, nil

@@ -56,7 +56,7 @@ func PrintMarkdown(cfg *config.Config, opts MarkdownOptions) error {
 
 	// Header with timestamp
 	sb.WriteString("## NTM Status\n")
-	sb.WriteString(fmt.Sprintf("_Generated: %s_\n\n", time.Now().UTC().Format("2006-01-02 15:04 UTC")))
+	fmt.Fprintf(&sb, "_Generated: %s_\n\n", time.Now().UTC().Format("2006-01-02 15:04 UTC"))
 
 	includeAll := len(opts.IncludeSections) == 0
 	sectionSet := make(map[string]bool)
@@ -122,11 +122,11 @@ func writeSessionsMarkdown(sb *strings.Builder, opts MarkdownOptions) {
 	}
 
 	if len(sessions) == 0 {
-		sb.WriteString(fmt.Sprintf("### Sessions\nSession '%s' not found.\n\n", opts.Session))
+		fmt.Fprintf(sb, "### Sessions\nSession '%s' not found.\n\n", opts.Session)
 		return
 	}
 
-	sb.WriteString(fmt.Sprintf("### Sessions (%d)\n", len(sessions)))
+	fmt.Fprintf(sb, "### Sessions (%d)\n", len(sessions))
 
 	if opts.Compact {
 		// Ultra-compact: one line per session
@@ -137,8 +137,8 @@ func writeSessionsMarkdown(sb *strings.Builder, opts MarkdownOptions) {
 			if sess.Attached {
 				attached = "*"
 			}
-			sb.WriteString(fmt.Sprintf("- %s%s: %d agents (cc:%d cod:%d gmi:%d)\n",
-				sess.Name, attached, len(panes), counts["claude"], counts["codex"], counts["gemini"]))
+			fmt.Fprintf(sb, "- %s%s: %d agents (cc:%d cod:%d gmi:%d)\n",
+				sess.Name, attached, len(panes), counts["claude"], counts["codex"], counts["gemini"])
 		}
 	} else {
 		// Table format
@@ -155,10 +155,10 @@ func writeSessionsMarkdown(sb *strings.Builder, opts MarkdownOptions) {
 				attached = "yes"
 			}
 
-			sb.WriteString(fmt.Sprintf("| %s | %s | %d | %d | %d | %d | %d | %d | %d |\n",
+			fmt.Fprintf(sb, "| %s | %s | %d | %d | %d | %d | %d | %d | %d |\n",
 				sess.Name, attached, len(panes),
 				counts["claude"], counts["codex"], counts["gemini"],
-				states["working"], states["idle"], states["error"]))
+				states["working"], states["idle"], states["error"])
 		}
 	}
 	sb.WriteString("\n")
@@ -241,14 +241,14 @@ func writeBeadsMarkdown(sb *strings.Builder, opts MarkdownOptions) {
 			if summary != nil && summary.Reason != "" {
 				reason = summary.Reason
 			}
-			sb.WriteString(fmt.Sprintf("### Beads\n_%s_\n\n", reason))
+			fmt.Fprintf(sb, "### Beads\n_%s_\n\n", reason)
 		}
 		return
 	}
 
 	total := summary.Ready + summary.InProgress + summary.Blocked
-	sb.WriteString(fmt.Sprintf("### Beads (R:%d I:%d B:%d = %d)\n",
-		summary.Ready, summary.InProgress, summary.Blocked, total))
+	fmt.Fprintf(sb, "### Beads (R:%d I:%d B:%d = %d)\n",
+		summary.Ready, summary.InProgress, summary.Blocked, total)
 
 	if opts.Compact {
 		// Ultra-compact: comma-separated lists
@@ -257,7 +257,7 @@ func writeBeadsMarkdown(sb *strings.Builder, opts MarkdownOptions) {
 			for _, b := range summary.ReadyPreview {
 				ids = append(ids, fmt.Sprintf("%s(%s)", b.ID, b.Priority))
 			}
-			sb.WriteString(fmt.Sprintf("- **Ready**: %s\n", strings.Join(ids, ", ")))
+			fmt.Fprintf(sb, "- **Ready**: %s\n", strings.Join(ids, ", "))
 		}
 		if len(summary.InProgressList) > 0 {
 			ids := make([]string, 0, len(summary.InProgressList))
@@ -268,14 +268,14 @@ func writeBeadsMarkdown(sb *strings.Builder, opts MarkdownOptions) {
 					ids = append(ids, b.ID)
 				}
 			}
-			sb.WriteString(fmt.Sprintf("- **In Progress**: %s\n", strings.Join(ids, ", ")))
+			fmt.Fprintf(sb, "- **In Progress**: %s\n", strings.Join(ids, ", "))
 		}
 	} else {
 		// Detailed format with titles - NO truncation, agents need full context
 		if len(summary.ReadyPreview) > 0 {
 			sb.WriteString("\n**Ready to work on:**\n")
 			for _, b := range summary.ReadyPreview {
-				sb.WriteString(fmt.Sprintf("- `%s` (%s): %s\n", b.ID, b.Priority, b.Title))
+				fmt.Fprintf(sb, "- `%s` (%s): %s\n", b.ID, b.Priority, b.Title)
 			}
 		}
 
@@ -286,12 +286,12 @@ func writeBeadsMarkdown(sb *strings.Builder, opts MarkdownOptions) {
 				if b.Assignee != "" {
 					assignee = fmt.Sprintf(" → %s", b.Assignee)
 				}
-				sb.WriteString(fmt.Sprintf("- `%s`%s: %s\n", b.ID, assignee, b.Title))
+				fmt.Fprintf(sb, "- `%s`%s: %s\n", b.ID, assignee, b.Title)
 			}
 		}
 
 		if summary.Blocked > 0 && len(summary.ReadyPreview) == 0 {
-			sb.WriteString(fmt.Sprintf("\n_Note: %d beads blocked, waiting on dependencies_\n", summary.Blocked))
+			fmt.Fprintf(sb, "\n_Note: %d beads blocked, waiting on dependencies_\n", summary.Blocked)
 		}
 	}
 	sb.WriteString("\n")
@@ -336,12 +336,12 @@ func writeAlertsSection(sb *strings.Builder, cfg *config.Config, opts MarkdownOp
 		}
 	}
 
-	sb.WriteString(fmt.Sprintf("### Alerts (%d", len(activeAlerts)))
+	fmt.Fprintf(sb, "### Alerts (%d", len(activeAlerts))
 	if critical > 0 {
-		sb.WriteString(fmt.Sprintf(", %d critical", critical))
+		fmt.Fprintf(sb, ", %d critical", critical)
 	}
 	if warning > 0 {
-		sb.WriteString(fmt.Sprintf(", %d warning", warning))
+		fmt.Fprintf(sb, ", %d warning", warning)
 	}
 	sb.WriteString(")\n")
 
@@ -363,11 +363,11 @@ func writeAlertsSection(sb *strings.Builder, cfg *config.Config, opts MarkdownOp
 			msg = fmt.Sprintf("[%s] %s", a.Session, msg)
 		}
 		// No truncation - agents need full alert messages to understand issues
-		sb.WriteString(fmt.Sprintf("- %s %s\n", icon, msg))
+		fmt.Fprintf(sb, "- %s %s\n", icon, msg)
 	}
 
 	if len(activeAlerts) > opts.MaxAlerts && opts.MaxAlerts > 0 {
-		sb.WriteString(fmt.Sprintf("_...and %d more_\n", len(activeAlerts)-opts.MaxAlerts))
+		fmt.Fprintf(sb, "_...and %d more_\n", len(activeAlerts)-opts.MaxAlerts)
 	}
 	sb.WriteString("\n")
 }
@@ -465,7 +465,7 @@ func writeMailSection(sb *strings.Builder, opts MarkdownOptions) {
 		return
 	}
 
-	sb.WriteString(fmt.Sprintf("### Mail (%d unread)\n", totalUnread))
+	fmt.Fprintf(sb, "### Mail (%d unread)\n", totalUnread)
 
 	if opts.Compact {
 		// One-liner
@@ -488,7 +488,7 @@ func writeMailSection(sb *strings.Builder, opts MarkdownOptions) {
 				if m.urgent > 0 {
 					urgentNote = fmt.Sprintf(" (%d urgent)", m.urgent)
 				}
-				sb.WriteString(fmt.Sprintf("- **%s**: %d unread%s\n", m.name, m.unread, urgentNote))
+				fmt.Fprintf(sb, "- **%s**: %d unread%s\n", m.name, m.unread, urgentNote)
 			}
 		}
 	}

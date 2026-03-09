@@ -387,10 +387,10 @@ func TestAgentPacingConfig_RampUpDelays(t *testing.T) {
 	t.Parallel()
 
 	cfg := &AgentPacingConfig{
-		ClaudeRampUpDelayMs:  5000,
-		CodexRampUpDelayMs:   3000,
-		GeminiRampUpDelayMs:  4000,
-		CooldownOnFailureMs:  10000,
+		ClaudeRampUpDelayMs: 5000,
+		CodexRampUpDelayMs:  3000,
+		GeminiRampUpDelayMs: 4000,
+		CooldownOnFailureMs: 10000,
 	}
 
 	tests := []struct {

@@ -62,7 +62,7 @@ func (ft *FlexTime) UnmarshalJSON(data []byte) error {
 // MarshalJSON implements json.Marshaler for FlexTime.
 // It outputs RFC3339Nano format.
 func (ft FlexTime) MarshalJSON() ([]byte, error) {
-	return json.Marshal(ft.Time.Format(time.RFC3339Nano))
+	return json.Marshal(ft.Format(time.RFC3339Nano))
 }
 
 // Agent represents an AI coding agent registered with Agent Mail.

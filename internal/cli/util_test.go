@@ -446,7 +446,9 @@ func TestInferSessionFromCWD_LabelDisambiguation(t *testing.T) {
 	t.Cleanup(func() {
 		cfg = origCfg
 		tmux.DefaultClient.Remote = origRemote
-		os.Chdir(origDir) //nolint:errcheck
+		if err := os.Chdir(origDir); err != nil {
+			t.Errorf("restore working directory: %v", err)
+		}
 	})
 
 	// Ensure we are not in "remote" mode.
@@ -568,7 +570,11 @@ func TestInferSessionFromCWD_LabelDisambiguation(t *testing.T) {
 		if err := os.Chdir(subDir); err != nil {
 			t.Fatalf("chdir subdir: %v", err)
 		}
-		defer os.Chdir(projectDir) //nolint:errcheck
+		defer func() {
+			if err := os.Chdir(projectDir); err != nil {
+				t.Errorf("restore project directory: %v", err)
+			}
+		}()
 
 		sessions := []tmux.Session{
 			{Name: "myproject--frontend"},

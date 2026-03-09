@@ -83,7 +83,7 @@ func TestListExpiredPendingApprovals_IgnoresNonPending(t *testing.T) {
 		RequestedBy: "agent-1",
 		CreatedAt:   now.Add(-2 * time.Hour),
 		ExpiresAt:   now.Add(-1 * time.Hour), // expired
-		Status:      ApprovalApproved,         // not pending
+		Status:      ApprovalApproved,        // not pending
 	}
 	if err := store.CreateApproval(approved); err != nil {
 		t.Fatalf("create approved: %v", err)
@@ -97,7 +97,7 @@ func TestListExpiredPendingApprovals_IgnoresNonPending(t *testing.T) {
 		RequestedBy: "agent-2",
 		CreatedAt:   now.Add(-2 * time.Hour),
 		ExpiresAt:   now.Add(-1 * time.Hour), // expired
-		Status:      ApprovalDenied,           // not pending
+		Status:      ApprovalDenied,          // not pending
 	}
 	if err := store.CreateApproval(denied); err != nil {
 		t.Fatalf("create denied: %v", err)

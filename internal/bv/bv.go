@@ -657,17 +657,21 @@ func RunBd(dir string, args ...string) (string, error) {
 		args = append([]string{"--no-db"}, args...)
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), DefaultTimeout)
-	defer cancel()
+	const maxAttempts = 3
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		ctx, cancel := context.WithTimeout(context.Background(), DefaultTimeout)
 
-	cmd := exec.CommandContext(ctx, "br", args...)
-	cmd.Dir = dir
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
+		cmd := exec.CommandContext(ctx, "br", args...)
+		cmd.Dir = dir
+		var stdout, stderr bytes.Buffer
+		cmd.Stdout = &stdout
+		cmd.Stderr = &stderr
 
-	err = cmd.Run()
-	if err != nil {
+		err = cmd.Run()
+		cancel()
+		if err == nil {
+			return strings.TrimSpace(stdout.String()), nil
+		}
 		if ctx.Err() == context.DeadlineExceeded {
 			return "", fmt.Errorf("br timed out after %v", DefaultTimeout)
 		}
@@ -678,15 +682,24 @@ func RunBd(dir string, args ...string) (string, error) {
 			setNoDBState(dir, true)
 			return RunBd(dir, append([]string{"--no-db"}, args...)...)
 		}
+		if attempt < maxAttempts && isTransientBeadsDBError(stderrStr) {
+			time.Sleep(time.Duration(attempt*50) * time.Millisecond)
+			continue
+		}
 		return "", fmt.Errorf("br %s: %w: %s", strings.Join(args, " "), err, stderrStr)
 	}
 
-	return strings.TrimSpace(stdout.String()), nil
+	return "", fmt.Errorf("br %s: exceeded retry budget", strings.Join(args, " "))
 }
 
 func isNoBeadsDBError(stderr string) bool {
 	s := strings.ToLower(stderr)
 	return strings.Contains(s, "no beads database found") || strings.Contains(s, "use 'br --no-db'")
+}
+
+func isTransientBeadsDBError(stderr string) bool {
+	s := strings.ToLower(stderr)
+	return strings.Contains(s, "database is busy") || strings.Contains(s, "database is locked")
 }
 
 func containsString(list []string, value string) bool {

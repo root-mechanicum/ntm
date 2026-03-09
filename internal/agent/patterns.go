@@ -74,19 +74,19 @@ var (
 		regexp.MustCompile(`\?\s*$`), // Question prompt
 		// Claude Code TUI patterns (welcome screen)
 		regexp.MustCompile(`(?i)claude\s+code\s+v[\d.]+`), // Version banner
-		regexp.MustCompile(`(?i)welcome\s+back`),           // Welcome message
-		regexp.MustCompile(`╰─>\s*$`),                      // Arrow prompt
-		regexp.MustCompile(`(?m)❯[\s\x{00a0}]*$`),            // Unicode heavy right-pointing angle prompt (multiline, NBSP-aware)
+		regexp.MustCompile(`(?i)welcome\s+back`),          // Welcome message
+		regexp.MustCompile(`╰─>\s*$`),                     // Arrow prompt
+		regexp.MustCompile(`(?m)❯[\s\x{00a0}]*$`),         // Unicode heavy right-pointing angle prompt (multiline, NBSP-aware)
 	}
 
 	// ccSpinnerActivePatterns detect Claude Code's randomized spinner verbs
 	// (e.g. "Bunning… (3s)", "Scurrying… (12s)", "Running…", "· thinking", "· thought for 5s").
 	// When these match, the agent is actively working — NOT idle.
 	ccSpinnerActivePatterns = []*regexp.Regexp{
-		regexp.MustCompile(`\S+…\s+\(`),          // Timing spinners: "Bunning… (3s)"
-		regexp.MustCompile(`·\s*thinking`),        // Extended thinking indicator
-		regexp.MustCompile(`·\s*thought\s+for`),   // Past thinking indicator (still active context)
-		regexp.MustCompile(`Running…`),            // Explicit running spinner
+		regexp.MustCompile(`\S+…\s+\(`),         // Timing spinners: "Bunning… (3s)"
+		regexp.MustCompile(`·\s*thinking`),      // Extended thinking indicator
+		regexp.MustCompile(`·\s*thought\s+for`), // Past thinking indicator (still active context)
+		regexp.MustCompile(`Running…`),          // Explicit running spinner
 	}
 
 	// ccErrorPatterns indicates an error condition.

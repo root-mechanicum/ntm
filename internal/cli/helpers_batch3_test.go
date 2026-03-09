@@ -287,4 +287,3 @@ func TestSendTargetsHasTargetsForType(t *testing.T) {
 		t.Error("empty targets should not match")
 	}
 }
-

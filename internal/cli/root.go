@@ -1124,7 +1124,7 @@ Shell Integration:
 					AckPollMs:    ackPollMs,
 				}
 				if cfg != nil {
-					opts.SendOptions.Redaction = cfg.Redaction.ToRedactionLibConfig()
+					opts.Redaction = cfg.Redaction.ToRedactionLibConfig()
 				}
 				if err := robot.PrintSendAndAck(opts); err != nil {
 					fmt.Fprintf(os.Stderr, "Error: %v\n", err)
@@ -3696,12 +3696,12 @@ Examples:
 					"theme":         effectiveCfg.Theme,
 					"palette_file":  effectiveCfg.PaletteFile,
 					"agents": map[string]string{
-						"claude": effectiveCfg.Agents.Claude,
-						"codex":  effectiveCfg.Agents.Codex,
-						"gemini": effectiveCfg.Agents.Gemini,
-						"cursor": effectiveCfg.Agents.Cursor,
+						"claude":   effectiveCfg.Agents.Claude,
+						"codex":    effectiveCfg.Agents.Codex,
+						"gemini":   effectiveCfg.Agents.Gemini,
+						"cursor":   effectiveCfg.Agents.Cursor,
 						"windsurf": effectiveCfg.Agents.Windsurf,
-						"aider": effectiveCfg.Agents.Aider,
+						"aider":    effectiveCfg.Agents.Aider,
 					},
 					"tmux": map[string]interface{}{
 						"default_panes":      effectiveCfg.Tmux.DefaultPanes,

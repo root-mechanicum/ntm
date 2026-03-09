@@ -32,11 +32,11 @@ type LogEntry struct {
 
 // PaneLogs contains logs for a single pane.
 type PaneLogs struct {
-	Pane      int        `json:"pane"`
-	AgentType string     `json:"agent_type"`
-	Lines     []string   `json:"lines"`
-	LineCount int        `json:"line_count"`
-	Truncated bool       `json:"truncated"`
+	Pane       int       `json:"pane"`
+	AgentType  string    `json:"agent_type"`
+	Lines      []string  `json:"lines"`
+	LineCount  int       `json:"line_count"`
+	Truncated  bool      `json:"truncated"`
 	CapturedAt time.Time `json:"captured_at"`
 }
 
@@ -310,9 +310,9 @@ type StreamLogsOptions struct {
 
 // LogsStreamEntry represents a streaming log update.
 type LogsStreamEntry struct {
-	Pane      int      `json:"pane"`
-	AgentType string   `json:"agent_type"`
-	NewLines  []string `json:"new_lines"`
+	Pane      int       `json:"pane"`
+	AgentType string    `json:"agent_type"`
+	NewLines  []string  `json:"new_lines"`
 	Timestamp time.Time `json:"timestamp"`
 }
 

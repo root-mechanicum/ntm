@@ -2,6 +2,7 @@ package checkpoint
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -242,17 +243,9 @@ func TestStorage_LoadScrollback_PermissionDenied(t *testing.T) {
 func TestRestorer_RestoreFromCheckpoint_NilCheckpoint(t *testing.T) {
 	r := NewRestorer()
 
-	// Passing nil should cause a panic or be handled gracefully
-	// depending on implementation. Test that we don't crash unexpectedly.
-	defer func() {
-		if r := recover(); r != nil {
-			t.Logf("Recovered from panic as expected: %v", r)
-		}
-	}()
-
 	_, err := r.RestoreFromCheckpoint(nil, RestoreOptions{DryRun: true})
-	if err == nil {
-		t.Error("RestoreFromCheckpoint(nil) should fail or panic")
+	if !errors.Is(err, ErrNilCheckpoint) {
+		t.Fatalf("RestoreFromCheckpoint(nil) error = %v, want %v", err, ErrNilCheckpoint)
 	}
 }
 

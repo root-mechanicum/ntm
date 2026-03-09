@@ -56,7 +56,7 @@ func GetEnsembleStop(session string, opts EnsembleStopOptions) (*EnsembleStopOut
 		"correlation_id": correlationID,
 	}, nil)
 	defer func() {
-		success := output != nil && output.RobotResponse.Success
+		success := output != nil && output.Success
 		payload := map[string]interface{}{
 			"phase":          "finish",
 			"session":        session,
@@ -70,8 +70,8 @@ func GetEnsembleStop(session string, opts EnsembleStopOptions) (*EnsembleStopOut
 			"duration_ms":    time.Since(auditStart).Milliseconds(),
 			"correlation_id": correlationID,
 		}
-		if output != nil && output.RobotResponse.Error != "" {
-			payload["error"] = output.RobotResponse.Error
+		if output != nil && output.Error != "" {
+			payload["error"] = output.Error
 		}
 		_ = audit.LogEvent(session, audit.EventTypeCommand, audit.ActorSystem, "ensemble.stop", payload, nil)
 	}()

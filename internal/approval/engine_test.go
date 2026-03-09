@@ -534,7 +534,6 @@ func TestRequestWithNilContext(t *testing.T) {
 	store := setupTestStore(t)
 	engine := New(store, nil, nil, DefaultConfig())
 
-	//nolint:staticcheck // intentionally passing nil context
 	appr, err := engine.Request(nil, RequestParams{
 		Action:      "test",
 		Resource:    "res",

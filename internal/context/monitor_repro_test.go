@@ -24,7 +24,7 @@ Hope that helps!`,
 			},
 		},
 		{
-			name: "json embedded in markdown block",
+			name:  "json embedded in markdown block",
 			input: "Here is the data:\n```json\n{\"context_used\": 50000, \"context_limit\": 100000}\n```",
 			expected: &ContextEstimate{
 				TokensUsed:   50000,

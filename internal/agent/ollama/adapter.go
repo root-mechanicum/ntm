@@ -527,13 +527,7 @@ func (a *Adapter) ListModels(ctx context.Context) ([]Model, error) {
 
 	models := make([]Model, len(tagsResp.Models))
 	for i, m := range tagsResp.Models {
-		models[i] = Model{
-			Name:       m.Name,
-			Size:       m.Size,
-			Digest:     m.Digest,
-			ModifiedAt: m.ModifiedAt,
-			Details:    m.Details,
-		}
+		models[i] = Model(m)
 	}
 
 	return models, nil

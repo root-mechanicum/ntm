@@ -919,11 +919,11 @@ func TestMechanicalMerger_Statistics(t *testing.T) {
 
 func TestEvidenceProximity(t *testing.T) {
 	tests := []struct {
-		name     string
-		a        string
-		b        string
-		wantMin  float64
-		wantMax  float64
+		name    string
+		a       string
+		b       string
+		wantMin float64
+		wantMax float64
 	}{
 		{
 			name:    "identical pointers",

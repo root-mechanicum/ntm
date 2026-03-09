@@ -69,10 +69,10 @@ type MetricsReport struct {
 
 // BudgetEfficiency summarizes token usage efficiency.
 type BudgetEfficiency struct {
-	TotalTokens      int     `json:"total_tokens"`
-	TotalFindings    int     `json:"total_findings"`
-	FindingsPerKTok  float64 `json:"findings_per_k_tokens"`
-	BudgetUsedPct    float64 `json:"budget_used_pct"`
+	TotalTokens      int      `json:"total_tokens"`
+	TotalFindings    int      `json:"total_findings"`
+	FindingsPerKTok  float64  `json:"findings_per_k_tokens"`
+	BudgetUsedPct    float64  `json:"budget_used_pct"`
 	Underperformers  []string `json:"underperformers,omitempty"`
 	EfficiencyRating string   `json:"efficiency_rating"`
 }

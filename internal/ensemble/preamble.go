@@ -156,9 +156,10 @@ func (e *PreambleEngine) renderModeSection(mode *ReasoningMode) string {
 	// Tier warning for non-core modes
 	if mode.Tier != TierCore {
 		sb.WriteString(fmt.Sprintf("**Note**: This is a %s-tier mode. ", mode.Tier))
-		if mode.Tier == TierAdvanced {
+		switch mode.Tier {
+		case TierAdvanced:
 			sb.WriteString("It may require more expertise to apply effectively.\n")
-		} else if mode.Tier == TierExperimental {
+		case TierExperimental:
 			sb.WriteString("It is experimental and may produce inconsistent results.\n")
 		}
 	}

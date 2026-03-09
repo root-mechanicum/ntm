@@ -14,10 +14,10 @@ import (
 // XFSearchOutput represents the output for --robot-xf-search.
 type XFSearchOutput struct {
 	RobotResponse
-	Query string            `json:"query"`
-	Mode  string            `json:"mode,omitempty"`
-	Sort  string            `json:"sort,omitempty"`
-	Count int               `json:"count"`
+	Query string                 `json:"query"`
+	Mode  string                 `json:"mode,omitempty"`
+	Sort  string                 `json:"sort,omitempty"`
+	Count int                    `json:"count"`
 	Hits  []tools.XFSearchResult `json:"hits"`
 }
 
@@ -149,4 +149,3 @@ func PrintXFStatus() error {
 	}
 	return outputJSON(output)
 }
-

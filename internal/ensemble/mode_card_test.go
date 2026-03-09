@@ -7,10 +7,10 @@ import (
 
 func TestNewModeCard(t *testing.T) {
 	tests := []struct {
-		name     string
-		mode     *ReasoningMode
-		wantNil  bool
-		checkID  string
+		name    string
+		mode    *ReasoningMode
+		wantNil bool
+		checkID string
 	}{
 		{
 			name:    "nil mode",

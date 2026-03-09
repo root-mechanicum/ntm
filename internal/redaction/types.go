@@ -22,15 +22,15 @@ type Category string
 const (
 	CategoryOpenAIKey     Category = "OPENAI_KEY"
 	CategoryAnthropicKey  Category = "ANTHROPIC_KEY"
-	CategoryGitHubToken   Category = "GITHUB_TOKEN"
+	CategoryGitHubToken   Category = "GITHUB_TOKEN" //nolint:gosec // classifier label, not a credential
 	CategoryAWSAccessKey  Category = "AWS_ACCESS_KEY"
-	CategoryAWSSecretKey  Category = "AWS_SECRET_KEY"
+	CategoryAWSSecretKey  Category = "AWS_SECRET_KEY" //nolint:gosec // classifier label, not a credential
 	CategoryJWT           Category = "JWT"
-	CategoryGoogleAPIKey  Category = "GOOGLE_API_KEY"
+	CategoryGoogleAPIKey  Category = "GOOGLE_API_KEY" //nolint:gosec // classifier label, not a credential
 	CategoryPrivateKey    Category = "PRIVATE_KEY"
 	CategoryDatabaseURL   Category = "DATABASE_URL"
 	CategoryPassword      Category = "PASSWORD"
-	CategoryGenericAPIKey Category = "GENERIC_API_KEY"
+	CategoryGenericAPIKey Category = "GENERIC_API_KEY" //nolint:gosec // classifier label, not a credential
 	CategoryGenericSecret Category = "GENERIC_SECRET"
 	CategoryBearerToken   Category = "BEARER_TOKEN"
 )

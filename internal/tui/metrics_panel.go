@@ -91,8 +91,8 @@ func (m *MetricsPanel) View() string {
 	boxStyle := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(t.Primary).
-		Width(w - 2).
-		Height(h - 2).
+		Width(w-2).
+		Height(h-2).
 		Padding(0, 1)
 
 	var content strings.Builder

@@ -61,20 +61,20 @@ func TestOutputCapture_ExtractYAML_CodeBlock(t *testing.T) {
 		contains string
 	}{
 		{
-			name: "yaml code block",
-			input: "Some text\n```yaml\nthesis: Test thesis\nconfidence: 0.8\n```\nMore text",
+			name:     "yaml code block",
+			input:    "Some text\n```yaml\nthesis: Test thesis\nconfidence: 0.8\n```\nMore text",
 			wantYAML: true,
 			contains: "thesis: Test thesis",
 		},
 		{
-			name: "thesis line fallback",
-			input: "Some output\nthesis: Found thesis here\nconfidence: 0.9",
+			name:     "thesis line fallback",
+			input:    "Some output\nthesis: Found thesis here\nconfidence: 0.9",
 			wantYAML: true,
 			contains: "thesis: Found thesis here",
 		},
 		{
-			name: "no yaml content",
-			input: "Just plain text without any YAML",
+			name:     "no yaml content",
+			input:    "Just plain text without any YAML",
 			wantYAML: false,
 			contains: "",
 		},
@@ -85,8 +85,8 @@ func TestOutputCapture_ExtractYAML_CodeBlock(t *testing.T) {
 			contains: "",
 		},
 		{
-			name: "multiple yaml blocks picks valid",
-			input: "```yaml\ninvalid: [broken\n```\n```yaml\nthesis: Valid block\nconfidence: 0.5\n```",
+			name:     "multiple yaml blocks picks valid",
+			input:    "```yaml\ninvalid: [broken\n```\n```yaml\nthesis: Valid block\nconfidence: 0.5\n```",
 			wantYAML: true,
 			contains: "thesis: Valid block",
 		},

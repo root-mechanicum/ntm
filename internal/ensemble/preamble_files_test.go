@@ -7,8 +7,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Dicklesworthstone/ntm/internal/tokens"
 	"gopkg.in/yaml.v3"
+
+	"github.com/Dicklesworthstone/ntm/internal/tokens"
 )
 
 type preambleFile struct {

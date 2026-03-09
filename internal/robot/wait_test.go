@@ -291,13 +291,13 @@ func TestFilterWaitPanes(t *testing.T) {
 	// Note: detectAgentType looks for patterns like "claude", "codex", "gemini" in title
 	// or short forms like "__cc_", "__cod_", "__gmi_" with word boundaries
 	testPanes := []tmux.Pane{
-		{Index: 0, Title: "user_0"},                             // User pane, should be filtered out
-		{Index: 1, Title: "myproject__cc_1"},                    // Claude agent (short form with prefix)
-		{Index: 2, Title: "myproject__cod_2"},                   // Codex agent (short form with prefix)
-		{Index: 3, Title: "myproject__gmi_3"},                   // Gemini agent (short form with prefix)
-		{Index: 4, Title: "myproject__cc_4"},                    // Another Claude agent
-		{Index: 5, Title: "unknown_agent"},                      // Unknown, should be filtered out
-		{Index: 6, Title: "bash"},                               // Non-agent pane
+		{Index: 0, Title: "user_0"},                                 // User pane, should be filtered out
+		{Index: 1, Title: "myproject__cc_1"},                        // Claude agent (short form with prefix)
+		{Index: 2, Title: "myproject__cod_2"},                       // Codex agent (short form with prefix)
+		{Index: 3, Title: "myproject__gmi_3"},                       // Gemini agent (short form with prefix)
+		{Index: 4, Title: "myproject__cc_4"},                        // Another Claude agent
+		{Index: 5, Title: "unknown_agent"},                          // Unknown, should be filtered out
+		{Index: 6, Title: "bash"},                                   // Non-agent pane
 		{Index: 7, Title: "claude_session", Type: tmux.AgentClaude}, // Using full type name
 	}
 

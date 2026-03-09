@@ -8,7 +8,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Dicklesworthstone/ntm/internal/config"
 	"github.com/Dicklesworthstone/ntm/internal/tmux"
 	"github.com/Dicklesworthstone/ntm/tests/testutil"
 )
@@ -34,8 +33,7 @@ func TestAgentLifecycleSpawnWorkKill(t *testing.T) {
 		jsonOutput = oldJsonOutput
 	}()
 
-	cfg = config.Default()
-	cfg.ProjectsBase = tmpDir
+	cfg = newTmuxIntegrationTestConfig(tmpDir)
 	jsonOutput = true
 
 	// Use 'cat' as agent command - it echoes input back to stdout
@@ -199,8 +197,7 @@ func TestAgentLifecycleMultipleAgents(t *testing.T) {
 		jsonOutput = oldJsonOutput
 	}()
 
-	cfg = config.Default()
-	cfg.ProjectsBase = tmpDir
+	cfg = newTmuxIntegrationTestConfig(tmpDir)
 	jsonOutput = true
 
 	cfg.Agents.Claude = testAgentCatCommandTemplate
@@ -329,8 +326,7 @@ func TestAgentLifecycleRapidSpawnKill(t *testing.T) {
 		jsonOutput = oldJsonOutput
 	}()
 
-	cfg = config.Default()
-	cfg.ProjectsBase = tmpDir
+	cfg = newTmuxIntegrationTestConfig(tmpDir)
 	jsonOutput = true
 	cfg.Agents.Claude = testAgentCatCommandTemplate
 
@@ -409,8 +405,7 @@ func TestAgentLifecycleKillIdempotent(t *testing.T) {
 		jsonOutput = oldJsonOutput
 	}()
 
-	cfg = config.Default()
-	cfg.ProjectsBase = tmpDir
+	cfg = newTmuxIntegrationTestConfig(tmpDir)
 	jsonOutput = true
 	cfg.Agents.Claude = testAgentCatCommandTemplate
 

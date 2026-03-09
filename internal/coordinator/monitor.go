@@ -92,7 +92,7 @@ func (m *AgentMonitor) GetAgentStatusWithOutput(paneID, paneName, agentType stri
 
 	// 1. Static analysis using UnifiedDetector
 	agentStatus := m.detector.Analyze(paneID, paneName, agentType, output, lastActivity)
-	
+
 	// Map status.AgentState to robot.AgentState
 	result.Status = mapStatusToRobotState(agentStatus.State)
 	result.Healthy = agentStatus.State != status.StateError
@@ -101,7 +101,7 @@ func (m *AgentMonitor) GetAgentStatusWithOutput(paneID, paneName, agentType stri
 	// 2. Activity/Velocity analysis using ActivityMonitor
 	classifier := m.activityMon.GetOrCreate(paneID)
 	classifier.SetAgentType(agentType)
-	
+
 	// Inject the already-captured output
 	activity, err := classifier.ClassifyWithOutput(output)
 	if err == nil {

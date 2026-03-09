@@ -224,9 +224,10 @@ func (m *BeadsPanel) View() string {
 
 			prio := b.Priority
 			prioStyle := lipgloss.NewStyle().Foreground(t.Overlay)
-			if prio == "P0" {
+			switch prio {
+			case "P0":
 				prioStyle = prioStyle.Foreground(t.Red).Bold(true)
-			} else if prio == "P1" {
+			case "P1":
 				prioStyle = prioStyle.Foreground(t.Yellow)
 			}
 

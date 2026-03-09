@@ -43,8 +43,7 @@ func TestSpawnSessionLogic(t *testing.T) {
 		jsonOutput = oldJsonOutput
 	}()
 
-	cfg = config.Default()
-	cfg.ProjectsBase = tmpDir
+	cfg = newTmuxIntegrationTestConfig(tmpDir)
 	jsonOutput = true
 
 	// Override templates to avoid dependency on actual agent binaries
@@ -526,8 +525,7 @@ func TestSpawnSessionLogic_Ollama(t *testing.T) {
 		jsonOutput = oldJsonOutput
 	}()
 
-	cfg = config.Default()
-	cfg.ProjectsBase = tmpDir
+	cfg = newTmuxIntegrationTestConfig(tmpDir)
 	jsonOutput = true
 
 	// Override templates to avoid dependency on actual agent binaries

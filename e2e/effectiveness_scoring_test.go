@@ -17,11 +17,11 @@ import (
 
 // ScoringTestSuite manages E2E tests for effectiveness scoring
 type ScoringTestSuite struct {
-	t        *testing.T
-	logger   *TestLogger
-	tempDir  string
-	tracker  *scoring.Tracker
-	cleanup  []func()
+	t       *testing.T
+	logger  *TestLogger
+	tempDir string
+	tracker *scoring.Tracker
+	cleanup []func()
 }
 
 // NewScoringTestSuite creates a new test suite for scoring E2E tests

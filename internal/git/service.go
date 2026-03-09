@@ -310,8 +310,6 @@ func (ws *WorktreeService) changeDirectoryInPane(paneID, workingDir string) erro
 	return nil
 }
 
-
-
 // GetAllWorktrees returns worktrees across all managed projects
 func (ws *WorktreeService) GetAllWorktrees(ctx context.Context) (map[string][]*WorktreeInfo, error) {
 	result := make(map[string][]*WorktreeInfo)

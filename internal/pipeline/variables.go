@@ -525,9 +525,10 @@ func extractJSONBlock(s string) string {
 			continue
 		}
 
-		if c == openChar {
+		switch c {
+		case openChar:
 			depth++
-		} else if c == closeChar {
+		case closeChar:
 			depth--
 			if depth == 0 {
 				return s[:i+1]

@@ -22,9 +22,9 @@ import (
 
 	"github.com/Dicklesworthstone/ntm/internal/audit"
 	"github.com/Dicklesworthstone/ntm/internal/bv"
-	"github.com/Dicklesworthstone/ntm/internal/config"
 	"github.com/Dicklesworthstone/ntm/internal/cass"
 	"github.com/Dicklesworthstone/ntm/internal/checkpoint"
+	"github.com/Dicklesworthstone/ntm/internal/config"
 	"github.com/Dicklesworthstone/ntm/internal/events"
 	"github.com/Dicklesworthstone/ntm/internal/history"
 	"github.com/Dicklesworthstone/ntm/internal/hooks"
@@ -400,7 +400,7 @@ func shuffledPermutation(n int, seed int64) (seedUsed int64, perm []int) {
 	}
 
 	// xorshift64 (deterministic, stable across Go versions)
-	var x uint64 = uint64(seedUsed)
+	x := uint64(seedUsed)
 	if x == 0 {
 		x = 0x9e3779b97f4a7c15
 	}

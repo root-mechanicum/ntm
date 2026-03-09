@@ -44,12 +44,12 @@ type LogsSummary struct {
 
 // AggregatedLogsOutput mirrors aggregated view output
 type AggregatedLogsOutput struct {
-	Success    bool                   `json:"success"`
-	Session    string                 `json:"session"`
-	CapturedAt time.Time              `json:"captured_at"`
-	Entries    []AggregatedLogEntry   `json:"entries"`
-	Summary    AggregatedLogsSummary  `json:"summary"`
-	Error      string                 `json:"error,omitempty"`
+	Success    bool                  `json:"success"`
+	Session    string                `json:"session"`
+	CapturedAt time.Time             `json:"captured_at"`
+	Entries    []AggregatedLogEntry  `json:"entries"`
+	Summary    AggregatedLogsSummary `json:"summary"`
+	Error      string                `json:"error,omitempty"`
 }
 
 // AggregatedLogEntry is a single interleaved log entry
@@ -96,13 +96,13 @@ type HistoryListOutput struct {
 
 // HistoryStatsOutput mirrors history stats output
 type HistoryStatsOutput struct {
-	Success          bool                 `json:"success"`
-	TotalEntries     int                  `json:"total_entries"`
-	BySessions       map[string]int       `json:"by_session"`
-	BySource         map[string]int       `json:"by_source"`
-	OldestEntry      *time.Time           `json:"oldest_entry,omitempty"`
-	NewestEntry      *time.Time           `json:"newest_entry,omitempty"`
-	Error            string               `json:"error,omitempty"`
+	Success      bool           `json:"success"`
+	TotalEntries int            `json:"total_entries"`
+	BySessions   map[string]int `json:"by_session"`
+	BySource     map[string]int `json:"by_source"`
+	OldestEntry  *time.Time     `json:"oldest_entry,omitempty"`
+	NewestEntry  *time.Time     `json:"newest_entry,omitempty"`
+	Error        string         `json:"error,omitempty"`
 }
 
 // LogsTestSuite manages E2E tests for logs commands

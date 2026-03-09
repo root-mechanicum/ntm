@@ -241,10 +241,11 @@ func (s *Scheduler) GetProgress() *Progress {
 			sp = &SessionProgress{SessionName: job.SessionName}
 			progress.BySession[job.SessionName] = sp
 		}
-		if job.Status == StatusCompleted {
+		switch job.Status {
+		case StatusCompleted:
 			sp.CompletedCount++
 			sp.PanesReady++
-		} else if job.Status == StatusFailed {
+		case StatusFailed:
 			sp.FailedCount++
 		}
 		sp.TotalPanes++

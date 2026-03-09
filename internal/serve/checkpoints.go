@@ -4,6 +4,7 @@ package serve
 import (
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -15,9 +16,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/go-chi/chi/v5"
+
 	"github.com/Dicklesworthstone/ntm/internal/checkpoint"
 	"github.com/Dicklesworthstone/ntm/internal/tmux"
-	"github.com/go-chi/chi/v5"
 )
 
 // Checkpoint API request/response types
@@ -348,10 +350,10 @@ func (s *Server) handleRestoreCheckpoint(w http.ResponseWriter, r *http.Request)
 
 		statusCode := http.StatusInternalServerError
 		errCode := ErrCodeInternalError
-		if err == checkpoint.ErrSessionExists {
+		if errors.Is(err, checkpoint.ErrSessionExists) {
 			statusCode = http.StatusConflict
 			errCode = "SESSION_EXISTS"
-		} else if err == checkpoint.ErrDirectoryNotFound {
+		} else if errors.Is(err, checkpoint.ErrDirectoryNotFound) {
 			statusCode = http.StatusBadRequest
 			errCode = ErrCodeBadRequest
 		}
@@ -391,14 +393,14 @@ func (s *Server) handleVerifyCheckpoint(w http.ResponseWriter, r *http.Request) 
 	result := cp.Verify(storage)
 
 	writeSuccessResponse(w, http.StatusOK, map[string]interface{}{
-		"valid":            result.Valid,
-		"schema_valid":     result.SchemaValid,
-		"files_present":    result.FilesPresent,
-		"checksums_valid":  result.ChecksumsValid,
+		"valid":             result.Valid,
+		"schema_valid":      result.SchemaValid,
+		"files_present":     result.FilesPresent,
+		"checksums_valid":   result.ChecksumsValid,
 		"consistency_valid": result.ConsistencyValid,
-		"errors":           result.Errors,
-		"warnings":         result.Warnings,
-		"details":          result.Details,
+		"errors":            result.Errors,
+		"warnings":          result.Warnings,
+		"details":           result.Details,
 	}, reqID)
 }
 
@@ -476,8 +478,16 @@ func (s *Server) handleExportCheckpoint(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	tmpPath := tmpFile.Name()
-	tmpFile.Close()
-	defer os.Remove(tmpPath)
+	if err := tmpFile.Close(); err != nil {
+		writeErrorResponse(w, http.StatusInternalServerError, ErrCodeInternalError,
+			"failed to prepare temp file", nil, reqID)
+		return
+	}
+	defer func() {
+		if err := os.Remove(tmpPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+			log.Printf("REST: remove temp export file failed path=%s error=%v request_id=%s", tmpPath, err, reqID)
+		}
+	}()
 
 	_, err = storage.Export(sessionName, checkpointID, tmpPath, opts)
 	if err != nil {
@@ -570,15 +580,25 @@ func (s *Server) handleImportCheckpoint(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	tmpPath := tmpFile.Name()
-	defer os.Remove(tmpPath)
+	defer func() {
+		if err := os.Remove(tmpPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+			log.Printf("REST: remove temp import file failed path=%s error=%v request_id=%s", tmpPath, err, reqID)
+		}
+	}()
 
 	if _, err := tmpFile.Write(archiveData); err != nil {
-		tmpFile.Close()
+		if closeErr := tmpFile.Close(); closeErr != nil {
+			log.Printf("REST: close failed temp import file path=%s error=%v request_id=%s", tmpPath, closeErr, reqID)
+		}
 		writeErrorResponse(w, http.StatusInternalServerError, ErrCodeInternalError,
 			"failed to write temp file", nil, reqID)
 		return
 	}
-	tmpFile.Close()
+	if err := tmpFile.Close(); err != nil {
+		writeErrorResponse(w, http.StatusInternalServerError, ErrCodeInternalError,
+			"failed to finalize temp file", nil, reqID)
+		return
+	}
 
 	storage := checkpoint.NewStorage()
 	opts := checkpoint.ImportOptions{

@@ -382,13 +382,14 @@ func (c *ProficiencyConfig) CheckPromotion(sessionID string) (bool, string) {
 	var suggest bool
 	var nextTier tiers.Tier
 
-	if currentTier == tiers.TierApprentice {
+	switch currentTier {
+	case tiers.TierApprentice:
 		if stats.CommandsRun >= 100 || stats.SessionsCreated >= 20 ||
 			stats.DaysActive >= 7 || stats.AdvancedAttempts >= 3 {
 			suggest = true
 			nextTier = tiers.TierJourneyman
 		}
-	} else if currentTier == tiers.TierJourneyman {
+	case tiers.TierJourneyman:
 		if stats.CommandsRun >= 500 || stats.SessionsCreated >= 100 ||
 			stats.DaysActive >= 30 || stats.AdvancedAttempts >= 5 {
 			suggest = true

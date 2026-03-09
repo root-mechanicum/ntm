@@ -10,8 +10,9 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/Dicklesworthstone/ntm/internal/agentmail"
 	"github.com/go-chi/chi/v5"
+
+	"github.com/Dicklesworthstone/ntm/internal/agentmail"
 )
 
 // Mail-specific error codes

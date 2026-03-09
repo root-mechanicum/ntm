@@ -13,10 +13,10 @@ import (
 // EnsembleSuggestOutput is the structured response for --robot-ensemble-suggest.
 type EnsembleSuggestOutput struct {
 	RobotResponse
-	Question    string                        `json:"question"`
-	TopPick     *EnsembleSuggestion           `json:"top_pick,omitempty"`
-	Suggestions []EnsembleSuggestion          `json:"suggestions"`
-	AgentHints  *EnsembleSuggestAgentHints    `json:"_agent_hints,omitempty"`
+	Question    string                     `json:"question"`
+	TopPick     *EnsembleSuggestion        `json:"top_pick,omitempty"`
+	Suggestions []EnsembleSuggestion       `json:"suggestions"`
+	AgentHints  *EnsembleSuggestAgentHints `json:"_agent_hints,omitempty"`
 }
 
 // EnsembleSuggestion represents a single preset suggestion.

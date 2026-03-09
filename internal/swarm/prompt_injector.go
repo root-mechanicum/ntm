@@ -253,8 +253,8 @@ func (p *PromptInjector) sendToPane(sessionPane, agentType, prompt string) error
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	if err := p.WaitForReady(ctx, sessionPane, agentType); err != nil {
-		p.logger().Warn("[PromptInjector] wait_ready_failed", 
-			"target", sessionPane, 
+		p.logger().Warn("[PromptInjector] wait_ready_failed",
+			"target", sessionPane,
 			"error", err,
 			"proceeding", true)
 	}

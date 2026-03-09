@@ -544,7 +544,7 @@ func TestExecuteLoop_TimesWithCollect(t *testing.T) {
 	executor := NewExecutor(config)
 	executor.state = &ExecutionState{
 		Variables: make(map[string]interface{}),
-		Steps:    make(map[string]StepResult),
+		Steps:     make(map[string]StepResult),
 	}
 
 	step := &Step{

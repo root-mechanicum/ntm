@@ -558,7 +558,7 @@ func runTimelineExport(sessionID string, opts exportOptions) error {
 		return fmt.Errorf("failed to load timeline: %w", err)
 	}
 
-	if events == nil || len(events) == 0 {
+	if len(events) == 0 {
 		return fmt.Errorf("timeline not found or empty: %s", sessionID)
 	}
 

@@ -345,7 +345,7 @@ func ResolveCassContext(query, dir string) (string, error) {
 	for _, hit := range resp.Hits {
 		ts := ""
 		if hit.CreatedAt != nil {
-			ts = hit.CreatedAt.Time.Format("2006-01-02")
+			ts = hit.CreatedAt.Format("2006-01-02")
 		}
 		sb.WriteString(fmt.Sprintf("- **%s** (%s, %s)\n", hit.Title, hit.Agent, ts))
 		if hit.Snippet != "" {

@@ -47,8 +47,8 @@ func TestCapturer_FindByPattern(t *testing.T) {
 		{"exact name match", "alpha", 1},
 		{"case insensitive name", "ALPHA", 1},
 		{"id prefix", "20260101-100000", 1},
-		{"wildcard name", "alpha*", 2},       // alpha, alpha-final
-		{"wildcard suffix", "*release", 1},   // beta-release
+		{"wildcard name", "alpha*", 2},     // alpha, alpha-final
+		{"wildcard suffix", "*release", 1}, // beta-release
 		{"no match", "nonexistent", 0},
 		{"all wildcard", "*", 3},
 	}
@@ -98,7 +98,7 @@ func TestCapturer_List(t *testing.T) {
 	}
 	for i, ts := range times {
 		cp := &Checkpoint{
-			ID: fmt.Sprintf("20260101-%02d0000-000%d-cp", ts.Hour(), i),
+			ID:   fmt.Sprintf("20260101-%02d0000-000%d-cp", ts.Hour(), i),
 			Name: fmt.Sprintf("cp-%d", i), SessionName: session,
 			CreatedAt: ts, Session: SessionState{},
 		}
@@ -189,7 +189,7 @@ func TestCapturer_GetByIndex(t *testing.T) {
 	names := []string{"oldest", "middle", "newest"}
 	for i, name := range names {
 		cp := &Checkpoint{
-			ID: fmt.Sprintf("20260101-%02d0000-000%d-%s", 10+i, i, name),
+			ID:   fmt.Sprintf("20260101-%02d0000-000%d-%s", 10+i, i, name),
 			Name: name, SessionName: session,
 			CreatedAt: time.Date(2026, 1, 1, 10+i, 0, 0, 0, time.UTC),
 			Session:   SessionState{},
@@ -202,12 +202,12 @@ func TestCapturer_GetByIndex(t *testing.T) {
 		wantName string
 		wantErr  bool
 	}{
-		{1, "newest", false},  // 1-indexed, newest first
+		{1, "newest", false}, // 1-indexed, newest first
 		{2, "middle", false},
 		{3, "oldest", false},
-		{0, "", true},         // out of range
-		{4, "", true},         // out of range
-		{-1, "", true},        // negative
+		{0, "", true},  // out of range
+		{4, "", true},  // out of range
+		{-1, "", true}, // negative
 	}
 	for _, tt := range tests {
 		t.Run(fmt.Sprintf("index_%d", tt.index), func(t *testing.T) {
@@ -266,7 +266,7 @@ func TestCapturer_ParseCheckpointRef_TildeN(t *testing.T) {
 
 	for i := 0; i < 3; i++ {
 		cp := &Checkpoint{
-			ID: fmt.Sprintf("20260101-%02d0000-000%d-cp%d", 10+i, i, i),
+			ID:   fmt.Sprintf("20260101-%02d0000-000%d-cp%d", 10+i, i, i),
 			Name: fmt.Sprintf("cp%d", i), SessionName: session,
 			CreatedAt: time.Date(2026, 1, 1, 10+i, 0, 0, 0, time.UTC),
 			Session:   SessionState{},
@@ -368,7 +368,7 @@ func TestCapturer_ParseCheckpointRef_Ambiguous(t *testing.T) {
 	// Create 2 checkpoints with names matching a wildcard
 	for i := 0; i < 2; i++ {
 		cp := &Checkpoint{
-			ID: fmt.Sprintf("20260101-1%d0000-000%d-deploy-v%d", i, i, i),
+			ID:   fmt.Sprintf("20260101-1%d0000-000%d-deploy-v%d", i, i, i),
 			Name: fmt.Sprintf("deploy-v%d", i), SessionName: session,
 			CreatedAt: time.Date(2026, 1, 1, 10+i, 0, 0, 0, time.UTC),
 			Session:   SessionState{},

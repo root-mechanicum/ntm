@@ -11,9 +11,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-chi/chi/v5"
+
 	"github.com/Dicklesworthstone/ntm/internal/robot"
 	"github.com/Dicklesworthstone/ntm/internal/tools"
-	"github.com/go-chi/chi/v5"
 )
 
 // TestAccountsEndpointsRegistered verifies that all account endpoints are registered.

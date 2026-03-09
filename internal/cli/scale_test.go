@@ -30,12 +30,12 @@ func TestScaleDeltaCalculation(t *testing.T) {
 	// Test the core delta calculation logic directly by simulating current counts
 	// and target counts, then verifying the expected actions
 	tests := []struct {
-		name           string
-		currentCounts  map[string]int
-		targets        []scaleTarget
-		wantUpCount    int // total spawn actions expected
-		wantDownCount  int // total kill actions expected
-		wantNoChange   bool
+		name          string
+		currentCounts map[string]int
+		targets       []scaleTarget
+		wantUpCount   int // total spawn actions expected
+		wantDownCount int // total kill actions expected
+		wantNoChange  bool
 	}{
 		{
 			name:          "scale up from zero",
@@ -43,7 +43,7 @@ func TestScaleDeltaCalculation(t *testing.T) {
 			targets: []scaleTarget{
 				{agentType: AgentTypeClaude, count: 3, set: true},
 			},
-			wantUpCount:  3,
+			wantUpCount:   3,
 			wantDownCount: 0,
 		},
 		{
@@ -52,7 +52,7 @@ func TestScaleDeltaCalculation(t *testing.T) {
 			targets: []scaleTarget{
 				{agentType: AgentTypeClaude, count: 2, set: true},
 			},
-			wantUpCount:  0,
+			wantUpCount:   0,
 			wantDownCount: 3,
 		},
 		{
@@ -71,7 +71,7 @@ func TestScaleDeltaCalculation(t *testing.T) {
 				{agentType: AgentTypeCodex, count: 1, set: true},
 				{agentType: AgentTypeGemini, count: 2, set: true},
 			},
-			wantUpCount:  4, // +2 cc + 2 gmi
+			wantUpCount:   4, // +2 cc + 2 gmi
 			wantDownCount: 1, // -1 cod
 		},
 		{
@@ -80,17 +80,17 @@ func TestScaleDeltaCalculation(t *testing.T) {
 			targets: []scaleTarget{
 				{agentType: AgentTypeClaude, count: 0, set: true},
 			},
-			wantUpCount:  0,
+			wantUpCount:   0,
 			wantDownCount: 3,
 		},
 		{
 			name:          "unset flags are ignored",
 			currentCounts: map[string]int{"cc": 3, "cod": 2, "gmi": 1},
 			targets: []scaleTarget{
-				{agentType: AgentTypeClaude, count: 0, set: false},  // not set
+				{agentType: AgentTypeClaude, count: 0, set: false}, // not set
 				{agentType: AgentTypeCodex, count: 5, set: true},   // set
 			},
-			wantUpCount:  3, // +3 cod
+			wantUpCount:   3, // +3 cod
 			wantDownCount: 0,
 		},
 	}

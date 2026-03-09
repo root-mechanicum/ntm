@@ -44,12 +44,12 @@ type Permission string
 
 const (
 	// Read permissions
-	PermReadSessions    Permission = "sessions:read"
-	PermReadAgents      Permission = "agents:read"
-	PermReadPipelines   Permission = "pipelines:read"
-	PermReadApprovals   Permission = "approvals:read"
-	PermReadJobs        Permission = "jobs:read"
-	PermReadHealth      Permission = "health:read"
+	PermReadSessions     Permission = "sessions:read"
+	PermReadAgents       Permission = "agents:read"
+	PermReadPipelines    Permission = "pipelines:read"
+	PermReadApprovals    Permission = "approvals:read"
+	PermReadJobs         Permission = "jobs:read"
+	PermReadHealth       Permission = "health:read"
 	PermReadEvents       Permission = "events:read"
 	PermReadWebSocket    Permission = "ws:read"
 	PermReadMail         Permission = "mail:read"
@@ -71,10 +71,10 @@ const (
 	PermApproveRequests   Permission = "approvals:approve"
 
 	// Dangerous operations (require admin or approval)
-	PermDangerousOps    Permission = "dangerous:execute"
-	PermForceRelease    Permission = "dangerous:force_release"
-	PermKillAgent       Permission = "dangerous:kill_agent"
-	PermSystemConfig    Permission = "system:config"
+	PermDangerousOps Permission = "dangerous:execute"
+	PermForceRelease Permission = "dangerous:force_release"
+	PermKillAgent    Permission = "dangerous:kill_agent"
+	PermSystemConfig Permission = "system:config"
 )
 
 // rolePermissions maps roles to their granted permissions.
@@ -169,9 +169,9 @@ func (r Role) HasPermission(p Permission) bool {
 
 // RoleContext holds RBAC information for a request.
 type RoleContext struct {
-	Role       Role
-	UserID     string
-	ClaimsRaw  map[string]interface{}
+	Role      Role
+	UserID    string
+	ClaimsRaw map[string]interface{}
 }
 
 // ctxKeyRole is the context key for RBAC context.
@@ -390,12 +390,12 @@ func writeApprovalRequired(w http.ResponseWriter, ar *ApprovalRequired, reqID st
 	w.WriteHeader(http.StatusConflict)
 
 	resp := struct {
-		Success    bool              `json:"success"`
-		Timestamp  string            `json:"timestamp"`
-		RequestID  string            `json:"request_id,omitempty"`
-		Error      string            `json:"error"`
-		ErrorCode  string            `json:"error_code"`
-		Approval   *ApprovalRequired `json:"approval"`
+		Success   bool              `json:"success"`
+		Timestamp string            `json:"timestamp"`
+		RequestID string            `json:"request_id,omitempty"`
+		Error     string            `json:"error"`
+		ErrorCode string            `json:"error_code"`
+		Approval  *ApprovalRequired `json:"approval"`
 	}{
 		Success:   false,
 		Timestamp: time.Now().UTC().Format(time.RFC3339),

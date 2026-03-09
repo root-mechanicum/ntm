@@ -16,14 +16,14 @@ import (
 
 // LockResult represents the JSON output from lock command
 type LockResult struct {
-	Success   bool               `json:"success"`
-	Session   string             `json:"session"`
-	Agent     string             `json:"agent"`
-	Granted   []FileReservation  `json:"granted,omitempty"`
-	Conflicts []LockConflict     `json:"conflicts,omitempty"`
-	TTL       string             `json:"ttl"`
-	ExpiresAt *string            `json:"expires_at,omitempty"`
-	Error     string             `json:"error,omitempty"`
+	Success   bool              `json:"success"`
+	Session   string            `json:"session"`
+	Agent     string            `json:"agent"`
+	Granted   []FileReservation `json:"granted,omitempty"`
+	Conflicts []LockConflict    `json:"conflicts,omitempty"`
+	TTL       string            `json:"ttl"`
+	ExpiresAt *string           `json:"expires_at,omitempty"`
+	Error     string            `json:"error,omitempty"`
 }
 
 // FileReservation represents a granted file reservation

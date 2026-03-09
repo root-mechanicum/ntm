@@ -99,12 +99,12 @@ type PositionSummary struct {
 type ResolutionMethod string
 
 const (
-	ResolutionConsensus    ResolutionMethod = "consensus"
-	ResolutionMajority     ResolutionMethod = "majority"
-	ResolutionWeighted     ResolutionMethod = "weighted"
-	ResolutionAdversarial  ResolutionMethod = "adversarial"
-	ResolutionDeferred     ResolutionMethod = "deferred"
-	ResolutionManual       ResolutionMethod = "manual"
+	ResolutionConsensus   ResolutionMethod = "consensus"
+	ResolutionMajority    ResolutionMethod = "majority"
+	ResolutionWeighted    ResolutionMethod = "weighted"
+	ResolutionAdversarial ResolutionMethod = "adversarial"
+	ResolutionDeferred    ResolutionMethod = "deferred"
+	ResolutionManual      ResolutionMethod = "manual"
 )
 
 // ExplanationTracker accumulates explanation data during synthesis.

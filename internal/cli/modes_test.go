@@ -7,9 +7,10 @@ import (
 	"testing"
 	"time"
 
+	"gopkg.in/yaml.v3"
+
 	"github.com/Dicklesworthstone/ntm/internal/ensemble"
 	"github.com/Dicklesworthstone/ntm/internal/output"
-	"gopkg.in/yaml.v3"
 )
 
 // =============================================================================

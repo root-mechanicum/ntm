@@ -223,7 +223,7 @@ func DefaultResilienceConfig() ResilienceConfig {
 		MaxRestarts:         3,     // Stop after 3 restart attempts
 		RestartDelaySeconds: 30,    // Wait 30 seconds before restarting
 		HealthCheckSeconds:  10,    // Check health every 10 seconds
-		CrashThreshold:      3,    // 3 consecutive text-based failures before restart
+		CrashThreshold:      3,     // 3 consecutive text-based failures before restart
 		NotifyOnCrash:       true,  // Notify on crash by default
 		NotifyOnMaxRestarts: true,  // Notify when max restarts exceeded
 		RateLimit: RateLimitConfig{
@@ -836,7 +836,7 @@ type TmuxConfig struct {
 	DefaultPanes    int    `toml:"default_panes"`
 	PaletteKey      string `toml:"palette_key"`
 	PaneInitDelayMs int    `toml:"pane_init_delay_ms"` // Delay before sending keys to new panes
-	HistoryLimit    int    `toml:"history_limit"`       // Scrollback buffer lines per pane (default 50000)
+	HistoryLimit    int    `toml:"history_limit"`      // Scrollback buffer lines per pane (default 50000)
 	// ActivityIndicators control pane border activity coloring.
 	ActivityIndicators ActivityIndicatorConfig `toml:"activity_indicators"`
 }

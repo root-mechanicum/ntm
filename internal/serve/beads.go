@@ -8,8 +8,9 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/Dicklesworthstone/ntm/internal/bv"
 	"github.com/go-chi/chi/v5"
+
+	"github.com/Dicklesworthstone/ntm/internal/bv"
 )
 
 // Beads-specific error codes
@@ -25,8 +26,8 @@ const (
 type CreateBeadRequest struct {
 	Title       string   `json:"title"`
 	Description string   `json:"description,omitempty"`
-	Type        string   `json:"type,omitempty"`       // task, bug, epic, etc.
-	Priority    string   `json:"priority,omitempty"`   // P0, P1, P2, P3
+	Type        string   `json:"type,omitempty"`     // task, bug, epic, etc.
+	Priority    string   `json:"priority,omitempty"` // P0, P1, P2, P3
 	Labels      []string `json:"labels,omitempty"`
 	Parent      string   `json:"parent,omitempty"`     // Parent bead ID for sub-tasks
 	BlockedBy   []string `json:"blocked_by,omitempty"` // IDs this bead is blocked by

@@ -74,7 +74,7 @@ func (q *QuotaPanel) Refresh() {
 
 	status := q.cache.GetStatus()
 	usages := q.cache.GetAllUsage()
-	err, _ := q.cache.GetLastError()
+	_, err := q.cache.GetLastError()
 
 	q.data = QuotaData{
 		Status:    status,

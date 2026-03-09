@@ -11,10 +11,10 @@ import (
 func TestParseBeadForDedup(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
-		name    string
-		title   string
-		desc    string
-		wantSig string
+		name     string
+		title    string
+		desc     string
+		wantSig  string
 		wantFile string
 	}{
 		{
@@ -25,23 +25,23 @@ func TestParseBeadForDedup(t *testing.T) {
 			wantFile: "",
 		},
 		{
-			name:  "file line in description",
-			title: "some finding",
-			desc:  "**File:** `internal/robot/robot.go:42`\nSome details",
+			name:     "file line in description",
+			title:    "some finding",
+			desc:     "**File:** `internal/robot/robot.go:42`\nSome details",
 			wantSig:  "internal/robot/robot.go:42:ubs",
 			wantFile: "internal/robot/robot.go",
 		},
 		{
-			name:  "severity and rule in title overrides signature",
-			title: "[CRITICAL] null_deref: possible null pointer",
-			desc:  "**File:** `src/main.go:10`\nDetails",
+			name:     "severity and rule in title overrides signature",
+			title:    "[CRITICAL] null_deref: possible null pointer",
+			desc:     "**File:** `src/main.go:10`\nDetails",
 			wantSig:  "src/main.go:10:null_deref",
 			wantFile: "src/main.go",
 		},
 		{
-			name:  "rule with spaces is not treated as rule id",
-			title: "[WARNING] some long message: explanation",
-			desc:  "**File:** `pkg/util.go:5`\n",
+			name:     "rule with spaces is not treated as rule id",
+			title:    "[WARNING] some long message: explanation",
+			desc:     "**File:** `pkg/util.go:5`\n",
 			wantSig:  "pkg/util.go:5:ubs",
 			wantFile: "pkg/util.go",
 		},
@@ -60,23 +60,23 @@ func TestParseBeadForDedup(t *testing.T) {
 			wantFile: "",
 		},
 		{
-			name:  "file with three part path",
-			title: "[WARNING] unused_var: unused variable",
-			desc:  "**File:** `internal/cli/cmd.go:100`\nMore info",
+			name:     "file with three part path",
+			title:    "[WARNING] unused_var: unused variable",
+			desc:     "**File:** `internal/cli/cmd.go:100`\nMore info",
 			wantSig:  "internal/cli/cmd.go:100:unused_var",
 			wantFile: "internal/cli/cmd.go",
 		},
 		{
-			name:  "title without severity bracket",
-			title: "plain title",
-			desc:  "**File:** `foo.go:1`\n",
+			name:     "title without severity bracket",
+			title:    "plain title",
+			desc:     "**File:** `foo.go:1`\n",
 			wantSig:  "foo.go:1:ubs",
 			wantFile: "foo.go",
 		},
 		{
-			name:  "file line at end of description",
-			title: "test",
-			desc:  "First line\nSecond line\n**File:** `a.go:99`\nLast",
+			name:     "file line at end of description",
+			title:    "test",
+			desc:     "First line\nSecond line\n**File:** `a.go:99`\nLast",
 			wantSig:  "a.go:99:ubs",
 			wantFile: "a.go",
 		},

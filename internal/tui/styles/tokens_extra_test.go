@@ -65,13 +65,13 @@ func TestAdaptiveCardDimensions(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name         string
-		total        int
-		minCard      int
-		maxCard      int
-		gap          int
-		wantWidth    int
-		wantPerRow   int
+		name       string
+		total      int
+		minCard    int
+		maxCard    int
+		gap        int
+		wantWidth  int
+		wantPerRow int
 	}{
 		{"zero_width", 0, 20, 40, 2, 1, 1},
 		{"zero_min", 100, 0, 40, 2, 1, 1},

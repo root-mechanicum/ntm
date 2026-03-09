@@ -255,6 +255,7 @@ func TestDetermineStateIdleConditions(t *testing.T) {
 		{"> ", "claude", true},       // Claude simple prompt
 		{"codex> ", "codex", true},   // Codex named prompt
 		{"gemini> ", "gemini", true}, // Gemini named prompt
+		{">>> ", "", true},           // Python REPL prompt
 		{"", "user", true},           // Empty user pane
 		{"   ", "", true},            // Whitespace only in user/generic pane
 		{"\n\n", "user", true},       // Newlines only in user pane
@@ -264,9 +265,9 @@ func TestDetermineStateIdleConditions(t *testing.T) {
 		// permanent status bar that stays visible during active work.
 		{"Claude Code v1.0.31\nwelcome back\n", "claude", true},              // Welcome screen
 		{"Claude Code v2.0.0\n", "claude", true},                             // Version banner alone
-		{"welcome back\n", "claude", true},                                    // Welcome message
+		{"welcome back\n", "claude", true},                                   // Welcome message
 		{"some output\nClaude Code v1.0.31\nwelcome back\n", "claude", true}, // Mixed with scrollback
-		{"❯ \n", "claude", true},                                              // Unicode prompt
+		{"❯ \n", "claude", true},                                             // Unicode prompt
 
 		// Should NOT be idle (active instead)
 		{"$ ls\nfile1.txt\nfile2.txt", "", false}, // Command with output

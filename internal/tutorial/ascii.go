@@ -287,14 +287,18 @@ func RenderAnimatedOrderDiagram(tick int, width int) string {
 // RenderSessionDiagram renders the session concept diagram
 func RenderSessionDiagram(tick int, step int, width int) string {
 	colors := []string{"#89b4fa", "#b4befe", "#cba6f7"}
+	if len(colors) == 0 {
+		return ""
+	}
 
 	var lines []string
 
 	// Reveal based on step
 	maxLines := len(SessionDiagram)
-	if step == 0 {
+	switch step {
+	case 0:
 		maxLines = 3 // Just header
-	} else if step == 1 {
+	case 1:
 		maxLines = 7 // Add panes structure
 	}
 
@@ -551,13 +555,16 @@ func RenderTip(tip []string, tick int, width int) string {
 	}
 
 	// Content
-	for i := 1; i < len(tip); i++ {
-		reveal := tick - i*4
+	if len(tip) <= 1 {
+		return strings.Join(lines, "\n")
+	}
+	for i, line := range tip[1:] {
+		reveal := tick - (i+1)*4
 		if reveal < 0 {
 			continue
 		}
 
-		content := styles.GradientText(tip[i], "#cdd6f4", "#a6adc8")
+		content := styles.GradientText(line, "#cdd6f4", "#a6adc8")
 		lines = append(lines, centerText(content, width))
 	}
 

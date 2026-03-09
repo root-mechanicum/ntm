@@ -263,8 +263,8 @@ func TestTruncateToTokensCass(t *testing.T) {
 	t.Run("long content truncated", func(t *testing.T) {
 		t.Parallel()
 		input := strings.Repeat("word ", 500) // ~2500 chars
-		got := truncateToTokens(input, 10)     // 10 * 4 = 40 chars max
-		if len(got) > 100 {                    // 40 chars + truncation message
+		got := truncateToTokens(input, 10)    // 10 * 4 = 40 chars max
+		if len(got) > 100 {                   // 40 chars + truncation message
 			t.Errorf("truncateToTokens should truncate, got len=%d", len(got))
 		}
 		if !strings.Contains(got, "truncated for token budget") {
@@ -285,9 +285,9 @@ func TestExtractSessionName(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name  string
-		path  string
-		want  string
+		name string
+		path string
+		want string
 	}{
 		{"simple path", "sessions/my-session.jsonl", "my-session"},
 		{"nested path", "/data/2026/01/29/my-project.jsonl", "my-project"},

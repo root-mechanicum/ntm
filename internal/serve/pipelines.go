@@ -12,8 +12,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Dicklesworthstone/ntm/internal/pipeline"
 	"github.com/go-chi/chi/v5"
+
+	"github.com/Dicklesworthstone/ntm/internal/pipeline"
 )
 
 // Pipeline-specific error codes

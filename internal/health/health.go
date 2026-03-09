@@ -366,8 +366,8 @@ func detectProgress(output string, activity ActivityLevel, issues []Issue) *Prog
 	}
 
 	// Find stage with highest score
-	var bestStage ProgressStage = StageUnknown
-	var bestScore float64 = 0.0
+	bestStage := StageUnknown
+	bestScore := 0.0
 
 	for stage, score := range stageScores {
 		if score > bestScore {

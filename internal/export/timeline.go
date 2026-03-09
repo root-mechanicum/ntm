@@ -16,6 +16,25 @@ import (
 	"github.com/Dicklesworthstone/ntm/internal/state"
 )
 
+var svgTemplateFuncs = template.FuncMap{
+	"add":            func(a, b int) int { return a + b },
+	"subtract":       func(a, b int) int { return a - b },
+	"formatDuration": formatTimelineDuration,
+	"lastAgentY": func(agents []agentTrack, topMargin, barHeight int) int {
+		if len(agents) == 0 {
+			return topMargin
+		}
+		return agents[len(agents)-1].YOffset + barHeight
+	},
+	"timeTicks": timelineTicks,
+	"tickX": func(t, start time.Time, duration time.Duration, leftMargin, barWidth int) float64 {
+		offset := t.Sub(start)
+		return float64(leftMargin) + (float64(offset)/float64(duration))*float64(barWidth)
+	},
+}
+
+var timelineSVGTemplate = template.Must(template.New("svg").Funcs(svgTemplateFuncs).Parse(svgTemplate))
+
 // ExportFormat represents the output format for timeline export.
 type ExportFormat string
 
@@ -442,7 +461,7 @@ const svgTemplate = `<?xml version="1.0" encoding="UTF-8"?>
   {{end}}
 
   <!-- Time axis -->
-  {{$axisY := add (lastAgentY .Agents .BarHeight 10) 25}}
+  {{$axisY := add (lastAgentY .Agents .TopMargin .BarHeight) 25}}
   <line x1="{{.LeftMargin}}" y1="{{$axisY}}" x2="{{add .LeftMargin .BarWidth}}" y2="{{$axisY}}" stroke="{{.Theme.AxisColor}}" stroke-width="1"/>
 
   <!-- Time labels -->
@@ -479,53 +498,32 @@ const svgTemplate = `<?xml version="1.0" encoding="UTF-8"?>
 `
 
 func (e *TimelineExporter) renderSVG(data *timelineData) ([]byte, error) {
-	funcMap := template.FuncMap{
-		"add":      func(a, b int) int { return a + b },
-		"subtract": func(a, b int) int { return a - b },
-		"formatDuration": func(d time.Duration) string {
-			if d < time.Minute {
-				return fmt.Sprintf("%ds", int(d.Seconds()))
-			}
-			if d < time.Hour {
-				return fmt.Sprintf("%dm%ds", int(d.Minutes()), int(d.Seconds())%60)
-			}
-			return fmt.Sprintf("%dh%dm", int(d.Hours()), int(d.Minutes())%60)
-		},
-		"yOffset": func(topMargin, firstYOffset, barHeight int) int {
-			return firstYOffset
-		},
-		"lastAgentY": func(agents []agentTrack, barHeight, gap int) int {
-			if len(agents) == 0 {
-				return data.TopMargin
-			}
-			return agents[len(agents)-1].YOffset + barHeight
-		},
-		"timeTicks": func(start, end time.Time, count int) []time.Time {
-			duration := end.Sub(start)
-			interval := duration / time.Duration(count)
-			ticks := make([]time.Time, count+1)
-			for i := 0; i <= count; i++ {
-				ticks[i] = start.Add(time.Duration(i) * interval)
-			}
-			return ticks
-		},
-		"tickX": func(t, start time.Time, duration time.Duration, leftMargin, barWidth int) float64 {
-			offset := t.Sub(start)
-			return float64(leftMargin) + (float64(offset) / float64(duration) * float64(barWidth))
-		},
-	}
-
-	tmpl, err := template.New("svg").Funcs(funcMap).Parse(svgTemplate)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse SVG template: %w", err)
-	}
-
 	var buf bytes.Buffer
-	if err := tmpl.Execute(&buf, data); err != nil {
+	if err := timelineSVGTemplate.Execute(&buf, data); err != nil {
 		return nil, fmt.Errorf("failed to execute SVG template: %w", err)
 	}
 
 	return buf.Bytes(), nil
+}
+
+func formatTimelineDuration(d time.Duration) string {
+	if d < time.Minute {
+		return fmt.Sprintf("%ds", int(d.Seconds()))
+	}
+	if d < time.Hour {
+		return fmt.Sprintf("%dm%ds", int(d.Minutes()), int(d.Seconds())%60)
+	}
+	return fmt.Sprintf("%dh%dm", int(d.Hours()), int(d.Minutes())%60)
+}
+
+func timelineTicks(start, end time.Time, count int) []time.Time {
+	duration := end.Sub(start)
+	interval := duration / time.Duration(count)
+	ticks := make([]time.Time, count+1)
+	for i := 0; i <= count; i++ {
+		ticks[i] = start.Add(time.Duration(i) * interval)
+	}
+	return ticks
 }
 
 // PNG export using standard library image package
@@ -543,32 +541,28 @@ func (e *TimelineExporter) renderPNG(data *timelineData) ([]byte, error) {
 
 	// Fill background
 	bgColor := parseHexColor(data.Theme.BackgroundColor)
-	for y := 0; y < height; y++ {
-		for x := 0; x < width; x++ {
-			img.Set(x, y, bgColor)
-		}
-	}
+	fillRGBA(img, img.Bounds(), bgColor)
 
 	// Draw timeline bars
+	stoppedColor := parseHexColor(data.Theme.StoppedColor)
 	for _, track := range data.Agents {
 		// Draw background bar
-		stoppedColor := parseHexColor(data.Theme.StoppedColor)
-		drawRect(img,
+		fillRGBA(img, image.Rect(
 			data.LeftMargin*scale,
 			track.YOffset*scale,
-			data.BarWidth*scale,
-			data.BarHeight*scale,
-			stoppedColor)
+			data.LeftMargin*scale+data.BarWidth*scale,
+			track.YOffset*scale+data.BarHeight*scale,
+		), stoppedColor)
 
 		// Draw segments
 		for _, seg := range track.Segments {
 			segColor := parseHexColor(seg.Color)
-			drawRect(img,
+			fillRGBA(img, image.Rect(
 				int(seg.XStart)*scale,
 				track.YOffset*scale,
-				int(seg.Width)*scale,
-				data.BarHeight*scale,
-				segColor)
+				int(seg.XStart)*scale+int(seg.Width)*scale,
+				track.YOffset*scale+data.BarHeight*scale,
+			), segColor)
 		}
 	}
 
@@ -593,15 +587,24 @@ func parseHexColor(hex string) color.RGBA {
 	return color.RGBA{r, g, b, 255}
 }
 
-// drawRect draws a filled rectangle on the image
-func drawRect(img *image.RGBA, x, y, w, h int, c color.RGBA) {
-	bounds := img.Bounds()
-	for dy := 0; dy < h; dy++ {
-		for dx := 0; dx < w; dx++ {
-			px, py := x+dx, y+dy
-			if px >= bounds.Min.X && px < bounds.Max.X && py >= bounds.Min.Y && py < bounds.Max.Y {
-				img.Set(px, py, c)
-			}
-		}
+// fillRGBA paints a solid rectangle using direct RGBA pixel writes.
+func fillRGBA(img *image.RGBA, rect image.Rectangle, c color.RGBA) {
+	rect = rect.Intersect(img.Bounds())
+	if rect.Empty() {
+		return
+	}
+
+	rowWidth := rect.Dx() * 4
+	row := make([]byte, rowWidth)
+	for i := 0; i < rowWidth; i += 4 {
+		row[i] = c.R
+		row[i+1] = c.G
+		row[i+2] = c.B
+		row[i+3] = c.A
+	}
+
+	for y := rect.Min.Y; y < rect.Max.Y; y++ {
+		offset := img.PixOffset(rect.Min.X, y)
+		copy(img.Pix[offset:offset+rowWidth], row)
 	}
 }

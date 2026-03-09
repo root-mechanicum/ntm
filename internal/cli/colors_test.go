@@ -9,11 +9,11 @@ func TestHexToRGB(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
-		hex        string
-		wantR      int
-		wantG      int
-		wantB      int
+		name  string
+		hex   string
+		wantR int
+		wantG int
+		wantB int
 	}{
 		{"black", "#000000", 0, 0, 0},
 		{"white", "#ffffff", 255, 255, 255},
@@ -86,10 +86,10 @@ func TestColorToRGB(t *testing.T) {
 		want string
 	}{
 		{"hex color", "#ff0000", "255;0;0m"},
-		{"non-hex string", "red", "255;255;255m"},       // falls back to white
-		{"short string", "#fff", "255;255;255m"},         // not 7 chars, falls back
-		{"empty string", "", "255;255;255m"},             // falls back
-		{"integer input", 42, "255;255;255m"},            // non-string, falls back
+		{"non-hex string", "red", "255;255;255m"}, // falls back to white
+		{"short string", "#fff", "255;255;255m"},  // not 7 chars, falls back
+		{"empty string", "", "255;255;255m"},      // falls back
+		{"integer input", 42, "255;255;255m"},     // non-string, falls back
 		{"hex black", "#000000", "0;0;0m"},
 	}
 

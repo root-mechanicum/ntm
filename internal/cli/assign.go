@@ -940,9 +940,10 @@ func buildReasoning(agentType string, bead bv.BeadPreview, strategy string) stri
 	}
 
 	// Priority
-	if priority == 0 {
+	switch priority {
+	case 0:
 		reasons = append(reasons, "critical priority")
-	} else if priority == 1 {
+	case 1:
 		reasons = append(reasons, "high priority")
 	}
 

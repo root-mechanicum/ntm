@@ -77,10 +77,10 @@ func TestWithCaptureLines(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name     string
-		lines    int
-		wantSet  bool
-		wantVal  int
+		name    string
+		lines   int
+		wantSet bool
+		wantVal int
 	}{
 		{"positive", 50, true, 50},
 		{"zero_ignored", 0, false, 0},
@@ -113,8 +113,8 @@ func TestWithDebounceDuration(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name      string
-		dur       time.Duration
+		name       string
+		dur        time.Duration
 		wantNonNil bool
 	}{
 		{"positive_duration", 500 * time.Millisecond, true},

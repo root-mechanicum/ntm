@@ -786,11 +786,11 @@ func TestValidateVarRefs(t *testing.T) {
 	}{
 		{"${vars.name}", 0},
 		{"${vars.undefined}", 1},
-		{"${env.PATH}", 0},         // env is always valid
-		{"${session}", 0},          // context vars are valid
-		{"${unknown.var}", 1},      // unknown namespace
-		{"\\${vars.name}", 0},      // escaped is ignored
-		{"${vars.x} ${vars.y}", 2}, // both undefined
+		{"${env.PATH}", 0},           // env is always valid
+		{"${session}", 0},            // context vars are valid
+		{"${unknown.var}", 1},        // unknown namespace
+		{"\\${vars.name}", 0},        // escaped is ignored
+		{"${vars.x} ${vars.y}", 2},   // both undefined
 		{"${steps.build.output}", 0}, // steps namespace is valid
 		{"${loop.item}", 0},          // loop namespace is valid
 		{"${run_id}", 0},             // context var run_id is valid
@@ -1395,9 +1395,9 @@ func TestResolveSteps_OutputNestedField(t *testing.T) {
 		Variables: map[string]interface{}{},
 		Steps: map[string]StepResult{
 			"api": {
-				StepID:     "api",
-				Status:     StatusCompleted,
-				Output:     `{"user": {"name": "Alice"}}`,
+				StepID: "api",
+				Status: StatusCompleted,
+				Output: `{"user": {"name": "Alice"}}`,
 				ParsedData: map[string]interface{}{
 					"user": map[string]interface{}{
 						"name": "Alice",

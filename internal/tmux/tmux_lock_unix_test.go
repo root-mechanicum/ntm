@@ -28,4 +28,3 @@ func acquireGlobalTmuxTestLock(t *testing.T) {
 		_ = f.Close()
 	})
 }
-

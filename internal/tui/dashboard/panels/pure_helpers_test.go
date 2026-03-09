@@ -163,10 +163,10 @@ func TestParseAgentTypePrefix(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name    string
-		target  string
-		wantT   tmux.AgentType
-		wantOk  bool
+		name   string
+		target string
+		wantT  tmux.AgentType
+		wantOk bool
 	}{
 		{"empty", "", "", false},
 		{"no_underscore", "claude", "", false},

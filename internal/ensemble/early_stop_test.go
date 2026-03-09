@@ -651,8 +651,8 @@ func TestEarlyStopDetector_Integration(t *testing.T) {
 	// Phase 2: At minimum agents with diverse findings
 	t.Log("Phase 2: Adding 3rd output with diverse findings")
 	detector.RecordOutput(ModeOutput{
-		ModeID:      "mode-C",
-		Thesis:      "Another unique thesis C",
+		ModeID: "mode-C",
+		Thesis: "Another unique thesis C",
 		TopFindings: []Finding{
 			{Finding: "Unique finding C1"},
 			{Finding: "Unique finding C2"},

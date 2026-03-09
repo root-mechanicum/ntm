@@ -104,8 +104,11 @@ func parseAgentFromTitle(title string) (AgentType, int, string, []string) {
 // tagsFromTitle extracts only tags from a pane title.
 // This is a convenience wrapper around parseAgentFromTitle.
 func tagsFromTitle(title string) []string {
-	_, _, _, tags := parseAgentFromTitle(title)
-	return tags
+	matches := paneNameRegex.FindStringSubmatch(title)
+	if len(matches) < 5 {
+		return nil
+	}
+	return parseTags(matches[4])
 }
 
 // parseTags parses a comma-separated tag string into a slice.

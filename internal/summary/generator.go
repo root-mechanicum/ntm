@@ -11,10 +11,11 @@ import (
 	"strings"
 	"time"
 
+	"gopkg.in/yaml.v3"
+
 	"github.com/Dicklesworthstone/ntm/internal/agentmail"
 	"github.com/Dicklesworthstone/ntm/internal/handoff"
 	"github.com/Dicklesworthstone/ntm/internal/util"
-	"gopkg.in/yaml.v3"
 )
 
 // SummaryFormat controls the output format for session summaries.
@@ -772,7 +773,7 @@ func formatBrief(summary *SessionSummary) string {
 	if name == "" {
 		name = "(unknown)"
 	}
-	sb.WriteString(fmt.Sprintf("Session %s summary\n", name))
+	fmt.Fprintf(&sb, "Session %s summary\n", name)
 
 	writeInlineList(&sb, "Accomplishments", summary.Accomplishments, 3)
 	writeInlineList(&sb, "Changes", summary.Changes, 3)
@@ -781,7 +782,7 @@ func formatBrief(summary *SessionSummary) string {
 	writeInlineList(&sb, "Errors", summary.Errors, 2)
 
 	if len(summary.ThreadSummaries) > 0 {
-		sb.WriteString(fmt.Sprintf("Threads summarized: %d\n", len(summary.ThreadSummaries)))
+		fmt.Fprintf(&sb, "Threads summarized: %d\n", len(summary.ThreadSummaries))
 	}
 
 	return strings.TrimSpace(sb.String())
@@ -793,7 +794,7 @@ func formatDetailed(summary *SessionSummary) string {
 	if name == "" {
 		name = "(unknown)"
 	}
-	sb.WriteString(fmt.Sprintf("## Session Summary: %s\n\n", name))
+	fmt.Fprintf(&sb, "## Session Summary: %s\n\n", name)
 
 	writeSectionList(&sb, "Accomplishments", summary.Accomplishments)
 	writeSectionList(&sb, "Changes", summary.Changes)
@@ -805,12 +806,12 @@ func formatDetailed(summary *SessionSummary) string {
 	if len(summary.ThreadSummaries) > 0 {
 		sb.WriteString("## Thread Summaries\n")
 		for _, t := range summary.ThreadSummaries {
-			sb.WriteString(fmt.Sprintf("- %s\n", t.ThreadID))
+			fmt.Fprintf(&sb, "- %s\n", t.ThreadID)
 			for _, kp := range t.KeyPoints {
-				sb.WriteString(fmt.Sprintf("  - %s\n", kp))
+				fmt.Fprintf(&sb, "  - %s\n", kp)
 			}
 			for _, ai := range t.ActionItems {
-				sb.WriteString(fmt.Sprintf("  - TODO: %s\n", ai))
+				fmt.Fprintf(&sb, "  - TODO: %s\n", ai)
 			}
 		}
 		sb.WriteString("\n")
@@ -932,7 +933,7 @@ func writeInlineList(sb *strings.Builder, label string, items []string, limit in
 	if limit > 0 && len(items) > limit {
 		items = items[:limit]
 	}
-	sb.WriteString(fmt.Sprintf("%s: %s\n", label, strings.Join(items, "; ")))
+	fmt.Fprintf(sb, "%s: %s\n", label, strings.Join(items, "; "))
 }
 
 func writeInlineFileList(sb *strings.Builder, files []FileChange, limit int) {
@@ -946,16 +947,16 @@ func writeInlineFileList(sb *strings.Builder, files []FileChange, limit int) {
 	for _, f := range files {
 		parts = append(parts, fmt.Sprintf("%s %s", f.Action, f.Path))
 	}
-	sb.WriteString(fmt.Sprintf("Files: %s\n", strings.Join(parts, "; ")))
+	fmt.Fprintf(sb, "Files: %s\n", strings.Join(parts, "; "))
 }
 
 func writeSectionList(sb *strings.Builder, title string, items []string) {
 	if len(items) == 0 {
 		return
 	}
-	sb.WriteString(fmt.Sprintf("## %s\n", title))
+	fmt.Fprintf(sb, "## %s\n", title)
 	for _, item := range items {
-		sb.WriteString(fmt.Sprintf("- %s\n", item))
+		fmt.Fprintf(sb, "- %s\n", item)
 	}
 	sb.WriteString("\n")
 }
@@ -964,7 +965,7 @@ func writeSectionFiles(sb *strings.Builder, title string, files []FileChange) {
 	if len(files) == 0 {
 		return
 	}
-	sb.WriteString(fmt.Sprintf("## %s\n", title))
+	fmt.Fprintf(sb, "## %s\n", title)
 	for _, f := range files {
 		line := fmt.Sprintf("- %s %s", f.Action, f.Path)
 		if f.Context != "" {
@@ -992,7 +993,7 @@ func appendPromptFiles(sb *strings.Builder, label string, files []FileChange) {
 	}
 	sb.WriteString(label + ":\n")
 	for _, f := range files {
-		sb.WriteString(fmt.Sprintf("- %s %s\n", f.Action, f.Path))
+		fmt.Fprintf(sb, "- %s %s\n", f.Action, f.Path)
 	}
 	sb.WriteString("\n")
 }

@@ -11,7 +11,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Dicklesworthstone/ntm/internal/config"
 	"github.com/Dicklesworthstone/ntm/internal/templates"
 	"github.com/Dicklesworthstone/ntm/internal/tmux"
 	"github.com/Dicklesworthstone/ntm/tests/testutil"
@@ -29,9 +28,7 @@ func TestSessionTemplateSpawn_Builtin(t *testing.T) {
 		jsonOutput = oldJSON
 	}()
 
-	cfg = config.Default()
-	cfg.ProjectsBase = tmpDir
-	cfg.AgentMail.Enabled = false
+	cfg = newTmuxIntegrationTestConfig(tmpDir)
 	jsonOutput = true
 
 	cfg.Agents.Claude = testAgentCatCommandTemplate
@@ -142,9 +139,7 @@ func TestSessionTemplateSpawn_CustomUserTemplate(t *testing.T) {
 		jsonOutput = oldJSON
 	}()
 
-	cfg = config.Default()
-	cfg.ProjectsBase = tmpDir
-	cfg.AgentMail.Enabled = false
+	cfg = newTmuxIntegrationTestConfig(tmpDir)
 	jsonOutput = true
 
 	cfg.Agents.Claude = testAgentCatCommandTemplate

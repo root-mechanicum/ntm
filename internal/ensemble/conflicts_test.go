@@ -95,10 +95,10 @@ func TestNormalizePair(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
-		a, b       string
-		wantA      string
-		wantB      string
+		name  string
+		a, b  string
+		wantA string
+		wantB string
 	}{
 		{"already ordered", "alpha", "beta", "alpha", "beta"},
 		{"reversed", "beta", "alpha", "alpha", "beta"},

@@ -276,12 +276,12 @@ func TestEffectivenessPanel_ScoreColor(t *testing.T) {
 	// Test that different score ranges produce different colors
 	// We can't easily test the exact colors without importing theme,
 	// but we can verify the function doesn't panic
-	panel.scoreColor(0.9)  // High
-	panel.scoreColor(0.7)  // Medium
-	panel.scoreColor(0.5)  // Low-medium
-	panel.scoreColor(0.2)  // Low
-	panel.scoreColor(0.0)  // Zero
-	panel.scoreColor(1.0)  // Perfect
+	panel.scoreColor(0.9) // High
+	panel.scoreColor(0.7) // Medium
+	panel.scoreColor(0.5) // Low-medium
+	panel.scoreColor(0.2) // Low
+	panel.scoreColor(0.0) // Zero
+	panel.scoreColor(1.0) // Perfect
 }
 
 func TestEffectivenessPanel_TrendArrow(t *testing.T) {
@@ -356,8 +356,8 @@ func TestEffectivenessPanel_RenderScoreBar(t *testing.T) {
 func containsString(haystack, needle string) bool {
 	return len(haystack) > 0 && len(needle) > 0 &&
 		(haystack == needle || len(haystack) >= len(needle) &&
-		(haystack[:len(needle)] == needle ||
-		 containsString(haystack[1:], needle)))
+			(haystack[:len(needle)] == needle ||
+				containsString(haystack[1:], needle)))
 }
 
 // errMock is a simple error for testing.

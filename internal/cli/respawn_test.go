@@ -7,7 +7,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Dicklesworthstone/ntm/internal/config"
 	"github.com/Dicklesworthstone/ntm/internal/tmux"
 	"github.com/Dicklesworthstone/ntm/tests/testutil"
 )
@@ -71,8 +70,7 @@ func TestRespawnDryRun(t *testing.T) {
 		jsonOutput = oldJsonOutput
 	}()
 
-	cfg = config.Default()
-	cfg.ProjectsBase = tmpDir
+	cfg = newTmuxIntegrationTestConfig(tmpDir)
 	cfg.Agents.Claude = "sleep 300"
 
 	// Create unique session
@@ -133,8 +131,7 @@ func TestRespawnWithPaneFilter(t *testing.T) {
 		jsonOutput = oldJsonOutput
 	}()
 
-	cfg = config.Default()
-	cfg.ProjectsBase = tmpDir
+	cfg = newTmuxIntegrationTestConfig(tmpDir)
 	cfg.Agents.Claude = "sleep 300"
 
 	// Create unique session

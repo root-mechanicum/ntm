@@ -12,33 +12,33 @@ import (
 // EnsembleModesOutput is the structured response for --robot-ensemble-modes.
 type EnsembleModesOutput struct {
 	RobotResponse
-	Action           string            `json:"action"`
-	Modes            []ModeInfo        `json:"modes"`
-	Categories       []CategoryInfo    `json:"categories"`
-	DefaultTier      string            `json:"default_tier"`
-	TotalModes       int               `json:"total_modes"`
-	CoreModes        int               `json:"core_modes"`
-	AdvancedModes    int               `json:"advanced_modes"`
-	ExperimentalModes int              `json:"experimental_modes"`
-	Pagination       *PaginationInfo   `json:"pagination,omitempty"`
-	AgentHints       *AgentHints       `json:"_agent_hints,omitempty"`
+	Action            string          `json:"action"`
+	Modes             []ModeInfo      `json:"modes"`
+	Categories        []CategoryInfo  `json:"categories"`
+	DefaultTier       string          `json:"default_tier"`
+	TotalModes        int             `json:"total_modes"`
+	CoreModes         int             `json:"core_modes"`
+	AdvancedModes     int             `json:"advanced_modes"`
+	ExperimentalModes int             `json:"experimental_modes"`
+	Pagination        *PaginationInfo `json:"pagination,omitempty"`
+	AgentHints        *AgentHints     `json:"_agent_hints,omitempty"`
 }
 
 // ModeInfo represents a reasoning mode in the API response.
 type ModeInfo struct {
-	ID            string       `json:"id"`
-	Code          string       `json:"code"`
-	Tier          string       `json:"tier"`
-	Name          string       `json:"name"`
-	Category      CategoryRef  `json:"category"`
-	ShortDesc     string       `json:"short_desc"`
-	Description   string       `json:"description,omitempty"`
-	Outputs       string       `json:"outputs,omitempty"`
-	BestFor       []string     `json:"best_for,omitempty"`
+	ID             string      `json:"id"`
+	Code           string      `json:"code"`
+	Tier           string      `json:"tier"`
+	Name           string      `json:"name"`
+	Category       CategoryRef `json:"category"`
+	ShortDesc      string      `json:"short_desc"`
+	Description    string      `json:"description,omitempty"`
+	Outputs        string      `json:"outputs,omitempty"`
+	BestFor        []string    `json:"best_for,omitempty"`
 	Differentiator string      `json:"differentiator,omitempty"`
-	FailureModes  []string     `json:"failure_modes,omitempty"`
-	Icon          string       `json:"icon,omitempty"`
-	Color         string       `json:"color,omitempty"`
+	FailureModes   []string    `json:"failure_modes,omitempty"`
+	Icon           string      `json:"icon,omitempty"`
+	Color          string      `json:"color,omitempty"`
 }
 
 // CategoryRef represents a category reference in mode output.
@@ -100,11 +100,12 @@ func GetEnsembleModes(opts EnsembleModesOptions) (*EnsembleModesOutput, error) {
 
 	// Apply tier filter (default to core if not specified)
 	tier := strings.ToLower(strings.TrimSpace(opts.Tier))
-	if tier == "" || tier == "core" {
+	switch tier {
+	case "", "core":
 		allModes = filterModesByTier(allModes, ensemble.TierCore)
-	} else if tier == "advanced" {
+	case "advanced":
 		allModes = filterModesByTier(allModes, ensemble.TierAdvanced)
-	} else if tier == "experimental" {
+	case "experimental":
 		allModes = filterModesByTier(allModes, ensemble.TierExperimental)
 	}
 	// "all" tier means no tier filter
@@ -133,19 +134,19 @@ func GetEnsembleModes(opts EnsembleModesOptions) (*EnsembleModesOutput, error) {
 	// Build mode info list
 	for _, mode := range pagedModes {
 		output.Modes = append(output.Modes, ModeInfo{
-			ID:            mode.ID,
-			Code:          mode.Code,
-			Tier:          mode.Tier.String(),
-			Name:          mode.Name,
-			Category:      CategoryRef{Code: mode.Category.CategoryLetter(), Name: mode.Category.String()},
-			ShortDesc:     mode.ShortDesc,
-			Description:   mode.Description,
-			Outputs:       mode.Outputs,
-			BestFor:       mode.BestFor,
+			ID:             mode.ID,
+			Code:           mode.Code,
+			Tier:           mode.Tier.String(),
+			Name:           mode.Name,
+			Category:       CategoryRef{Code: mode.Category.CategoryLetter(), Name: mode.Category.String()},
+			ShortDesc:      mode.ShortDesc,
+			Description:    mode.Description,
+			Outputs:        mode.Outputs,
+			BestFor:        mode.BestFor,
 			Differentiator: mode.Differentiator,
-			FailureModes:  mode.FailureModes,
-			Icon:          mode.Icon,
-			Color:         mode.Color,
+			FailureModes:   mode.FailureModes,
+			Icon:           mode.Icon,
+			Color:          mode.Color,
 		})
 	}
 

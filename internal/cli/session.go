@@ -17,8 +17,8 @@ import (
 	"golang.org/x/term"
 
 	"github.com/Dicklesworthstone/ntm/internal/assignment"
-	"github.com/Dicklesworthstone/ntm/internal/config"
 	"github.com/Dicklesworthstone/ntm/internal/cli/suggestions"
+	"github.com/Dicklesworthstone/ntm/internal/config"
 	"github.com/Dicklesworthstone/ntm/internal/handoff"
 	"github.com/Dicklesworthstone/ntm/internal/kernel"
 	"github.com/Dicklesworthstone/ntm/internal/output"
@@ -1479,10 +1479,7 @@ func runStatusOnce(w io.Writer, session string, opts statusOptions) error {
 	fmt.Fprintln(w)
 
 	// Contextual suggestion
-	hasBeads := false
-	if assignmentStore != nil && len(assignmentStore.ListActive()) > 0 {
-		hasBeads = true
-	}
+	hasBeads := assignmentStore != nil && len(assignmentStore.ListActive()) > 0
 
 	busyAgents := 0
 	idleAgents := 0
@@ -1491,9 +1488,10 @@ func runStatusOnce(w io.Writer, session string, opts statusOptions) error {
 			continue
 		}
 		st, _ := detector.Detect(p.ID)
-		if st.State == status.StateWorking {
+		switch st.State {
+		case status.StateWorking:
 			busyAgents++
-		} else if st.State == status.StateIdle {
+		case status.StateIdle:
 			idleAgents++
 		}
 	}
@@ -1691,9 +1689,7 @@ func modelNameForPane(p tmux.Pane) string {
 func paneLabel(session string, pane tmux.Pane) string {
 	label := strings.TrimSpace(pane.Title)
 	prefix := session + "__"
-	if strings.HasPrefix(label, prefix) {
-		label = strings.TrimPrefix(label, prefix)
-	}
+	label = strings.TrimPrefix(label, prefix)
 	if label == "" {
 		label = fmt.Sprintf("pane %d", pane.Index)
 	}

@@ -62,42 +62,42 @@ func TestRenderDetailContextBar(t *testing.T) {
 		wantFn  func(string) bool // validation function
 	}{
 		{
-			name: "zero_percent",
+			name:    "zero_percent",
 			percent: 0, width: 20, tick: 0,
 			wantFn: func(s string) bool {
 				return strings.Contains(s, "░") && !strings.Contains(s, "█")
 			},
 		},
 		{
-			name: "fifty_percent_green",
+			name:    "fifty_percent_green",
 			percent: 50, width: 20, tick: 0,
 			wantFn: func(s string) bool {
 				return strings.Contains(s, "█") && strings.Contains(s, "░")
 			},
 		},
 		{
-			name: "hundred_percent_full",
+			name:    "hundred_percent_full",
 			percent: 100, width: 20, tick: 0,
 			wantFn: func(s string) bool {
 				return strings.Contains(s, "█") && !strings.Contains(s, "░")
 			},
 		},
 		{
-			name: "over_hundred_clamped",
+			name:    "over_hundred_clamped",
 			percent: 150, width: 20, tick: 0,
 			wantFn: func(s string) bool {
 				return strings.Contains(s, "█") && !strings.Contains(s, "░")
 			},
 		},
 		{
-			name: "negative_clamped",
+			name:    "negative_clamped",
 			percent: -10, width: 20, tick: 0,
 			wantFn: func(s string) bool {
 				return strings.Contains(s, "░") && !strings.Contains(s, "█")
 			},
 		},
 		{
-			name: "high_context_shimmer",
+			name:    "high_context_shimmer",
 			percent: 85, width: 20, tick: 3,
 			wantFn: func(s string) bool {
 				// At >= 80%, shimmer is applied; just check output is non-empty

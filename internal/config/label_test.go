@@ -16,11 +16,11 @@ func TestParseSessionLabel(t *testing.T) {
 		{"my-project--frontend", "my-project", "frontend"},
 		{"foo--bar--baz", "foo", "bar--baz"},
 		{"proj--my-label", "proj", "my-label"},
-		{"--frontend", "", "frontend"},       // degenerate: empty base
-		{"myproject--", "myproject", ""},      // degenerate: empty label
-		{"a--b", "a", "b"},                   // minimal
-		{"abc", "abc", ""},                   // no separator
-		{"a-b-c--d-e-f", "a-b-c", "d-e-f"},  // dashes everywhere
+		{"--frontend", "", "frontend"},     // degenerate: empty base
+		{"myproject--", "myproject", ""},   // degenerate: empty label
+		{"a--b", "a", "b"},                 // minimal
+		{"abc", "abc", ""},                 // no separator
+		{"a-b-c--d-e-f", "a-b-c", "d-e-f"}, // dashes everywhere
 	}
 	for _, tt := range tests {
 		t.Run(tt.input, func(t *testing.T) {
@@ -186,9 +186,9 @@ func TestFormatSessionName_RoundTrip_Extended(t *testing.T) {
 		"simple",
 		"a--b",
 		"my-project--backend",
-		"foo--bar--baz",           // multi-separator preserves as label="bar--baz"
-		"x--y-z",                  // label with single dash
-		"proj--label_underscore",  // label with underscore
+		"foo--bar--baz",          // multi-separator preserves as label="bar--baz"
+		"x--y-z",                 // label with single dash
+		"proj--label_underscore", // label with underscore
 	}
 	for _, input := range roundTrips {
 		t.Run("roundtrip/"+input, func(t *testing.T) {
@@ -231,10 +231,10 @@ func TestHasLabel_Extended(t *testing.T) {
 		input string
 		want  bool
 	}{
-		{"", false},            // empty string
-		{"myproject--", true},  // degenerate: trailing separator
-		{"---", true},          // triple dash has "--" inside
-		{"a-b", false},         // single dash only
+		{"", false},           // empty string
+		{"myproject--", true}, // degenerate: trailing separator
+		{"---", true},         // triple dash has "--" inside
+		{"a-b", false},        // single dash only
 	}
 	for _, tt := range tests {
 		name := tt.input
@@ -256,10 +256,10 @@ func TestSessionBase_Extended(t *testing.T) {
 		input string
 		want  string
 	}{
-		{"", ""},                // empty string
-		{"--frontend", ""},     // degenerate: empty base
+		{"", ""},                     // empty string
+		{"--frontend", ""},           // degenerate: empty base
 		{"myproject--", "myproject"}, // degenerate: trailing separator
-		{"---", ""},            // triple dash: first "--" at index 0
+		{"---", ""},                  // triple dash: first "--" at index 0
 	}
 	for _, tt := range tests {
 		name := tt.input
@@ -278,12 +278,12 @@ func TestSessionBase_Extended(t *testing.T) {
 // TestValidateLabel_Extended adds boundary and additional invalid-pattern tests.
 func TestValidateLabel_Extended(t *testing.T) {
 	valid := []string{
-		strings.Repeat("a", 50),  // exactly 50 chars: boundary
-		"a-",                     // trailing dash is valid per regex
-		"a_",                     // trailing underscore is valid
-		"Z",                      // single uppercase
-		"9",                      // single digit
-		"abc-def_ghi",            // mixed separators
+		strings.Repeat("a", 50), // exactly 50 chars: boundary
+		"a-",                    // trailing dash is valid per regex
+		"a_",                    // trailing underscore is valid
+		"Z",                     // single uppercase
+		"9",                     // single digit
+		"abc-def_ghi",           // mixed separators
 	}
 	for _, label := range valid {
 		name := label
@@ -301,14 +301,14 @@ func TestValidateLabel_Extended(t *testing.T) {
 		label       string
 		errContains string
 	}{
-		{"my.label", "alphanumeric"},         // dot not allowed
-		{"foo/bar", "alphanumeric"},           // slash not allowed
-		{"hello\tworld", "alphanumeric"},      // tab not allowed
-		{".hidden", "alphanumeric"},           // starts with dot
-		{"foo--bar", "separator"},             // double-dash in middle
+		{"my.label", "alphanumeric"},               // dot not allowed
+		{"foo/bar", "alphanumeric"},                // slash not allowed
+		{"hello\tworld", "alphanumeric"},           // tab not allowed
+		{".hidden", "alphanumeric"},                // starts with dot
+		{"foo--bar", "separator"},                  // double-dash in middle
 		{strings.Repeat("b", 51), "50 characters"}, // 51 chars
-		{"bad@label", "alphanumeric"},         // at sign
-		{"a b", "alphanumeric"},               // internal space
+		{"bad@label", "alphanumeric"},              // at sign
+		{"a b", "alphanumeric"},                    // internal space
 	}
 	for _, tt := range invalid {
 		name := tt.label

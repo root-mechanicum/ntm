@@ -120,12 +120,12 @@ func mapJSONRPCError(rpcErr *JSONRPCError) error {
 	}
 
 	// Map common JSON-RPC error codes
-	switch {
-	case rpcErr.Code == -32600:
+	switch rpcErr.Code {
+	case -32600:
 		return fmt.Errorf("%w: %s", ErrInvalidRequest, rpcErr.Message)
-	case rpcErr.Code == -32601:
+	case -32601:
 		return fmt.Errorf("%w: method not found", ErrInvalidRequest)
-	case rpcErr.Code == -32602:
+	case -32602:
 		return fmt.Errorf("%w: %s", ErrInvalidRequest, rpcErr.Message)
 	default:
 		// Return the raw error for application-specific codes

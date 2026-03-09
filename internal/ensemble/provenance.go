@@ -318,9 +318,9 @@ func (t *ProvenanceTracker) Export() ([]byte, error) {
 	defer t.mu.RUnlock()
 
 	export := struct {
-		ContextHash string                       `json:"context_hash"`
-		Chains      map[string]*ProvenanceChain  `json:"chains"`
-		Stats       ProvenanceStats              `json:"stats"`
+		ContextHash string                      `json:"context_hash"`
+		Chains      map[string]*ProvenanceChain `json:"chains"`
+		Stats       ProvenanceStats             `json:"stats"`
 	}{
 		ContextHash: t.contextHash,
 		Chains:      t.chains,
@@ -332,12 +332,12 @@ func (t *ProvenanceTracker) Export() ([]byte, error) {
 
 // ProvenanceStats provides summary statistics.
 type ProvenanceStats struct {
-	TotalFindings   int            `json:"total_findings"`
-	ActiveFindings  int            `json:"active_findings"`
-	MergedFindings  int            `json:"merged_findings"`
-	FilteredCount   int            `json:"filtered_count"`
-	CitedCount      int            `json:"cited_count"`
-	ModeBreakdown   map[string]int `json:"mode_breakdown"`
+	TotalFindings  int            `json:"total_findings"`
+	ActiveFindings int            `json:"active_findings"`
+	MergedFindings int            `json:"merged_findings"`
+	FilteredCount  int            `json:"filtered_count"`
+	CitedCount     int            `json:"cited_count"`
+	ModeBreakdown  map[string]int `json:"mode_breakdown"`
 }
 
 // Stats returns provenance statistics.
@@ -452,10 +452,10 @@ func truncateText(text string, maxLen int) string {
 
 // ProvenanceIndex provides fast lookup across multiple trackers or sessions.
 type ProvenanceIndex struct {
-	mu       sync.RWMutex
-	byID     map[string]*ProvenanceChain
-	byMode   map[string][]*ProvenanceChain
-	byHash   map[string][]*ProvenanceChain
+	mu     sync.RWMutex
+	byID   map[string]*ProvenanceChain
+	byMode map[string][]*ProvenanceChain
+	byHash map[string][]*ProvenanceChain
 }
 
 // NewProvenanceIndex creates an empty index.
@@ -503,11 +503,11 @@ func (idx *ProvenanceIndex) ByContext(contextHash string) []*ProvenanceChain {
 
 // ProvenanceReport generates a comprehensive report of provenance data.
 type ProvenanceReport struct {
-	GeneratedAt  time.Time                   `json:"generated_at"`
-	ContextHash  string                      `json:"context_hash"`
-	Stats        ProvenanceStats             `json:"stats"`
-	ActiveChains []*ProvenanceChain          `json:"active_chains"`
-	MergeGraph   map[string][]string         `json:"merge_graph,omitempty"`
+	GeneratedAt  time.Time           `json:"generated_at"`
+	ContextHash  string              `json:"context_hash"`
+	Stats        ProvenanceStats     `json:"stats"`
+	ActiveChains []*ProvenanceChain  `json:"active_chains"`
+	MergeGraph   map[string][]string `json:"merge_graph,omitempty"`
 }
 
 // GenerateReport creates a provenance report from a tracker.

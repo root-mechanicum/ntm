@@ -330,8 +330,6 @@ func formatCleanupDuration(d time.Duration) string {
 	return fmt.Sprintf("%.1fd", days)
 }
 
-
-
 // CleanupStats holds statistics from a cleanup operation
 type CleanupStats struct {
 	TotalFiles   int

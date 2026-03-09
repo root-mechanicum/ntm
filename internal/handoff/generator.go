@@ -10,7 +10,9 @@ import (
 	"os"
 	"os/exec"
 	"regexp"
+	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/Dicklesworthstone/ntm/internal/agentmail"
@@ -21,6 +23,8 @@ import (
 type Generator struct {
 	projectDir string
 	logger     *slog.Logger
+	gitProbe   sync.Once
+	gitReady   bool
 }
 
 // NewGenerator creates a Generator for the given project directory.
@@ -79,7 +83,7 @@ func (g *Generator) GenerateFromOutput(sessionName string, output []byte) (*Hand
 		// Non-fatal - continue without git info
 	}
 
-	g.logger.Info("generated handoff from output",
+	g.logger.Debug("generated handoff from output",
 		"session", sessionName,
 		"goal_len", len(h.Goal),
 		"now_len", len(h.Now),
@@ -223,6 +227,9 @@ func (g *Generator) GenerateFromTranscript(sessionName, transcriptPath string) (
 // EnrichWithGitState adds git information to handoff.
 func (g *Generator) EnrichWithGitState(h *Handoff) error {
 	g.logger.Debug("enriching handoff with git state")
+	if !g.hasGitContext() {
+		return nil
+	}
 
 	// Get modified files from git diff
 	modified, err := g.getGitModified()
@@ -374,6 +381,23 @@ func (g *Generator) analyzeOutput(output []byte) analysisResult {
 
 // Git helper functions
 
+func (g *Generator) hasGitContext() bool {
+	g.gitProbe.Do(func() {
+		if strings.TrimSpace(g.projectDir) == "" {
+			return
+		}
+		cmd := exec.Command("git", "rev-parse", "--is-inside-work-tree")
+		cmd.Dir = g.projectDir
+		out, err := cmd.Output()
+		if err != nil {
+			g.logger.Debug("git probe failed", "project_dir", g.projectDir, "error", err)
+			return
+		}
+		g.gitReady = strings.TrimSpace(string(out)) == "true"
+	})
+	return g.gitReady
+}
+
 func (g *Generator) getGitModified() ([]string, error) {
 	cmd := exec.Command("git", "diff", "--name-only", "HEAD")
 	cmd.Dir = g.projectDir
@@ -452,9 +476,17 @@ func summarizeToolCalls(calls []string) string {
 	for _, c := range calls {
 		counts[c]++
 	}
+	if len(counts) == 0 {
+		return ""
+	}
+	tools := make([]string, 0, len(counts))
+	for tool := range counts {
+		tools = append(tools, tool)
+	}
+	sort.Strings(tools)
 	var parts []string
-	for tool, count := range counts {
-		parts = append(parts, fmt.Sprintf("%s:%d", tool, count))
+	for _, tool := range tools {
+		parts = append(parts, fmt.Sprintf("%s:%d", tool, counts[tool]))
 	}
 	return strings.Join(parts, ",")
 }

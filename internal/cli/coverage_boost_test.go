@@ -1285,14 +1285,14 @@ func TestLooksLikeAgentName_Valid(t *testing.T) {
 func TestLooksLikeAgentName_Invalid(t *testing.T) {
 	t.Parallel()
 	invalid := []string{
-		"",            // empty
-		"bluelake",    // no uppercase
-		"Blue Lake",   // space
-		"Blue_Lake",   // underscore
-		"Blue-Lake",   // hyphen
-		"B",           // single char, no second uppercase
-		"blueLake",    // lowercase start
-		"1BlueLake",   // digit start
+		"",          // empty
+		"bluelake",  // no uppercase
+		"Blue Lake", // space
+		"Blue_Lake", // underscore
+		"Blue-Lake", // hyphen
+		"B",         // single char, no second uppercase
+		"blueLake",  // lowercase start
+		"1BlueLake", // digit start
 	}
 	for _, name := range invalid {
 		if looksLikeAgentName(name) {

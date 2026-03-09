@@ -420,7 +420,9 @@ func regenerateSummaryFromArchive(sessionArg string, format summary.SummaryForma
 	if sessionName == "" {
 		sessionName = sessionArg
 	}
-	projectDir = resolveProjectDir(sessionName, wd)
+	if projectDir == "" {
+		projectDir = resolveProjectDir(sessionName, wd)
+	}
 
 	outputs, err := loadArchiveOutputs(archiveFile)
 	if err != nil {

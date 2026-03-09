@@ -230,7 +230,7 @@ func (s *DefaultPaneSpawner) getAgentCommand(agentType string) string {
 			if s.config.Agents.Gemini != "" {
 				return s.config.Agents.Gemini
 			}
-		// Future: add config support for other agents if needed
+			// Future: add config support for other agents if needed
 		}
 	}
 

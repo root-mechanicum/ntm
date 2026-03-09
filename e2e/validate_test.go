@@ -49,11 +49,11 @@ type ValidationSummary struct {
 
 // ValidateTestSuite manages E2E tests for config validation
 type ValidateTestSuite struct {
-	t        *testing.T
-	logger   *TestLogger
-	tempDir  string
-	cleanup  []func()
-	origDir  string
+	t       *testing.T
+	logger  *TestLogger
+	tempDir string
+	cleanup []func()
+	origDir string
 }
 
 // NewValidateTestSuite creates a new validation test suite

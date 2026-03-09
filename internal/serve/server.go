@@ -30,6 +30,10 @@ import (
 	"sync"
 	"time"
 
+	"github.com/go-chi/chi/v5"
+	chimw "github.com/go-chi/chi/v5/middleware"
+	"github.com/gorilla/websocket"
+
 	"github.com/Dicklesworthstone/ntm/internal/agentmail"
 	"github.com/Dicklesworthstone/ntm/internal/config"
 	"github.com/Dicklesworthstone/ntm/internal/ensemble"
@@ -40,9 +44,6 @@ import (
 	"github.com/Dicklesworthstone/ntm/internal/robot"
 	"github.com/Dicklesworthstone/ntm/internal/state"
 	"github.com/Dicklesworthstone/ntm/internal/tmux"
-	"github.com/go-chi/chi/v5"
-	chimw "github.com/go-chi/chi/v5/middleware"
-	"github.com/gorilla/websocket"
 )
 
 // Server provides HTTP API and event streaming for NTM.
@@ -2298,7 +2299,9 @@ func performDoctorCheckAPI(ctx context.Context) map[string]interface{} {
 		}
 		conn, err := dialer.DialContext(ctx, "tcp", fmt.Sprintf("127.0.0.1:%d", dp.port))
 		if err == nil {
-			conn.Close()
+			if closeErr := conn.Close(); closeErr != nil {
+				log.Printf("health check: close daemon probe conn name=%s port=%d error=%v", dp.name, dp.port, closeErr)
+			}
 			check["running"] = true
 			check["status"] = "ok"
 			check["message"] = fmt.Sprintf("listening on port %d", dp.port)
@@ -4559,14 +4562,20 @@ var authContextKey = ctxKeyAuth{}
 func (c *WSClient) readPump() {
 	defer func() {
 		c.hub.unregister <- c
-		c.closeOnce.Do(func() { c.conn.Close() })
+		c.closeOnce.Do(func() {
+			if err := c.conn.Close(); err != nil {
+				log.Printf("ws close error id=%s: %v", c.id, err)
+			}
+		})
 	}()
 
 	c.conn.SetReadLimit(wsMaxMessageSize)
-	c.conn.SetReadDeadline(time.Now().Add(wsPongWait))
+	if err := c.conn.SetReadDeadline(time.Now().Add(wsPongWait)); err != nil {
+		log.Printf("ws set read deadline error id=%s: %v", c.id, err)
+		return
+	}
 	c.conn.SetPongHandler(func(string) error {
-		c.conn.SetReadDeadline(time.Now().Add(wsPongWait))
-		return nil
+		return c.conn.SetReadDeadline(time.Now().Add(wsPongWait))
 	})
 
 	for {
@@ -4587,16 +4596,25 @@ func (c *WSClient) writePump() {
 	ticker := time.NewTicker(wsPingPeriod)
 	defer func() {
 		ticker.Stop()
-		c.closeOnce.Do(func() { c.conn.Close() })
+		c.closeOnce.Do(func() {
+			if err := c.conn.Close(); err != nil {
+				log.Printf("ws close error id=%s: %v", c.id, err)
+			}
+		})
 	}()
 
 	for {
 		select {
 		case message, ok := <-c.send:
-			c.conn.SetWriteDeadline(time.Now().Add(wsWriteWait))
+			if err := c.conn.SetWriteDeadline(time.Now().Add(wsWriteWait)); err != nil {
+				log.Printf("ws set write deadline error id=%s: %v", c.id, err)
+				return
+			}
 			if !ok {
 				// Hub closed the channel
-				c.conn.WriteMessage(websocket.CloseMessage, []byte{})
+				if err := c.conn.WriteMessage(websocket.CloseMessage, []byte{}); err != nil {
+					log.Printf("ws close frame error id=%s: %v", c.id, err)
+				}
 				return
 			}
 
@@ -4623,7 +4641,10 @@ func (c *WSClient) writePump() {
 				return
 			}
 		case <-ticker.C:
-			c.conn.SetWriteDeadline(time.Now().Add(wsWriteWait))
+			if err := c.conn.SetWriteDeadline(time.Now().Add(wsWriteWait)); err != nil {
+				log.Printf("ws ping deadline error id=%s: %v", c.id, err)
+				return
+			}
 			if err := c.conn.WriteMessage(websocket.PingMessage, nil); err != nil {
 				return
 			}

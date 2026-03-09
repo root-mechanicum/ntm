@@ -12,9 +12,9 @@ import (
 
 func TestParseJSONTag(t *testing.T) {
 	tests := []struct {
-		tag       string
-		wantName  string
-		wantOmit  bool
+		tag      string
+		wantName string
+		wantOmit bool
 	}{
 		{"", "", false},
 		{"name", "name", false},

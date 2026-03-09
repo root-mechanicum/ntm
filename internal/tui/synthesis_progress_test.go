@@ -495,9 +495,9 @@ func TestClampFloat(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
-		v, lo, hi  float64
-		want       float64
+		name      string
+		v, lo, hi float64
+		want      float64
 	}{
 		{"in range", 0.5, 0, 1, 0.5},
 		{"below min", -0.5, 0, 1, 0},
@@ -521,9 +521,9 @@ func TestClampInt(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name       string
-		v, lo, hi  int
-		want       int
+		name      string
+		v, lo, hi int
+		want      int
 	}{
 		{"in range", 5, 0, 10, 5},
 		{"below min", -1, 0, 10, 0},

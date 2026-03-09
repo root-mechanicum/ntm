@@ -436,8 +436,8 @@ func TestCheckAlertsIdle(t *testing.T) {
 
 func TestCheckAlertsNoAlertBelowThreshold(t *testing.T) {
 	cfg := config.DefaultProcessTriageConfig()
-	cfg.StuckThreshold = 60  // 60 seconds threshold
-	cfg.IdleThreshold = 120  // 120 seconds threshold
+	cfg.StuckThreshold = 60 // 60 seconds threshold
+	cfg.IdleThreshold = 120 // 120 seconds threshold
 	alertCh := make(chan Alert, 10)
 
 	m := NewHealthMonitor(&cfg, WithAlertChannel(alertCh))

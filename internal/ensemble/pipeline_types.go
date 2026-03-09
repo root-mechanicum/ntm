@@ -168,10 +168,10 @@ type SynthesisAgreement struct {
 
 // SynthesisDisagreement records where modes reached conflicting conclusions.
 type SynthesisDisagreement struct {
-	Topic       string                  `json:"topic"`
-	Positions   []DisagreementPosition  `json:"positions"`
-	Resolution  string                  `json:"resolution,omitempty"`
-	ResolutionMethod string             `json:"resolution_method,omitempty"`
+	Topic            string                 `json:"topic"`
+	Positions        []DisagreementPosition `json:"positions"`
+	Resolution       string                 `json:"resolution,omitempty"`
+	ResolutionMethod string                 `json:"resolution_method,omitempty"`
 }
 
 // DisagreementPosition represents one side of a disagreement.
@@ -184,12 +184,12 @@ type DisagreementPosition struct {
 
 // ModeContribution summarizes how a single mode contributed to synthesis.
 type ModeContribution struct {
-	ModeID               string  `json:"mode_id"`
-	FindingsContributed  int     `json:"findings_contributed"`
-	UniqueInsights       int     `json:"unique_insights"`
-	AgreementCount       int     `json:"agreement_count"`
-	DisagreementCount    int     `json:"disagreement_count"`
-	OverallWeight        float64 `json:"overall_weight"`
+	ModeID              string  `json:"mode_id"`
+	FindingsContributed int     `json:"findings_contributed"`
+	UniqueInsights      int     `json:"unique_insights"`
+	AgreementCount      int     `json:"agreement_count"`
+	DisagreementCount   int     `json:"disagreement_count"`
+	OverallWeight       float64 `json:"overall_weight"`
 }
 
 // AuditEntry records a synthesis decision for transparency.
@@ -309,4 +309,3 @@ func NewPipelineError(stage PipelineStage, message string, cause error) *Pipelin
 		Cause:   cause,
 	}
 }
-

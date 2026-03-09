@@ -12,8 +12,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Dicklesworthstone/ntm/internal/robot"
 	"github.com/go-chi/chi/v5"
+
+	"github.com/Dicklesworthstone/ntm/internal/robot"
 )
 
 // AccountsConfig holds configuration for account management endpoints.

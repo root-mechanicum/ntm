@@ -397,8 +397,8 @@ func TestValidateCondition(t *testing.T) {
 		{`'unclosed`, 1},
 		{`"balanced"`, 0},
 		{"", 0},
-		{`"escaped \" quote"`, 0},        // escaped double quote inside
-		{`'escaped \' quote'`, 0},        // escaped single quote inside
+		{`"escaped \" quote"`, 0},          // escaped double quote inside
+		{`'escaped \' quote'`, 0},          // escaped single quote inside
 		{`mixed "quotes" and 'quotes'`, 0}, // both quote types balanced
 	}
 

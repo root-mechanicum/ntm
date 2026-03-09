@@ -483,7 +483,7 @@ func TestEscapeAppleScript(t *testing.T) {
 func TestGetSuggestion(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
-		alertType AlertType
+		alertType    AlertType
 		wantNonEmpty bool
 	}{
 		{AlertUnhealthy, true},

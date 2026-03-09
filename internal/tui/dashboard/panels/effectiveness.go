@@ -17,11 +17,11 @@ import (
 
 const (
 	// Thresholds for score coloring
-	scoreHighThreshold    = 0.8
-	scoreMediumThreshold  = 0.6
-	scoreLowThreshold     = 0.4
-	minSamplesForDisplay  = 1
-	trendChangeThreshold  = 5.0 // Percent change to consider significant
+	scoreHighThreshold   = 0.8
+	scoreMediumThreshold = 0.6
+	scoreLowThreshold    = 0.4
+	minSamplesForDisplay = 1
+	trendChangeThreshold = 5.0 // Percent change to consider significant
 )
 
 // EffectivenessData holds the data for the effectiveness panel.

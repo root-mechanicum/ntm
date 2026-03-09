@@ -73,10 +73,10 @@ type FindingCluster struct {
 
 // ClusterMember represents a finding within a cluster.
 type ClusterMember struct {
-	Finding      Finding  `json:"finding" yaml:"finding"`
-	SourceMode   string   `json:"source_mode" yaml:"source_mode"`
-	Similarity   float64  `json:"similarity" yaml:"similarity"` // Similarity to canonical
-	ProvenanceID string   `json:"provenance_id,omitempty" yaml:"provenance_id,omitempty"`
+	Finding      Finding `json:"finding" yaml:"finding"`
+	SourceMode   string  `json:"source_mode" yaml:"source_mode"`
+	Similarity   float64 `json:"similarity" yaml:"similarity"` // Similarity to canonical
+	ProvenanceID string  `json:"provenance_id,omitempty" yaml:"provenance_id,omitempty"`
 }
 
 // DedupeResult is the output of the deduplication engine.

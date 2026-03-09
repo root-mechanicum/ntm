@@ -688,9 +688,10 @@ func renderDoctorTUITo(w io.Writer, report *DoctorReport) error {
 	fmt.Fprintln(w)
 
 	// Return error to indicate non-healthy status (Cobra will set appropriate exit code)
-	if report.Overall == "unhealthy" {
+	switch report.Overall {
+	case "unhealthy":
 		return errors.New("ecosystem is unhealthy")
-	} else if report.Overall == "warning" {
+	case "warning":
 		// Warnings are informational, don't fail
 		return nil
 	}

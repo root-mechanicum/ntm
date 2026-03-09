@@ -179,4 +179,3 @@ func TestBuildReservationTransfer_Success(t *testing.T) {
 		t.Error("CreatedAt should be set")
 	}
 }
-

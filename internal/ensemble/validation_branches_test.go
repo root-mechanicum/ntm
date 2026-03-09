@@ -169,8 +169,8 @@ func TestValidateBudgetConfig_ReserveExceedsTotal(t *testing.T) {
 
 	report := NewValidationReport()
 	validateBudgetConfig(BudgetConfig{
-		MaxTotalTokens:        10000,
-		MaxTokensPerMode:      5000,
+		MaxTotalTokens:         10000,
+		MaxTokensPerMode:       5000,
 		SynthesisReserveTokens: 6000,
 		ContextReserveTokens:   6000,
 	}, report)

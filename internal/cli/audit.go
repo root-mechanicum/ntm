@@ -428,7 +428,7 @@ func renderAuditEntries(result *audit.QueryResult) error {
 			ts, typeColor, e.EventType, "\033[0m",
 			e.Actor, e.Target, e.SequenceNum)
 
-		if e.Payload != nil && len(e.Payload) > 0 {
+		if len(e.Payload) > 0 {
 			payloadJSON, _ := json.Marshal(e.Payload)
 			if len(payloadJSON) > 120 {
 				payloadJSON = append(payloadJSON[:117], "..."...)

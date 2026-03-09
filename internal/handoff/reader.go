@@ -250,7 +250,7 @@ func (r *Reader) ExtractGoalNow(sessionName string) (goal, now string, err error
 	if ok {
 		// Check if cache is still valid
 		info, err := os.Stat(path)
-		if err == nil && info.ModTime() == entry.modTime && time.Since(entry.fetchedAt) < r.cacheExpiry {
+		if err == nil && info.ModTime().Equal(entry.modTime) && time.Since(entry.fetchedAt) < r.cacheExpiry {
 			r.logger.Debug("cache hit for goal/now",
 				"path", path,
 				"age_ms", time.Since(entry.fetchedAt).Milliseconds(),

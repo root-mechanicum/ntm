@@ -290,7 +290,11 @@ func (s *WSEventStore) getFromDB(since int64, topic string, limit int) ([]WSStor
 	if err != nil {
 		return nil, false, fmt.Errorf("query events: %w", err)
 	}
-	defer rows.Close()
+	defer func() {
+		if closeErr := rows.Close(); closeErr != nil {
+			log.Printf("ws_events: rows close error: %v", closeErr)
+		}
+	}()
 
 	var events []WSStoredEvent
 	for rows.Next() {
@@ -318,7 +322,9 @@ func (s *WSEventStore) getFromDB(since int64, topic string, limit int) ([]WSStor
 	if len(events) == 0 && since > 0 {
 		// Check if there are ANY events in the database
 		var minSeq sql.NullInt64
-		s.db.QueryRow("SELECT MIN(seq) FROM ws_events").Scan(&minSeq)
+		if err := s.db.QueryRow("SELECT MIN(seq) FROM ws_events").Scan(&minSeq); err != nil && err != sql.ErrNoRows {
+			return nil, false, fmt.Errorf("query min seq: %w", err)
+		}
 		if minSeq.Valid && since < minSeq.Int64-1 {
 			// Cursor is too old even for database
 			return nil, true, nil
@@ -369,7 +375,11 @@ func (s *WSEventStore) GetDroppedStats(clientID string, since time.Time) ([]WSDr
 	if err != nil {
 		return nil, fmt.Errorf("query dropped stats: %w", err)
 	}
-	defer rows.Close()
+	defer func() {
+		if closeErr := rows.Close(); closeErr != nil {
+			log.Printf("ws_events: dropped rows close error: %v", closeErr)
+		}
+	}()
 
 	var stats []WSDroppedInfo
 	for rows.Next() {
