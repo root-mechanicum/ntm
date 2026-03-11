@@ -111,16 +111,17 @@ func QueryCASS(prompt string, config CASSConfig) CASSQueryResult {
 		return result
 	}
 
-	args := []string{"search", query, "--json"}
+	args := []string{"search", "--json"}
 	if config.MaxResults > 0 {
 		args = append(args, "--limit", strconv.Itoa(config.MaxResults))
 	}
 	if config.MaxAgeDays > 0 {
-		args = append(args, "--days", strconv.Itoa(config.MaxAgeDays))
+		args = append(args, fmt.Sprintf("--since=%dd", config.MaxAgeDays))
 	}
 	for _, agent := range config.AgentFilter {
 		args = append(args, "--agent", agent)
 	}
+	args = append(args, "--", query)
 
 	cmd := exec.Command(binPath, args...)
 	output, err := cmd.Output()

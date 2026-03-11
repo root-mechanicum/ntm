@@ -118,7 +118,7 @@ func (a *CASSAdapter) Info(ctx context.Context) (*ToolInfo, error) {
 
 // Search performs a semantic search across agent conversations
 func (a *CASSAdapter) Search(ctx context.Context, query string, limit int) (json.RawMessage, error) {
-	args := []string{"search", query, "--robot", fmt.Sprintf("--limit=%d", limit)}
+	args := []string{"search", "--robot", fmt.Sprintf("--limit=%d", limit), "--", query}
 	return a.runCommand(ctx, args...)
 }
 

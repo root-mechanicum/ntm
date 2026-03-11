@@ -147,7 +147,7 @@ func QueryCASS(prompt string, config CASSConfig) CASSQueryResult {
 	}
 
 	// Build the cass search command
-	args := []string{"search", query, "--json"}
+	args := []string{"search", "--json"}
 
 	// Add limit
 	if config.MaxResults > 0 {
@@ -156,13 +156,16 @@ func QueryCASS(prompt string, config CASSConfig) CASSQueryResult {
 
 	// Add age filter
 	if config.MaxAgeDays > 0 {
-		args = append(args, "--days", itoa(config.MaxAgeDays))
+		args = append(args, "--since="+itoa(config.MaxAgeDays)+"d")
 	}
 
 	// Add agent filter
 	for _, agent := range config.AgentFilter {
 		args = append(args, "--agent", agent)
 	}
+
+	// Add separator and query
+	args = append(args, "--", query)
 
 	// Execute CASS search
 	cmd := exec.Command(binPath, args...)
