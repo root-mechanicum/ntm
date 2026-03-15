@@ -1,5 +1,5 @@
 // Package bv provides integration with the beads_viewer (bv) tool.
-// triage.go implements the -robot-triage mega-command integration with caching.
+// triage.go implements the --robot-triage mega-command integration with caching.
 package bv
 
 import (
@@ -37,7 +37,7 @@ func normalizeTriageDir(dir string) (string, error) {
 	return absDir, nil
 }
 
-// GetTriage returns the complete triage analysis from bv -robot-triage.
+// GetTriage returns the complete triage analysis from bv --robot-triage.
 // Results are cached for TriageCacheTTL (default 30 seconds).
 func GetTriage(dir string) (*TriageResponse, error) {
 	normalizedDir, err := normalizeTriageDir(dir)
@@ -53,7 +53,7 @@ func GetTriage(dir string) (*TriageResponse, error) {
 		return triageCache, nil
 	}
 
-	output, err := run(normalizedDir, "-robot-triage")
+	output, err := run(normalizedDir, "--robot-triage")
 	if err != nil {
 		return nil, err
 	}
@@ -78,7 +78,7 @@ func GetTriageNoCache(dir string) (*TriageResponse, error) {
 		return nil, err
 	}
 
-	output, err := run(normalizedDir, "-robot-triage")
+	output, err := run(normalizedDir, "--robot-triage")
 	if err != nil {
 		return nil, err
 	}
