@@ -2639,11 +2639,6 @@ func looksLikeShellCommand(line string) bool {
 	return false
 }
 
-const (
-	agentPromptFirstEnterDelay  = 1 * time.Second
-	agentPromptSecondEnterDelay = 500 * time.Millisecond
-)
-
 func sendPromptToPane(session string, p tmux.Pane, prompt string) error {
 	if p.Type == tmux.AgentUser {
 		if err := tmux.PasteKeys(p.ID, prompt, true); err != nil {
@@ -2660,24 +2655,11 @@ func sendPromptToPane(session string, p tmux.Pane, prompt string) error {
 
 func sendPromptWithDoubleEnter(paneID, prompt string) error {
 	// Default to AgentUnknown for backward compatibility
-	return sendPromptWithDoubleEnterForAgent(paneID, prompt, tmux.AgentUnknown)
+	return tmux.SendKeysForAgentDoubleEnter(paneID, prompt, tmux.AgentUnknown)
 }
 
 func sendPromptWithDoubleEnterForAgent(paneID, prompt string, agentType tmux.AgentType) error {
-	// Use agent-aware send method which handles Gemini's multi-line quirks
-	// by using buffer-based paste instead of send-keys when content has newlines
-	if err := tmux.SendKeysForAgent(paneID, prompt, false, agentType); err != nil {
-		return err
-	}
-	time.Sleep(agentPromptFirstEnterDelay)
-	if err := tmux.SendKeys(paneID, "", true); err != nil {
-		return err
-	}
-	time.Sleep(agentPromptSecondEnterDelay)
-	if err := tmux.SendKeys(paneID, "", true); err != nil {
-		return err
-	}
-	return nil
+	return tmux.SendKeysForAgentDoubleEnter(paneID, prompt, agentType)
 }
 
 func addTimelinePromptMarker(session string, p tmux.Pane, prompt string) {

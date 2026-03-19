@@ -1120,9 +1120,9 @@ func (m *Model) send() (tea.Model, tea.Cmd) {
 		}
 
 		if shouldSend {
-			// Use agent-aware send method which handles Codex/Gemini multi-line quirks
-			// by using buffer-based paste instead of send-keys when content has newlines
-			if err := tmux.SendKeysForAgent(p.ID, prompt, true, p.Type); err != nil {
+			// Use double-Enter submission protocol (same as `ntm send`) which handles
+			// Codex/Gemini multi-line quirks and reliably submits to all agent types
+			if err := tmux.SendKeysForAgentDoubleEnter(p.ID, prompt, p.Type); err != nil {
 				m.err = err
 				m.recordHistory(targetPanes, start, err)
 				return *m, tea.Quit

@@ -1038,6 +1038,35 @@ func SendKeysForAgentWithDelay(target, keys string, enter bool, enterDelay time.
 	return DefaultClient.SendKeysForAgentWithDelay(target, keys, enter, enterDelay, agentType)
 }
 
+const (
+	// DoubleEnterFirstDelay is the pause after sending text before the first Enter.
+	DoubleEnterFirstDelay = 1 * time.Second
+	// DoubleEnterSecondDelay is the pause between the first and second Enter.
+	DoubleEnterSecondDelay = 500 * time.Millisecond
+)
+
+// SendKeysForAgentDoubleEnter sends text to an agent pane using the double-Enter
+// submission protocol: send text (no enter), wait 1s, Enter, wait 500ms, Enter.
+// This is the reliable way to submit prompts to CLI agents (Claude, Codex, Gemini)
+// that need the double-Enter to confirm submission.
+func SendKeysForAgentDoubleEnter(target, keys string, agentType AgentType) error {
+	// Send the text without pressing Enter
+	if err := SendKeysForAgent(target, keys, false, agentType); err != nil {
+		return err
+	}
+	time.Sleep(DoubleEnterFirstDelay)
+	// First Enter
+	if err := SendKeys(target, "", true); err != nil {
+		return err
+	}
+	time.Sleep(DoubleEnterSecondDelay)
+	// Second Enter
+	if err := SendKeys(target, "", true); err != nil {
+		return err
+	}
+	return nil
+}
+
 // SendInterrupt sends Ctrl+C to a pane
 func (c *Client) SendInterrupt(target string) error {
 	return c.RunSilent("send-keys", "-t", target, "C-c")
