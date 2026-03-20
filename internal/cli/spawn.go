@@ -381,6 +381,9 @@ type SpawnOptions struct {
 	// Hooks
 	NoHooks bool
 
+	// Claude Code --agent flag for named-role agent spawning
+	Agent string
+
 	// Safety mode: fail if session already exists
 	Safety bool
 
@@ -584,6 +587,9 @@ func newSpawnCmd() *cobra.Command {
 
 	// Marching orders flag (bd-2lodn)
 	var marchingOrdersFile string
+
+	// Claude Code --agent flag for named-role spawning
+	var agentFlag string
 
 	// Goal label for multi-session support (bd-1933u)
 	var label string
@@ -932,6 +938,7 @@ Examples:
 				LocalFallback:         localFallback,
 				LocalFallbackProvider: fallbackProvider,
 				NoHooks:               noHooks,
+				Agent:                 agentFlag,
 				Safety:                safety,
 				StaggerMode:           staggerMode,
 				StaggerDelay:          staggerDelay,
@@ -982,6 +989,7 @@ Examples:
 	cmd.Flags().Var(NewAgentSpecsValue(AgentTypeWindsurf, &agentSpecs), "windsurf", "Windsurf agents (N or N:model)")
 	cmd.Flags().Var(NewAgentSpecsValue(AgentTypeAider, &agentSpecs), "aider", "Aider agents (N or N:model)")
 	cmd.Flags().Var(&personaSpecs, "persona", "Persona-defined agents (name or name:count)")
+	cmd.Flags().StringVar(&agentFlag, "agent", "", "Claude Code --agent flag for named-role spawning (e.g., --agent=backend-agent)")
 	cmd.Flags().BoolVar(&noUserPane, "no-user", false, "don't reserve a pane for the user")
 	cmd.Flags().StringVarP(&recipeName, "recipe", "r", "", "use a recipe for agent configuration")
 	cmd.Flags().StringVarP(&templateName, "template", "t", "", "use a workflow template for agent configuration")
@@ -1635,6 +1643,11 @@ func spawnSessionLogic(opts SpawnOptions) (err error) {
 		}
 
 		// Generate command using template
+		// Only pass Agent flag for Claude agents
+		agentRoleFlag := ""
+		if agent.Type == AgentTypeClaude {
+			agentRoleFlag = opts.Agent
+		}
 		agentCmd, err := config.GenerateAgentCommand(agentCmdTemplate, config.AgentTemplateVars{
 			Model:            resolvedModel,
 			ModelAlias:       agent.Model,
@@ -1645,6 +1658,7 @@ func spawnSessionLogic(opts SpawnOptions) (err error) {
 			ProjectDir:       dir,
 			SystemPromptFile: systemPromptFile,
 			PersonaName:      personaName,
+			Agent:            agentRoleFlag,
 		})
 		if err != nil {
 			return outputError(fmt.Errorf("generating command for %s agent: %w", agent.Type, err))

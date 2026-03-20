@@ -1350,6 +1350,7 @@ Shell Integration:
 				AssignWork:     robotSpawnAssignWork,
 				AssignStrategy: robotSpawnStrategy,
 				CustomNames:    robot.ParseCustomNames(robotSpawnNames),
+				Agent:          robotSpawnAgent,
 			}
 			if err := robot.PrintSpawn(opts, cfg); err != nil {
 				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
@@ -2216,6 +2217,7 @@ var (
 	robotSpawnStrategy   string // assignment strategy: top-n, diverse, dependency-aware, skill-matched
 	robotSpawnNames      string // custom agent names (comma-separated)
 	robotSpawnLabel      string // goal label for multi-session support
+	robotSpawnAgent      string // Claude Code --agent flag
 
 	// Robot-agent-names flag for querying agent name mappings
 	robotAgentNames string // session name for --robot-agent-names
@@ -2741,6 +2743,7 @@ func init() {
 	rootCmd.Flags().StringVar(&robotSpawnStrategy, "spawn-assign-strategy", "top-n", "Work assignment strategy (use with --spawn-assign-work). Values: top-n, diverse, dependency-aware, skill-matched")
 	rootCmd.Flags().StringVar(&robotSpawnNames, "spawn-names", "", "Custom agent names (comma-separated). Use with --robot-spawn. Example: --spawn-names=alice,bob,charlie")
 	rootCmd.Flags().StringVar(&robotSpawnLabel, "spawn-label", "", "Goal label for multi-session support. Use with --robot-spawn. Creates session PROJECT--LABEL. Example: --spawn-label=frontend")
+	rootCmd.Flags().StringVar(&robotSpawnAgent, "spawn-agent", "", "Claude Code --agent flag for named-role spawning. Use with --robot-spawn. Example: --spawn-agent=backend-agent")
 
 	// Robot-agent-names flag for querying agent name mappings
 	rootCmd.Flags().StringVar(&robotAgentNames, "robot-agent-names", "", "Get agent name mappings for a session (JSON). Names are generated using NATO phonetic alphabet. Example: ntm --robot-agent-names=myproject")

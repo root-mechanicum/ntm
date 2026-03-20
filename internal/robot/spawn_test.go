@@ -161,7 +161,7 @@ func TestGetAgentCommands(t *testing.T) {
 
 	t.Run("NilConfig", func(t *testing.T) {
 		t.Parallel()
-		cmds := getAgentCommands(nil)
+		cmds := getAgentCommands(nil, "")
 
 		// Should have default commands
 		if cmds["claude"] == "" {
@@ -184,7 +184,7 @@ func TestGetAgentCommands(t *testing.T) {
 		cfg.Agents.Codex = "custom-codex --flag"
 		cfg.Agents.Gemini = "custom-gemini"
 
-		cmds := getAgentCommands(cfg)
+		cmds := getAgentCommands(cfg, "")
 
 		if cmds["claude"] != "custom-claude --arg" {
 			t.Errorf("[E2E-SPAWN] Expected custom claude command, got %q", cmds["claude"])
@@ -205,7 +205,7 @@ func TestGetAgentCommands(t *testing.T) {
 		cfg.Agents.Claude = "custom-claude"
 		// Leave codex and gemini as defaults
 
-		cmds := getAgentCommands(cfg)
+		cmds := getAgentCommands(cfg, "")
 
 		if cmds["claude"] != "custom-claude" {
 			t.Errorf("[E2E-SPAWN] Expected custom claude, got %q", cmds["claude"])

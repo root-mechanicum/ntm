@@ -31,6 +31,7 @@ type SpawnOptions struct {
 	AssignWork     bool     // Enable orchestrator work assignment mode
 	AssignStrategy string   // Assignment strategy: top-n, diverse, dependency-aware, skill-matched
 	CustomNames    []string // Custom agent names (used in order, then NATO alphabet)
+	Agent          string   // Claude Code --agent flag (e.g., "backend-agent")
 }
 
 // SpawnOutput is the structured output for --robot-spawn.
@@ -83,6 +84,7 @@ type SpawnedAgent struct {
 	Type      string `json:"type"`
 	Variant   string `json:"variant,omitempty"`
 	Title     string `json:"title"`
+	Agent     string `json:"agent,omitempty"` // Claude Code --agent role name
 	Ready     bool   `json:"ready"`
 	StartupMs int64  `json:"startup_ms"`
 	Error     string `json:"error,omitempty"`
@@ -378,11 +380,14 @@ func GetSpawn(opts SpawnOptions, cfg *config.Config) (*SpawnOutput, error) {
 	}
 
 	agentNum := startIdx
-	agentCommands := getAgentCommands(cfg)
+	agentCommands := getAgentCommands(cfg, opts.Agent)
 
 	// Launch Claude agents
 	for i := 0; i < opts.CCCount && agentNum < len(panes); i++ {
-		agent := launchAgent(panes[agentNum], opts.Session, "claude", i+1, dir, agentCommands["claude"])
+		agent := launchAgent(panes[agentNum], opts.Session, "claude", i+1, dir, agentCommands["claude"], opts.Agent)
+		if opts.Agent != "" {
+			agent.Agent = opts.Agent
+		}
 		agent.Name = nameMap.AssignNew("claude", agent.Pane)
 		output.Agents = append(output.Agents, agent)
 		agentNum++
@@ -390,7 +395,7 @@ func GetSpawn(opts SpawnOptions, cfg *config.Config) (*SpawnOutput, error) {
 
 	// Launch Codex agents
 	for i := 0; i < opts.CodCount && agentNum < len(panes); i++ {
-		agent := launchAgent(panes[agentNum], opts.Session, "codex", i+1, dir, agentCommands["codex"])
+		agent := launchAgent(panes[agentNum], opts.Session, "codex", i+1, dir, agentCommands["codex"], "")
 		agent.Name = nameMap.AssignNew("codex", agent.Pane)
 		output.Agents = append(output.Agents, agent)
 		agentNum++
@@ -398,7 +403,7 @@ func GetSpawn(opts SpawnOptions, cfg *config.Config) (*SpawnOutput, error) {
 
 	// Launch Gemini agents
 	for i := 0; i < opts.GmiCount && agentNum < len(panes); i++ {
-		agent := launchAgent(panes[agentNum], opts.Session, "gemini", i+1, dir, agentCommands["gemini"])
+		agent := launchAgent(panes[agentNum], opts.Session, "gemini", i+1, dir, agentCommands["gemini"], "")
 		agent.Name = nameMap.AssignNew("gemini", agent.Pane)
 		output.Agents = append(output.Agents, agent)
 		agentNum++
@@ -442,10 +447,15 @@ func PrintSpawn(opts SpawnOptions, cfg *config.Config) error {
 }
 
 // launchAgent launches a single agent and returns its info.
-func launchAgent(pane tmux.Pane, session, agentType string, num int, dir, command string) SpawnedAgent {
+func launchAgent(pane tmux.Pane, session, agentType string, num int, dir, command, agentRole string) SpawnedAgent {
 	startTime := time.Now()
 
-	title := fmt.Sprintf("%s__%s_%d", session, agentTypeShort(agentType), num)
+	var title string
+	if agentRole != "" {
+		title = fmt.Sprintf("%s__%s", session, agentRole)
+	} else {
+		title = fmt.Sprintf("%s__%s_%d", session, agentTypeShort(agentType), num)
+	}
 	agent := SpawnedAgent{
 		Pane:  fmt.Sprintf("0.%d", pane.Index),
 		Type:  agentType,
@@ -594,8 +604,8 @@ func agentTypeShort(agentType string) string {
 }
 
 // getAgentCommands returns the commands to launch each agent type.
-// Templates are rendered with empty vars (optional fields only).
-func getAgentCommands(cfg *config.Config) map[string]string {
+// Templates are rendered with the given vars (Agent flag applies to Claude only).
+func getAgentCommands(cfg *config.Config, agent string) map[string]string {
 	defaults := map[string]string{
 		"claude": "claude",
 		"codex":  "codex",
@@ -612,8 +622,8 @@ func getAgentCommands(cfg *config.Config) map[string]string {
 		defaults["gemini"] = cfg.Agents.Gemini
 	}
 
-	// Render templates with empty vars (all template fields are optional)
-	vars := config.AgentTemplateVars{}
+	// Render templates with vars (Agent applies to Claude only)
+	vars := config.AgentTemplateVars{Agent: agent}
 	for agentType, cmdTemplate := range defaults {
 		if rendered, err := config.GenerateAgentCommand(cmdTemplate, vars); err == nil {
 			defaults[agentType] = rendered
