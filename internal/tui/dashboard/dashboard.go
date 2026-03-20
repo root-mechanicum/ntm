@@ -3617,25 +3617,64 @@ func (m Model) renderHeaderSection() string {
 	b.WriteString("\n")
 
 	// ═══════════════════════════════════════════════════════════════
-	// HEADER with animated banner (centered)
+	// HEADER — centered block with consistent left edge
+	//
+	// All header elements are collected, measured, then rendered as a
+	// block centered on the widest element. Within the block, the logo
+	// is centered while text lines are also centered. This avoids the
+	// "staircase" effect of independently centering lines of different
+	// widths.
 	// ═══════════════════════════════════════════════════════════════
-	bannerText := components.RenderBannerMedium(true, m.animTick)
-	center := lipgloss.NewStyle().Width(m.width).Align(lipgloss.Center)
-	b.WriteString(center.Render(bannerText) + "\n")
 
-	// Session title with gradient
+	// 1. Build all header lines (plain + ANSI-decorated)
+	bannerText := components.RenderBannerMedium(true, m.animTick)
+	bannerLines := strings.Split(bannerText, "\n")
+
 	sessionTitle := m.icons.Session + "  " + m.session
 	animatedSession := styles.Shimmer(sessionTitle, m.animTick,
 		string(t.Blue), string(t.Lavender), string(t.Mauve))
-	b.WriteString(center.Render(animatedSession) + "\n")
-	if contextLine := m.renderHeaderContextLine(m.width); contextLine != "" {
-		b.WriteString(center.Render(contextLine) + "\n")
+
+	contextLine := m.renderHeaderContextLine(m.width)
+	handoffLine := m.renderHeaderHandoffLine(m.width)
+	contextWarnLine := m.renderHeaderContextWarningLine(m.width)
+
+	// 2. Find the widest element to size the centered block
+	blockWidth := lipgloss.Width(animatedSession)
+	if w := lipgloss.Width(contextLine); w > blockWidth {
+		blockWidth = w
 	}
-	if handoffLine := m.renderHeaderHandoffLine(m.width); handoffLine != "" {
-		b.WriteString(center.Render(handoffLine) + "\n")
+	if w := lipgloss.Width(handoffLine); w > blockWidth {
+		blockWidth = w
 	}
-	if contextWarnLine := m.renderHeaderContextWarningLine(m.width); contextWarnLine != "" {
-		b.WriteString(center.Render(contextWarnLine) + "\n")
+	if w := lipgloss.Width(contextWarnLine); w > blockWidth {
+		blockWidth = w
+	}
+	for _, bl := range bannerLines {
+		if w := lipgloss.Width(bl); w > blockWidth {
+			blockWidth = w
+		}
+	}
+
+	// 3. Calculate left margin to center the block
+	blockLeft := (m.width - blockWidth) / 2
+	if blockLeft < 0 {
+		blockLeft = 0
+	}
+	pad := strings.Repeat(" ", blockLeft)
+
+	// 4. Render: all elements left-aligned within the centered block
+	for _, bl := range bannerLines {
+		b.WriteString(pad + bl + "\n")
+	}
+	b.WriteString(pad + animatedSession + "\n")
+	if contextLine != "" {
+		b.WriteString(pad + contextLine + "\n")
+	}
+	if handoffLine != "" {
+		b.WriteString(pad + handoffLine + "\n")
+	}
+	if contextWarnLine != "" {
+		b.WriteString(pad + contextWarnLine + "\n")
 	}
 	b.WriteString(styles.GradientDivider(m.width,
 		string(t.Blue), string(t.Mauve)) + "\n\n")
@@ -3644,7 +3683,7 @@ func (m Model) renderHeaderSection() string {
 	// STATS BAR with agent counts
 	// ═══════════════════════════════════════════════════════════════
 	statsBar := m.renderStatsBar()
-	b.WriteString(center.Render(statsBar) + "\n\n")
+	b.WriteString(styles.CenterText(statsBar, m.width) + "\n\n")
 
 	if m.showDiagnostics {
 		diagWidth := m.width - 4
